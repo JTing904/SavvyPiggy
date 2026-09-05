@@ -55,7 +55,8 @@
             background: #4ADE80;
             box-shadow: 0 0 15px rgba(74, 222, 128, 0.5);
             cursor: pointer;
-            margin-top: -10px;
+            /* Centres a 24px thumb on the 6px track used by the sliders. */
+            margin-top: -9px;
         }
         /* Hide number input spinners (arrows) */
         input::-webkit-outer-spin-button,
@@ -79,5 +80,6 @@
 </head>
 <body class="dark overflow-hidden">
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

@@ -18,6 +18,16 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      build: {
+        rollupOptions: {
+          output: {
+            // Firebase is most of the bundle and changes rarely — keep it cacheable.
+            manualChunks: {
+              firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+            }
+          }
+        }
       }
     };
 });

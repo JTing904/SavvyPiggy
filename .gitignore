@@ -22,3 +22,19 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# --- Never publish these ---
+# Signing keys: whoever holds these can ship an update as you.
+android/*.keystore
+android/*.jks
+android/keystore.properties
+# Firebase project config, kept out so the repo carries no account details.
+.env.local
+android/app/google-services.json
+# Build output
+android/app/build/
+android/build/
+android/.gradle/
+android/app/release/
+*.apk
+*.aab

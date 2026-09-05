@@ -1,0 +1,64 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Membership is a document, so it cannot be faked from the client.
+    function isMember(uid) {
+      return exists(/databases/$(database)/documents/members/$(uid));
+    }
+
+    // One-time invite codes. Documents are created by hand in the console;
+    // the document ID *is* the code. Claiming stamps the claimer's uid on it,
+    // and the null check makes that a one-way door.
+    match /invites/{code} {
+      allow get: if signedIn();
+
+      allow update: if signedIn()
+                    && resource.data.get('claimedBy', null) == null
+                    && request.resource.data.claimedBy == request.auth.uid
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['claimedBy', 'claimedAt']);
+
+      // Never from the app: no listing all codes, no minting, no deleting.
+      allow list, create, delete: if false;
+    }
+
+    // Proof of membership. Creatable only inside the same batched write that
+    // claims an unclaimed invite — getAfter() sees that write's result, so a
+    // member document can never exist without a code having been burned.
+    match /members/{uid} {
+      allow get: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+                    && request.resource.data.keys().hasOnly(['code', 'joinedAt'])
+                    && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.code))
+                         .data.get('claimedBy', null) == request.auth.uid;
+
+      allow list, update, delete: if false;
+    }
+
+    // A user's own data, gated on membership. Without a redeemed invite the
+    // account exists but can read and write nothing at all.
+    match /users/{uid} {
+      allow read, write: if isOwner(uid) && isMember(uid);
+
+      match /{document=**} {
+        allow read, write: if isOwner(uid) && isMember(uid);
+      }
+    }
+
+    // Anything not matched above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

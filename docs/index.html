@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SavvyPiggy — Every cent lands where it belongs</title>
+<meta name="description" content="An Android savings tracker that splits every deposit across your goals by the percentages you set. Free, no ads, open source, invite only.">
+<meta property="og:title" content="SavvyPiggy">
+<meta property="og:description" content="Every cent lands where it belongs. Split each deposit across your goals, automatically.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐷</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: #4ADE80;
+    --accent: #2DD4BF;
+    --bg: #0A0F0D;
+    --surface: #141C19;
+    --surface-2: #1B241F;
+    --text: #E6EDEA;
+    --muted: #7E8F88;
+    --line: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); line-height: 1.6;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  a { color: inherit; }
+  .wrap { width: min(1140px, 92vw); margin: 0 auto; }
+  .eyebrow { color: var(--primary); font-size: 11px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+  h2 { font-size: clamp(27px, 4.2vw, 40px); letter-spacing: -.03em; margin: 14px 0 0; font-weight: 800; line-height: 1.15; }
+  .sub { color: var(--muted); margin-top: 14px; max-width: 44em; }
+  section { padding: 84px 0; border-top: 1px solid var(--line); }
+  .center { text-align: center; }
+  .center .sub { margin-left: auto; margin-right: auto; }
+
+  /* ---------------- nav ---------------- */
+  header { position: sticky; top: 0; z-index: 60; background: rgba(10,15,13,.82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .nav { display: flex; align-items: center; gap: 18px; padding: 13px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -.02em; text-decoration: none; }
+  .brand .mark { width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, var(--primary), var(--accent)); display: grid; place-items: center; font-size: 18px; }
+  .nav .spacer { flex: 1; }
+  .nav a.link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; }
+  .nav a.link:hover { color: var(--text); }
+  @media (max-width: 820px) { .nav a.link.hide-sm { display: none; } }
+  .lang { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--text); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .lang:hover { border-color: rgba(74,222,128,.45); color: var(--primary); }
+
+  /* ---------------- buttons ---------------- */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 14px 24px; border-radius: 999px; text-decoration: none; font-weight: 800; font-size: 15px; border: 1px solid transparent; transition: transform .12s ease, background .2s ease; }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--primary); color: #06110b; box-shadow: 0 16px 44px -14px rgba(74,222,128,.65); }
+  .btn-primary:hover { background: #5ee592; }
+  .btn-ghost { border-color: var(--line); background: rgba(255,255,255,.03); }
+  .btn-ghost:hover { border-color: rgba(255,255,255,.18); }
+  .btn-sm { padding: 9px 18px; font-size: 13px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .center .cta { justify-content: center; }
+
+  /* ---------------- hero ---------------- */
+  .hero { padding: 70px 0 30px; display: grid; grid-template-columns: 1.02fr .98fr; gap: 50px; align-items: center; }
+  @media (max-width: 940px) { .hero { grid-template-columns: 1fr; padding-top: 46px; } }
+  .pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(74,222,128,.25); background: rgba(74,222,128,.08); color: var(--primary); border-radius: 999px; padding: 6px 14px; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  h1 { font-size: clamp(36px, 5.6vw, 60px); line-height: 1.06; letter-spacing: -.04em; margin: 20px 0 0; font-weight: 800; }
+  .grad { background: linear-gradient(115deg, var(--primary), var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: var(--muted); font-size: clamp(15px, 2vw, 18px); margin-top: 18px; max-width: 33em; }
+  .facts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .fact { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 10px 16px; }
+  .fact b { display: block; font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
+  .fact span { font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: .04em; }
+
+  /* ---------------- phone ---------------- */
+  .stage { position: relative; display: grid; place-items: center; padding: 20px 0; }
+  .stage::before { content: ''; position: absolute; width: min(360px, 80vw); height: 360px; border-radius: 50%; background: radial-gradient(circle, rgba(74,222,128,.2), transparent 68%); filter: blur(18px); }
+  .phone { position: relative; width: 286px; border-radius: 44px; padding: 11px; background: #04100b; border: 1px solid rgba(255,255,255,.14); box-shadow: 0 44px 90px -34px rgba(0,0,0,.95), inset 0 0 0 1px rgba(74,222,128,.08); }
+  .phone::before { content: ''; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); width: 78px; height: 20px; border-radius: 999px; background: #04100b; z-index: 3; }
+  .screen { position: relative; background: var(--bg); border-radius: 34px; overflow: hidden; padding: 34px 15px 10px; }
+  .screen.tall { min-height: 470px; }
+  .status { position: absolute; top: 12px; left: 18px; right: 18px; display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-weight: 700; }
+  .balance { background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 24px; padding: 17px; color: #06110b; }
+  .balance small { font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; opacity: .62; }
+  .balance .big { font-size: 29px; font-weight: 800; letter-spacing: -.03em; margin-top: 1px; }
+  .balance .row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12px; }
+  .chip-dark { background: #06110b; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 11px; font-weight: 800; }
+  .mini { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 13px; margin-top: 11px; }
+  .mini .head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; }
+  .goal { display: flex; align-items: center; gap: 9px; margin-top: 10px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .goal .nm { font-size: 12px; font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .goal .pc { font-size: 11px; font-weight: 800; color: var(--muted); }
+  .bar { height: 5px; border-radius: 99px; background: rgba(255,255,255,.08); margin-top: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 99px; }
+  .tabs { display: flex; justify-content: space-between; padding: 11px 6px 2px; color: var(--muted); font-size: 9px; font-weight: 800; }
+  .tabs .on { color: var(--primary); }
+  .badge-float { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 11px 14px; box-shadow: 0 26px 60px -26px rgba(0,0,0,.95); display: flex; gap: 10px; align-items: center; }
+  .badge-float .ic { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: rgba(74,222,128,.12); font-size: 15px; flex: none; }
+  .badge-float b { display: block; font-size: 12px; font-weight: 800; }
+  .badge-float span { font-size: 10px; color: var(--muted); font-weight: 600; }
+  .f-streak { top: 54px; left: -34px; }
+  .f-receipt { bottom: 74px; right: -46px; }
+  @media (max-width: 520px) { .f-streak { left: -12px; } .f-receipt { right: -10px; bottom: 40px; } }
+
+  /* ---------------- showcase ---------------- */
+  .shots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 46px; }
+  @media (max-width: 1000px) { .shots { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .shots { grid-template-columns: 1fr; } }
+  .shot { background: var(--surface); border: 1px solid var(--line); border-radius: 30px; padding: 20px; }
+  .shot .frame { background: #04100b; border: 1px solid rgba(255,255,255,.1); border-radius: 26px; padding: 8px; }
+  .shot .inner { background: var(--bg); border-radius: 20px; padding: 13px; height: 336px; overflow: hidden; }
+  .shot .no { color: var(--primary); font-size: 11px; font-weight: 800; letter-spacing: .12em; margin-top: 18px; }
+  .shot h3 { font-size: 15px; font-weight: 800; margin: 6px 0 6px; letter-spacing: -.01em; }
+  .shot p { margin: 0; color: var(--muted); font-size: 13px; }
+  .sc-title { font-size: 12px; font-weight: 800; letter-spacing: -.01em; }
+  .sc-sub { font-size: 9px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
+  .kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+  .kpi div { background: rgba(255,255,255,.04); border-radius: 12px; padding: 8px 4px; text-align: center; }
+  .kpi b { display: block; font-size: 13px; font-weight: 800; color: var(--primary); }
+  .kpi span { font-size: 8px; color: var(--muted); font-weight: 800; letter-spacing: .06em; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 74px; margin-top: 12px; }
+  .bars i { flex: 1; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, var(--primary), rgba(74,222,128,.45)); }
+  .bars i.dim { background: rgba(255,255,255,.1); }
+  .axis { display: flex; gap: 6px; margin-top: 5px; }
+  .axis span { flex: 1; text-align: center; font-size: 8px; color: var(--muted); font-weight: 800; }
+  .alert-row { display: flex; gap: 9px; background: rgba(255,255,255,.04); border-radius: 14px; padding: 10px; margin-top: 9px; }
+  .alert-row .ic { width: 26px; height: 26px; border-radius: 9px; background: rgba(74,222,128,.12); display: grid; place-items: center; font-size: 13px; flex: none; }
+  .alert-row b { display: block; font-size: 11px; font-weight: 800; }
+  .alert-row span { font-size: 9px; color: var(--muted); }
+  .day { background: rgba(255,255,255,.04); border-radius: 14px; padding: 10px; margin-top: 9px; }
+  .day .d { font-size: 8px; color: var(--muted); font-weight: 800; letter-spacing: .1em; }
+  .day .a { font-size: 16px; font-weight: 800; margin-top: 2px; }
+  .day .l { font-size: 9px; color: var(--muted); font-weight: 700; }
+
+  /* ---------------- feature cards ---------------- */
+  .grid { display: grid; gap: 16px; margin-top: 42px; }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 900px) { .cols-3 { grid-template-columns: 1fr; } .cols-2 { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 28px; padding: 28px; }
+  .card .ico { width: 44px; height: 44px; border-radius: 15px; display: grid; place-items: center; background: rgba(74,222,128,.1); font-size: 21px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; letter-spacing: -.015em; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  /* ---------------- steps + engine ---------------- */
+  .step { display: flex; gap: 16px; align-items: flex-start; padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: 0; }
+  .num { flex: none; width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; background: rgba(74,222,128,.1); color: var(--primary); font-weight: 800; font-size: 14px; }
+  .step h3 { margin: 3px 0 5px; font-size: 16px; font-weight: 800; }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; }
+  .console { background: #070d0b; border: 1px solid var(--line); border-radius: 26px; overflow: hidden; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .console .bar-top { display: flex; align-items: center; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+  .console .bar-top i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.14); display: block; }
+  .console .bar-top span { margin-left: auto; font-size: 10px; color: var(--primary); font-weight: 700; letter-spacing: .1em; }
+  .console .body { padding: 18px 16px; }
+  .cline { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 12px; background: rgba(255,255,255,.03); margin-bottom: 8px; font-size: 12px; }
+  .cline .k { color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .cline .v { font-weight: 700; }
+  .ctotal { display: flex; justify-content: space-between; padding: 12px; border-radius: 12px; border: 1px dashed rgba(74,222,128,.3); color: var(--primary); font-size: 12px; font-weight: 700; margin-top: 4px; }
+  .cin { display: flex; justify-content: space-between; padding: 12px; border-radius: 12px; background: rgba(74,222,128,.1); border: 1px solid rgba(74,222,128,.22); font-size: 12px; font-weight: 700; margin-bottom: 14px; }
+
+  /* ---------------- data & safety ---------------- */
+  .safety { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 40px; }
+  @media (max-width: 780px) { .safety { grid-template-columns: 1fr; } }
+  .safe-row { display: flex; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 20px; }
+  .safe-row .tick { color: var(--primary); font-weight: 800; flex: none; }
+  .safe-row b { display: block; font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+  .safe-row p { margin: 0; color: var(--muted); font-size: 13.5px; }
+
+  /* ---------------- faq ---------------- */
+  .faq { background: var(--surface); border: 1px solid var(--line); border-radius: 28px; padding: 4px 26px; margin-top: 36px; }
+  details { border-bottom: 1px solid var(--line); }
+  details:last-child { border-bottom: 0; }
+  summary { cursor: pointer; padding: 20px 0; font-weight: 700; list-style: none; display: flex; justify-content: space-between; gap: 16px; font-size: 15px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; color: var(--primary); font-weight: 800; }
+  details[open] summary::after { content: '−'; }
+  details p { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+
+  /* ---------------- final cta ---------------- */
+  .final { background: linear-gradient(135deg, rgba(74,222,128,.14), rgba(45,212,191,.05)); border: 1px solid rgba(74,222,128,.22); border-radius: 36px; padding: 56px 32px; text-align: center; }
+  .warn { margin-top: 28px; font-size: 13px; color: var(--muted); background: rgba(0,0,0,.24); border: 1px solid var(--line); border-radius: 18px; padding: 16px 20px; display: inline-block; text-align: left; max-width: 40em; }
+  footer { border-top: 1px solid var(--line); padding: 34px 0 56px; color: var(--muted); font-size: 13px; }
+  .foot { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; }
+  .foot .spacer { flex: 1; }
+  footer a { text-decoration: none; font-weight: 600; }
+  footer a:hover { color: var(--primary); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#top"><span class="mark">🐷</span> SavvyPiggy</a>
+    <span class="spacer"></span>
+    <a class="link hide-sm" href="#screens" data-en="Screens" data-zh="界面">Screens</a>
+    <a class="link hide-sm" href="#why" data-en="Why" data-zh="为什么">Why</a>
+    <a class="link hide-sm" href="#how" data-en="How it works" data-zh="怎么用">How it works</a>
+    <a class="link hide-sm" href="#data" data-en="Your data" data-zh="数据">Your data</a>
+    <a class="link hide-sm" href="#faq" data-en="FAQ" data-zh="问答">FAQ</a>
+    <button class="lang" id="lang" type="button">中文</button>
+    <a class="btn btn-primary btn-sm" href="https://github.com/JTing904/SavvyPiggy/releases/latest" data-en="Download" data-zh="下载">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <!-- ============ hero ============ -->
+  <div class="wrap hero">
+    <div>
+      <span class="pill" data-en="Android · Free · Invite only" data-zh="Android · 免费 · 邀请制">Android · Free · Invite only</span>
+      <h1>
+        <span data-en="Every cent lands" data-zh="每一分钱，">Every cent lands</span><br>
+        <span class="grad" data-en="where it belongs." data-zh="都精准落进该去的罐子。">where it belongs.</span>
+      </h1>
+      <p class="lede" data-en="Decide once what share of your money each goal gets. After that you type one amount, and SavvyPiggy places every cent — rounded down to the last cent, never up."
+         data-zh="一次决定每个罐子拿多少百分比。之后你只输入一个金额，SavvyPiggy 把每一分钱分好——分到最后一分，只向下取整，绝不进位。">
+        Decide once what share of your money each goal gets. After that you type one amount, and SavvyPiggy places every cent — rounded down to the last cent, never up.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/JTing904/SavvyPiggy/releases/latest">⬇ <span data-en="Download for Android" data-zh="下载 Android 版">Download for Android</span></a>
+        <a class="btn btn-ghost" href="https://github.com/JTing904/SavvyPiggy" target="_blank" rel="noopener" data-en="Read the source" data-zh="看源码">Read the source</a>
+      </div>
+      <div class="facts">
+        <div class="fact"><b data-en="Free" data-zh="免费">Free</b><span data-en="No purchases, ever" data-zh="没有任何内购">No purchases, ever</span></div>
+        <div class="fact"><b data-en="No ads" data-zh="无广告">No ads</b><span data-en="No tracking either" data-zh="也不做任何追踪">No tracking either</span></div>
+        <div class="fact"><b data-en="Open source" data-zh="开源">Open source</b><span data-en="Every money rule is readable" data-zh="每条分账规则都能看">Every money rule is readable</span></div>
+        <div class="fact"><b>v1.0</b><span data-en="Android 8 and up" data-zh="Android 8 以上">Android 8 and up</span></div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="phone">
+        <div class="screen tall">
+          <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+          <div class="balance">
+            <small data-en="Total savings" data-zh="总存款">Total savings</small>
+            <div class="big">$1,240.50</div>
+            <div class="row">
+              <div>
+                <small data-en="Saved today" data-zh="今天存入">Saved today</small>
+                <div style="font-weight:800;font-size:13px">+$50.00</div>
+              </div>
+              <span class="chip-dark" data-en="Deposit" data-zh="存入">Deposit</span>
+            </div>
+          </div>
+          <div class="mini">
+            <div class="head">
+              <span data-en="Your goals" data-zh="你的罐子">Your goals</span>
+              <span style="color:var(--primary)">100%</span>
+            </div>
+            <div class="goal"><span class="dot" style="background:#4ADE80"></span><span class="nm" data-en="Emergency fund" data-zh="应急基金">Emergency fund</span><span class="pc">40%</span></div>
+            <div class="bar"><i style="width:82%;background:#4ADE80"></i></div>
+            <div class="goal"><span class="dot" style="background:#2DD4BF"></span><span class="nm" data-en="Tokyo 2027" data-zh="东京 2027">Tokyo 2027</span><span class="pc">30%</span></div>
+            <div class="bar"><i style="width:46%;background:#2DD4BF"></i></div>
+            <div class="goal"><span class="dot" style="background:#FBBF24"></span><span class="nm" data-en="New laptop" data-zh="新电脑">New laptop</span><span class="pc">20%</span></div>
+            <div class="bar"><i style="width:28%;background:#FBBF24"></i></div>
+            <div class="goal"><span class="dot" style="background:#A78BFA"></span><span class="nm" data-en="Charity" data-zh="公益捐款">Charity</span><span class="pc">10%</span></div>
+            <div class="bar"><i style="width:64%;background:#A78BFA"></i></div>
+          </div>
+          <div class="tabs"><span class="on">Home</span><span>History</span><span>+</span><span>Strategy</span><span>Report</span></div>
+        </div>
+      </div>
+
+      <div class="badge-float f-streak">
+        <span class="ic">🔥</span>
+        <div>
+          <b data-en="30-day streak" data-zh="连续 30 天">30-day streak</b>
+          <span data-en="Saved every single day" data-zh="每天都有存进去">Saved every single day</span>
+        </div>
+      </div>
+      <div class="badge-float f-receipt">
+        <span class="ic">🧾</span>
+        <div>
+          <b data-en="Auto deposit · $50.00" data-zh="自动存入 · $50.00">Auto deposit · $50.00</b>
+          <span data-en="$20 · $15 · $10 · $5" data-zh="$20 · $15 · $10 · $5">$20 · $15 · $10 · $5</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ screens ============ -->
+  <section id="screens">
+    <div class="wrap center">
+      <span class="eyebrow" data-en="Inside the app" data-zh="界面一览">Inside the app</span>
+      <h2 data-en="Four screens, and that is the whole app." data-zh="四个界面，就是整个 app。">Four screens, and that is the whole app.</h2>
+      <p class="sub" data-en="Drawn here from the real layouts, with sample numbers instead of anybody's actual savings."
+         data-zh="这里按真实界面画出来，数字是示例，不是任何人的真实存款。">Drawn here from the real layouts, with sample numbers instead of anybody's actual savings.</p>
+
+      <div class="shots">
+        <!-- 01 strategy -->
+        <div class="shot" style="text-align:left">
+          <div class="frame"><div class="inner">
+            <div class="sc-sub" data-en="Distribution" data-zh="分账策略">Distribution</div>
+            <div class="sc-title" data-en="Strategy" data-zh="Strategy">Strategy</div>
+            <svg viewBox="0 0 120 120" style="width:100%;height:118px;margin-top:8px">
+              <circle cx="60" cy="60" r="44" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="15"/>
+              <circle cx="60" cy="60" r="44" fill="none" stroke="#4ADE80" stroke-width="15" stroke-dasharray="110 166" stroke-dashoffset="0" transform="rotate(-90 60 60)" stroke-linecap="butt"/>
+              <circle cx="60" cy="60" r="44" fill="none" stroke="#2DD4BF" stroke-width="15" stroke-dasharray="83 193" stroke-dashoffset="-113" transform="rotate(-90 60 60)"/>
+              <circle cx="60" cy="60" r="44" fill="none" stroke="#FBBF24" stroke-width="15" stroke-dasharray="55 221" stroke-dashoffset="-199" transform="rotate(-90 60 60)"/>
+              <circle cx="60" cy="60" r="44" fill="none" stroke="#A78BFA" stroke-width="15" stroke-dasharray="25 251" stroke-dashoffset="-257" transform="rotate(-90 60 60)"/>
+              <text x="60" y="57" text-anchor="middle" fill="#4ADE80" font-size="19" font-weight="800" font-family="Plus Jakarta Sans">100%</text>
+              <text x="60" y="70" text-anchor="middle" fill="#7E8F88" font-size="7" font-weight="800" font-family="Plus Jakarta Sans" letter-spacing="1">ALLOCATED</text>
+            </svg>
+            <div class="goal"><span class="dot" style="background:#4ADE80"></span><span class="nm" data-en="Emergency" data-zh="应急基金">Emergency</span><span class="pc">40%</span></div>
+            <div class="goal"><span class="dot" style="background:#2DD4BF"></span><span class="nm" data-en="Tokyo 2027" data-zh="东京 2027">Tokyo 2027</span><span class="pc">30%</span></div>
+            <div class="goal"><span class="dot" style="background:#FBBF24"></span><span class="nm" data-en="Laptop" data-zh="新电脑">Laptop</span><span class="pc">20%</span></div>
+            <div class="goal"><span class="dot" style="background:#A78BFA"></span><span class="nm" data-en="Charity" data-zh="公益">Charity</span><span class="pc">10%</span></div>
+          </div></div>
+          <div class="no">01</div>
+          <h3 data-en="Set the split" data-zh="设定分账比例">Set the split</h3>
+          <p data-en="Type a number or tap +/−. The ring updates as you go and tells you the moment the shares add up to 100."
+             data-zh="直接输数字或点 +/−，圆环实时跟着动，加满 100% 会立刻告诉你。">Type a number or tap +/−. The ring updates as you go and tells you the moment the shares add up to 100.</p>
+        </div>
+
+        <!-- 02 report -->
+        <div class="shot" style="text-align:left">
+          <div class="frame"><div class="inner">
+            <div class="sc-sub" data-en="Report" data-zh="报表">Report</div>
+            <div class="sc-title" data-en="September 2026" data-zh="2026 年 9 月">September 2026</div>
+            <div class="kpi">
+              <div><b>$1,240</b><span data-en="SAVED" data-zh="存入">SAVED</span></div>
+              <div><b>$41</b><span data-en="PER DAY" data-zh="日均">PER DAY</span></div>
+              <div><b>30d</b><span data-en="STREAK" data-zh="连胜">STREAK</span></div>
+            </div>
+            <div class="bars">
+              <i style="height:46%"></i><i style="height:70%"></i><i style="height:38%"></i>
+              <i style="height:92%"></i><i style="height:60%"></i><i style="height:78%"></i><i class="dim" style="height:14%"></i>
+            </div>
+            <div class="axis"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+            <div class="mini" style="margin-top:12px">
+              <div class="sc-sub" style="color:var(--primary)" data-en="Forecast" data-zh="预测">Forecast</div>
+              <div style="font-size:11px;margin-top:4px" data-en="Tokyo 2027 reached in 42 days" data-zh="东京 2027 还有 42 天达成">Tokyo 2027 reached in 42 days</div>
+            </div>
+          </div></div>
+          <div class="no">02</div>
+          <h3 data-en="See where it went" data-zh="看钱去了哪里">See where it went</h3>
+          <p data-en="Week to all-time, allocation ring, streaks and a finish-date forecast. Export any period as PDF or CSV."
+             data-zh="从一周到全部时间、分配环、连续天数、达成日期预测。任何时间段都能导出 PDF 或 CSV。">Week to all-time, allocation ring, streaks and a finish-date forecast. Export any period as PDF or CSV.</p>
+        </div>
+
+        <!-- 03 alerts -->
+        <div class="shot" style="text-align:left">
+          <div class="frame"><div class="inner">
+            <div class="sc-sub" data-en="Alerts" data-zh="提醒">Alerts</div>
+            <div class="sc-title" data-en="3 new" data-zh="3 条新提醒">3 new</div>
+            <div class="alert-row"><span class="ic">🏆</span><div><b data-en="Milestone: Tokyo 2027" data-zh="里程碑：东京 2027">Milestone: Tokyo 2027</b><span data-en="Past 75% — $1,500 to go" data-zh="超过 75% — 还差 $1,500">Past 75% — $1,500 to go</span></div></div>
+            <div class="alert-row"><span class="ic">🧾</span><div><b data-en="Auto deposit posted" data-zh="自动存入完成">Auto deposit posted</b><span data-en="$50.00 split across 4 goals" data-zh="$50.00 分给 4 个罐子">$50.00 split across 4 goals</span></div></div>
+            <div class="alert-row"><span class="ic">🎉</span><div><b data-en="Goal reached" data-zh="罐子满额">Goal reached</b><span data-en="Emergency fund hit $5,000" data-zh="应急基金达到 $5,000">Emergency fund hit $5,000</span></div></div>
+            <div class="alert-row"><span class="ic">🔥</span><div><b data-en="30-day streak" data-zh="连续 30 天">30-day streak</b><span data-en="Kept it up every day" data-zh="每天都没断过">Kept it up every day</span></div></div>
+          </div></div>
+          <div class="no">03</div>
+          <h3 data-en="Nudges that matter" data-zh="只提醒该提醒的">Nudges that matter</h3>
+          <p data-en="A daily reminder at the time you pick, plus cards at 25, 50, 75 and 100% of a goal. Scheduled on your phone, not on a server."
+             data-zh="你自己选时间的每日提醒，加上 25/50/75/100% 的里程碑卡片。排程在你手机里，不经过服务器。">A daily reminder at the time you pick, plus cards at 25, 50, 75 and 100% of a goal. Scheduled on your phone, not on a server.</p>
+        </div>
+
+        <!-- 04 history -->
+        <div class="shot" style="text-align:left">
+          <div class="frame"><div class="inner">
+            <div class="sc-sub" data-en="History" data-zh="历史">History</div>
+            <div class="sc-title" data-en="Every deposit, by day" data-zh="按天看每一笔">Every deposit, by day</div>
+            <div class="day">
+              <div class="d" data-en="TODAY, SEP 24" data-zh="今天，9 月 24 日">TODAY, SEP 24</div>
+              <div class="a">+$45.00</div>
+              <div class="goal" style="margin-top:6px"><span class="dot" style="background:#4ADE80"></span><span class="nm" data-en="Emergency" data-zh="应急基金">Emergency</span><span class="pc">$22.50</span></div>
+              <div class="goal"><span class="dot" style="background:#2DD4BF"></span><span class="nm" data-en="Tokyo 2027" data-zh="东京 2027">Tokyo 2027</span><span class="pc">$11.25</span></div>
+              <div class="goal"><span class="dot" style="background:#FBBF24"></span><span class="nm" data-en="Laptop" data-zh="新电脑">Laptop</span><span class="pc">$11.25</span></div>
+            </div>
+            <div class="day">
+              <div class="d" data-en="YESTERDAY, SEP 23" data-zh="昨天，9 月 23 日">YESTERDAY, SEP 23</div>
+              <div class="a">+$32.00</div>
+              <div class="l" data-en="saved $37.00 · spent $5.00" data-zh="存 $37.00 · 花 $5.00">saved $37.00 · spent $5.00</div>
+            </div>
+          </div></div>
+          <div class="no">04</div>
+          <h3 data-en="An audit you can follow" data-zh="能追到底的流水">An audit you can follow</h3>
+          <p data-en="Days collapse into one line and open into every entry, down to which goal took which cents."
+             data-zh="一天收成一行，点开能看到每一笔，甚至每个罐子分到几分钱。">Days collapse into one line and open into every entry, down to which goal took which cents.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ why ============ -->
+  <section id="why">
+    <div class="wrap center">
+      <span class="eyebrow" data-en="Why this one" data-zh="为什么是它">Why this one</span>
+      <h2 data-en="Most apps track one pot. Your money has several." data-zh="多数 app 只管一个罐子，你的钱却有好几个去处。">Most apps track one pot. Your money has several.</h2>
+      <div class="grid cols-3" style="text-align:left">
+        <div class="card">
+          <div class="ico">🎯</div>
+          <h3 data-en="One amount, every goal fed" data-zh="一笔金额，所有罐子同时到账">One amount, every goal fed</h3>
+          <p data-en="Give each goal a percentage. A single deposit reaches all of them at once — no transferring money between pots by hand."
+             data-zh="给每个罐子一个百分比。一次存入，所有罐子同时到账，不用一个个手动转。">Give each goal a percentage. A single deposit reaches all of them at once — no transferring money between pots by hand.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🪙</div>
+          <h3 data-en="Cents are never invented" data-zh="不会凭空多出一分钱">Cents are never invented</h3>
+          <p data-en="Every calculation runs in whole cents and rounds down; the odd leftover cent goes to the largest share. A split can never total more than you put in."
+             data-zh="所有计算用整数分并向下取整，除不尽的那一分给比例最大的罐子。分出去的总额永远不会超过你存进去的。">Every calculation runs in whole cents and rounds down; the odd leftover cent goes to the largest share. A split can never total more than you put in.</p>
+        </div>
+        <div class="card">
+          <div class="ico">♻️</div>
+          <h3 data-en="Finished goals step aside" data-zh="满额的罐子会让位">Finished goals step aside</h3>
+          <p data-en="Switch on overflow and a goal that hits its target stops taking a cut — its share is handed to the goals still short of theirs."
+             data-zh="打开满额溢流，达标的罐子就不再拿钱，它那份自动让给还没存够的罐子。">Switch on overflow and a goal that hits its target stops taking a cut — its share is handed to the goals still short of theirs.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🏦</div>
+          <h3 data-en="Borrowing stays honest" data-zh="借钱也算得清">Borrowing stays honest</h3>
+          <p data-en="Money you borrow never lands in a goal. It is recorded as debt, and the next deposits clear it before anything is split."
+             data-zh="借来的钱不会进罐子，只记成欠款；下次存钱先还清，剩下的才分账。">Money you borrow never lands in a goal. It is recorded as debt, and the next deposits clear it before anything is split.</p>
+        </div>
+        <div class="card">
+          <div class="ico">📄</div>
+          <h3 data-en="Your records, exportable" data-zh="记录随时导得出来">Your records, exportable</h3>
+          <p data-en="Any period exports as a PDF statement or a CSV you can open in a spreadsheet — yours to keep, whatever happens to the app."
+             data-zh="任何时间段都能导成 PDF 账单或 CSV 表格，自己存着，就算 app 哪天没了记录还在。">Any period exports as a PDF statement or a CSV you can open in a spreadsheet — yours to keep, whatever happens to the app.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🕯️</div>
+          <h3 data-en="Overspending is allowed" data-zh="花超了也照实记">Overspending is allowed</h3>
+          <p data-en="Spend more than a goal holds and it simply goes negative. Nothing is quietly topped up from another goal behind your back."
+             data-zh="花超过罐子里的钱，它就变负数，不会偷偷从别的罐子挪钱补给你。">Spend more than a goal holds and it simply goes negative. Nothing is quietly topped up from another goal behind your back.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ how ============ -->
+  <section id="how">
+    <div class="wrap">
+      <span class="eyebrow" data-en="How it works" data-zh="怎么用">How it works</span>
+      <h2 data-en="Three steps, then it stays out of your way." data-zh="三步设定，之后就不用再管。">Three steps, then it stays out of your way.</h2>
+      <div class="grid cols-2" style="align-items:start;margin-top:36px">
+        <div>
+          <div class="step">
+            <span class="num">1</span>
+            <div>
+              <h3 data-en="Redeem your invite code" data-zh="兑换邀请码">Redeem your invite code</h3>
+              <p data-en="Sign in with Google or an email address, then enter the code you were given. Each code works exactly once."
+                 data-zh="用 Google 或邮箱登录，输入拿到的邀请码。一个码只能用一次。">Sign in with Google or an email address, then enter the code you were given. Each code works exactly once.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="num">2</span>
+            <div>
+              <h3 data-en="Create goals, set the shares" data-zh="建罐子，设比例">Create goals, set the shares</h3>
+              <p data-en="Name each goal, give it a target or leave it open-ended, then set the percentages until they add up to 100."
+                 data-zh="给罐子起名、设目标金额（也可以不设上限），把百分比调到刚好 100。">Name each goal, give it a target or leave it open-ended, then set the percentages until they add up to 100.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="num">3</span>
+            <div>
+              <h3 data-en="Put money in — or let a rule do it" data-zh="存钱，或者交给自动规则">Put money in — or let a rule do it</h3>
+              <p data-en="Type one amount, or set a daily / weekly / monthly rule. Anything a rule missed while your phone was off is posted the next time you open the app."
+                 data-zh="输入一个金额，或建一条每天／每周／每月的规则。手机关着漏掉的那几次，下次打开 app 会自动补上。">Type one amount, or set a daily / weekly / monthly rule. Anything a rule missed while your phone was off is posted the next time you open the app.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="console">
+          <div class="bar-top">
+            <i></i><i></i><i></i>
+            <span data-en="SPLIT SIMULATION" data-zh="分账模拟">SPLIT SIMULATION</span>
+          </div>
+          <div class="body">
+            <div class="cin">
+              <span data-en="Deposit" data-zh="存入金额">Deposit</span>
+              <span id="sim-in">$50.00</span>
+            </div>
+            <div class="cline"><span class="k"><span class="dot" style="background:#4ADE80"></span>Emergency · 40%</span><span class="v" id="sim-a">$20.00</span></div>
+            <div class="cline"><span class="k"><span class="dot" style="background:#2DD4BF"></span>Tokyo 2027 · 30%</span><span class="v" id="sim-b">$15.00</span></div>
+            <div class="cline"><span class="k"><span class="dot" style="background:#FBBF24"></span>Laptop · 20%</span><span class="v" id="sim-c">$10.00</span></div>
+            <div class="cline"><span class="k"><span class="dot" style="background:#A78BFA"></span>Charity · 10%</span><span class="v" id="sim-d">$5.00</span></div>
+            <div class="ctotal">
+              <span data-en="Placed" data-zh="已分配">Placed</span>
+              <span id="sim-total">$50.00 / $50.00</span>
+            </div>
+            <p style="color:var(--muted);font-size:11px;margin:14px 0 0;font-family:'Plus Jakarta Sans',sans-serif"
+               data-en="Same rule the app uses: floor to whole cents, leftover cent to the biggest share."
+               data-zh="和 app 里同一套规则：按整数分向下取整，多出的一分给比例最大的罐子。">Same rule the app uses: floor to whole cents, leftover cent to the biggest share.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ data ============ -->
+  <section id="data">
+    <div class="wrap">
+      <span class="eyebrow" data-en="Your data" data-zh="你的数据">Your data</span>
+      <h2 data-en="What actually happens to your records." data-zh="你的记录到底放在哪、谁能看。">What actually happens to your records.</h2>
+      <p class="sub" data-en="No claims we cannot back up — here is the plain version, and the source code is public if you want to check it."
+         data-zh="不吹任何做不到的东西。下面是实话，源码也是公开的，可以自己去看。">No claims we cannot back up — here is the plain version, and the source code is public if you want to check it.</p>
+      <div class="safety">
+        <div class="safe-row"><span class="tick">✓</span><div>
+          <b data-en="It never touches your bank" data-zh="它完全不碰你的银行">It never touches your bank</b>
+          <p data-en="SavvyPiggy asks for no card, no bank login, no account number. It records money you have already set aside yourself."
+             data-zh="不要卡号、不要网银、不要账户号码。它只记录你自己已经存起来的钱。">SavvyPiggy asks for no card, no bank login, no account number. It records money you have already set aside yourself.</p>
+        </div></div>
+        <div class="safe-row"><span class="tick">✓</span><div>
+          <b data-en="Only your account can read your records" data-zh="只有你的账号读得到你的记录">Only your account can read your records</b>
+          <p data-en="Everything is stored under your own user id in Google Firebase, behind rules that reject any request coming from another account."
+             data-zh="所有数据存在 Google Firebase 里你自己的用户 ID 下，规则会直接拒绝其他账号的任何请求。">Everything is stored under your own user id in Google Firebase, behind rules that reject any request coming from another account.</p>
+        </div></div>
+        <div class="safe-row"><span class="tick">✓</span><div>
+          <b data-en="No ads, no analytics, no selling" data-zh="没有广告、没有统计、不卖数据">No ads, no analytics, no selling</b>
+          <p data-en="There is no advertising SDK and no analytics SDK in the app, and nothing is shared with anyone else."
+             data-zh="app 里没有任何广告 SDK，也没有分析统计 SDK，不会把数据给任何第三方。">There is no advertising SDK and no analytics SDK in the app, and nothing is shared with anyone else.</p>
+        </div></div>
+        <div class="safe-row"><span class="tick">✓</span><div>
+          <b data-en="Reminders stay on your phone" data-zh="提醒只待在你手机里">Reminders stay on your phone</b>
+          <p data-en="Every notification is scheduled by your own device. No push server ever sees that you are saving, or how much."
+             data-zh="所有通知都是你手机自己排的闹钟，没有任何推送服务器知道你在存钱、存了多少。">Every notification is scheduled by your own device. No push server ever sees that you are saving, or how much.</p>
+        </div></div>
+        <div class="safe-row"><span class="tick">✓</span><div>
+          <b data-en="You can take it all with you" data-zh="随时可以整包带走">You can take it all with you</b>
+          <p data-en="Export any period as PDF or CSV whenever you like. Deleting old records never changes a single balance."
+             data-zh="任何时候都能把任意时间段导成 PDF 或 CSV。清理旧记录也不会改动任何一个罐子的余额。">Export any period as PDF or CSV whenever you like. Deleting old records never changes a single balance.</p>
+        </div></div>
+        <div class="safe-row"><span class="tick">✓</span><div>
+          <b data-en="Ask and it is deleted" data-zh="说一声就删掉">Ask and it is deleted</b>
+          <p data-en="Email the address in the footer and the whole account, with every record in it, is removed."
+             data-zh="写信到页脚那个邮箱，整个账号连同里面所有记录都会被删除。">Email the address in the footer and the whole account, with every record in it, is removed.</p>
+        </div></div>
+      </div>
+      <p class="sub" style="margin-top:24px;font-size:13px" data-en="One thing this app is not: a bank. There is no deposit insurance, no interest, and no regulator behind it — it is a private record of your own saving habit."
+         data-zh="有一件事要说清楚：它不是银行。没有存款保险、没有利息、也没有监管机构，它只是你个人存钱习惯的一本账。">One thing this app is not: a bank. There is no deposit insurance, no interest, and no regulator behind it — it is a private record of your own saving habit.</p>
+    </div>
+  </section>
+
+  <!-- ============ faq ============ -->
+  <section id="faq">
+    <div class="wrap">
+      <span class="eyebrow">FAQ</span>
+      <h2 data-en="Questions people ask first" data-zh="大家最先问的问题">Questions people ask first</h2>
+      <div class="faq">
+        <details open>
+          <summary data-en="Why do I need an invite code?" data-zh="为什么要邀请码？">Why do I need an invite code?</summary>
+          <p data-en="The app runs on a free database quota that every user shares. Invite codes keep the number of accounts small enough that it stays fast and stays free. Ask Edward for one."
+             data-zh="app 跑在免费数据库额度上，所有人共用。邀请码是为了控制人数，让它保持又快又免费。跟 Edward 要一个就行。">The app runs on a free database quota that every user shares. Invite codes keep the number of accounts small enough that it stays fast and stays free. Ask Edward for one.</p>
+        </details>
+        <details>
+          <summary data-en="Can I change the percentages later?" data-zh="比例可以随时改吗？">Can I change the percentages later?</summary>
+          <p data-en="Any time, and it only affects deposits made from then on. Past records are never rewritten."
+             data-zh="随时可以改，只影响之后的存入。过去的记录不会被改写。">Any time, and it only affects deposits made from then on. Past records are never rewritten.</p>
+        </details>
+        <details>
+          <summary data-en="What if I spend more than a goal holds?" data-zh="花超过罐子里的钱怎么办？">What if I spend more than a goal holds?</summary>
+          <p data-en="The goal goes negative and stays that way until future deposits bring it back. Nothing is moved from your other goals to hide it."
+             data-zh="那个罐子会变成负数，直到之后的存入把它补回来。不会从别的罐子挪钱来掩盖。">The goal goes negative and stays that way until future deposits bring it back. Nothing is moved from your other goals to hide it.</p>
+        </details>
+        <details>
+          <summary data-en="Does it connect to my bank?" data-zh="它会连我的银行吗？">Does it connect to my bank?</summary>
+          <p data-en="No — and it never asks for banking details. You move the real money yourself; SavvyPiggy keeps the record."
+             data-zh="不会，也永远不会要银行资料。真钱是你自己转的，SavvyPiggy 只负责记账。">No — and it never asks for banking details. You move the real money yourself; SavvyPiggy keeps the record.</p>
+        </details>
+        <details>
+          <summary data-en="Is there an iPhone version?" data-zh="有 iPhone 版吗？">Is there an iPhone version?</summary>
+          <p data-en="Not yet. It is built with web technology inside an Android shell, so iOS is possible later — but nothing is promised."
+             data-zh="暂时没有。它用网页技术套在 Android 壳里，以后出 iOS 版是可行的，但现在不敢承诺。">Not yet. It is built with web technology inside an Android shell, so iOS is possible later — but nothing is promised.</p>
+        </details>
+        <details>
+          <summary data-en="Why is it not on Google Play?" data-zh="为什么不在 Google Play 上？">Why is it not on Google Play?</summary>
+          <p data-en="Publishing there costs a one-off developer fee and a review process. For now the APK is downloaded straight from GitHub, signed with the same key every release."
+             data-zh="上架要交一次性开发者费用还要审核。现在直接从 GitHub 下载 APK，每个版本都用同一把签名密钥。">Publishing there costs a one-off developer fee and a review process. For now the APK is downloaded straight from GitHub, signed with the same key every release.</p>
+        </details>
+        <details>
+          <summary data-en="Does it cost anything?" data-zh="要钱吗？">Does it cost anything?</summary>
+          <p data-en="No. No purchase, no subscription, no advert. It is a personal project, shared as it is."
+             data-zh="不要钱。没有内购、没有订阅、没有广告。个人项目，就这样分享出来。">No. No purchase, no subscription, no advert. It is a personal project, shared as it is.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ final ============ -->
+  <section>
+    <div class="wrap">
+      <div class="final">
+        <span class="eyebrow" data-en="Ready when you are" data-zh="随时可以开始">Ready when you are</span>
+        <h2 data-en="Start splitting your savings tonight." data-zh="今晚就让每一分钱各就各位。">Start splitting your savings tonight.</h2>
+        <p class="sub" style="margin:14px auto 0" data-en="Free, no ads, Android 8 and up. You will need an invite code to sign in."
+           data-zh="免费、无广告、Android 8 以上。登录需要一个邀请码。">Free, no ads, Android 8 and up. You will need an invite code to sign in.</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="https://github.com/JTing904/SavvyPiggy/releases/latest">⬇ <span data-en="Download the APK" data-zh="下载 APK">Download the APK</span></a>
+          <a class="btn btn-ghost" href="mailto:kengtingtan@gmail.com?subject=SavvyPiggy%20invite%20code" data-en="Ask for an invite" data-zh="来要邀请码">Ask for an invite</a>
+        </div>
+        <div class="warn">
+          <strong data-en="Installing an APK" data-zh="安装 APK 的步骤">Installing an APK</strong>
+          <p style="margin:8px 0 0" data-en="Android asks for permission the first time: open the downloaded file, tap “Settings” when it warns you, allow your browser to install unknown apps, then go back and tap Install. Normal for anything outside the Play Store."
+             data-zh="第一次安装 Android 会拦一下：打开下载的文件 → 出现提示点「设置」→ 允许你的浏览器安装未知应用 → 返回再点安装。不在 Play 商店的 app 都这样，属正常。">Android asks for permission the first time: open the downloaded file, tap “Settings” when it warns you, allow your browser to install unknown apps, then go back and tap Install. Normal for anything outside the Play Store.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>© 2026 Edward JT</span>
+    <span class="spacer"></span>
+    <a href="mailto:kengtingtan@gmail.com">kengtingtan@gmail.com</a>
+    <a href="privacy.html" data-en="Privacy" data-zh="隐私政策">Privacy</a>
+    <a href="https://github.com/JTing904/SavvyPiggy" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</footer>
+
+<script>
+  /* ---------- language ---------- */
+  const toggle = document.getElementById('lang');
+  const apply = (lang) => {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-en]').forEach((el) => {
+      el.textContent = el.getAttribute(lang === 'zh' ? 'data-zh' : 'data-en');
+    });
+    toggle.textContent = lang === 'zh' ? 'EN' : '中文';
+    try { localStorage.setItem('savvypiggy.lang', lang); } catch (e) {}
+  };
+  let lang = 'en';
+  try { lang = localStorage.getItem('savvypiggy.lang') || (navigator.language.startsWith('zh') ? 'zh' : 'en'); } catch (e) {}
+  apply(lang);
+  toggle.addEventListener('click', () => { lang = lang === 'zh' ? 'en' : 'zh'; apply(lang); });
+
+  /* ---------- split simulation ----------
+     The same arithmetic the app runs: work in whole cents, floor every share,
+     and hand the odd cent left over to the biggest share. */
+  const SHARES = [40, 30, 20, 10];
+  const CELLS = ['sim-a', 'sim-b', 'sim-c', 'sim-d'].map((id) => document.getElementById(id));
+  const AMOUNTS = [5000, 3333, 12750, 999, 2500, 750];
+  const money = (cents) => '$' + (cents / 100).toFixed(2);
+
+  let step = 0;
+  const runSim = () => {
+    const total = AMOUNTS[step % AMOUNTS.length];
+    step += 1;
+    const cents = SHARES.map((pct) => Math.floor((total * pct) / 100));
+    const placed = cents.reduce((sum, c) => sum + c, 0);
+    cents[0] += total - placed; // the leftover cent goes to the largest share
+    document.getElementById('sim-in').textContent = money(total);
+    CELLS.forEach((cell, i) => { cell.textContent = money(cents[i]); });
+    document.getElementById('sim-total').textContent = money(total) + ' / ' + money(total);
+  };
+  runSim();
+  setInterval(runSim, 2600);
+</script>
+</body>
+</html>
