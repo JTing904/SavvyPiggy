@@ -43,7 +43,7 @@ const SortMenu: React.FC<SortMenuProps> = ({ order, onChange, compact = false })
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
           onClick={() => setOpen(false)}
         >
           <div

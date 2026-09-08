@@ -5,6 +5,7 @@ import { uploadGoalImage } from '../services/storage';
 import { isStorageEnabled } from '../lib/firebase';
 import { archiveStrategy, isArchived, isFull, isInSplit } from '../services/ledger';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { formatMoney } from '../services/money';
 
 const STYLES: Record<ActivityType, { label: string; icon: string; tint: string }> = {
   'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary' },
@@ -13,7 +14,6 @@ const STYLES: Record<ActivityType, { label: string; icon: string; tint: string }
   borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
 };
 
-const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`;
 
 interface GoalDetailProps {
   uid: string;
@@ -89,14 +89,14 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
     .filter((b) => b.gained > 0);
 
   const stats = [
-    { label: 'Paid in', value: `$${paidIn.toFixed(2)}` },
-    { label: 'Taken out', value: `$${takenOut.toFixed(2)}` },
+    { label: 'Paid in', value: formatMoney(paidIn) },
+    { label: 'Taken out', value: formatMoney(takenOut) },
     { label: 'Entries', value: String(entries.length) },
   ];
 
   return (
     <div className="flex flex-col min-h-full bg-bg-dark pb-40 safe-pt">
-      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/80 backdrop-blur-md z-20">
+      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/95 z-20">
         <button
           onClick={onBack}
           className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
@@ -148,8 +148,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
             <p className="text-white/60 text-[10px] font-black uppercase tracking-widest mb-1">
               {overspent ? 'Overspent' : 'Saved'}
             </p>
-            <h1 className={`text-4xl font-extrabold tracking-tight ${overspent ? 'text-red-400' : 'text-white'}`}>
-              {money(bank.currentAmount)}
+            <h1 className={`text-3xl font-extrabold tracking-tight ${overspent ? 'text-red-400' : 'text-white'}`}>
+              {formatMoney(bank.currentAmount)}
             </h1>
           </div>
         </div>
@@ -168,7 +168,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
               {hasTarget ? 'Target' : 'No limit'}
             </p>
             <p className="text-white font-black">
-              {hasTarget ? `$${bank.targetAmount.toLocaleString()}` : '∞'}
+              {hasTarget ? formatMoney(bank.targetAmount, { decimals: 0 }) : '∞'}
             </p>
           </div>
           <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
@@ -186,7 +186,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           <p className="text-slate-500 text-xs font-medium">
             {hasTarget
               ? remaining > 0
-                ? `${money(remaining)} to go · ${Math.round(progress)}% there`
+                ? `${formatMoney(remaining)} to go · ${Math.round(progress)}% there`
                 : 'Target reached'
               : 'Keep saving with no finish line.'}
           </p>
@@ -282,7 +282,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
                     </div>
                   </div>
                   <p className={`font-black shrink-0 tabular-nums ${amount < 0 ? 'text-slate-400' : 'text-white'}`}>
-                    {amount < 0 ? '-' : '+'}${Math.abs(amount).toFixed(2)}
+                    {formatMoney(amount, { signed: true })}
                   </p>
                 </div>
               );
@@ -293,7 +293,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
 
       {confirmArchive && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
           onClick={() => setConfirmArchive(false)}
         >
           <div
@@ -302,7 +302,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           >
             <h3 className="text-white text-2xl font-black">Archive {bank.name}?</h3>
             <p className="text-slate-400 text-sm font-medium mt-3 leading-relaxed">
-              Its {money(bank.currentAmount)} stays in your total savings and every record stays in your history. The goal
+              Its {formatMoney(bank.currentAmount)} stays in your total savings and every record stays in your history. The goal
               just leaves the Home and Strategy lists.
             </p>
 

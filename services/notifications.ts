@@ -3,6 +3,7 @@ import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/loc
 import type { NotificationPrefs, Schedule } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
+import { formatMoney } from '../services/money';
 
 /**
  * System notifications without a server: the phone itself holds the alarms.
@@ -47,8 +48,6 @@ const exactAllowed = async () => {
   }
 };
 
-const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 /** What the phone should hold, given the settings and the auto-deposit rules. */
 export const plannedNotifications = (
   prefs: NotificationPrefs,
@@ -86,7 +85,7 @@ export const plannedNotifications = (
     day.setHours(MORNING, 0, 0, 0);
     out.push({
       id: DUE_BASE + i,
-      title: `Auto deposit of ${money(s.amount)} due today`,
+      title: `Auto deposit of ${formatMoney(s.amount)} due today`,
       body: 'Open SavvyPiggy to post it to your goals.',
       schedule: { at: day },
       extra: { open: 'home' satisfies OpenTarget },

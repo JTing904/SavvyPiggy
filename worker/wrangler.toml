@@ -1,0 +1,20 @@
+name = "savvypiggy-dividends"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Everything here fits inside Cloudflare's free plan: 100k requests a day, one
+# KV namespace, and a cron trigger.
+
+[vars]
+# Only ID tokens minted for this Firebase project are accepted.
+FIREBASE_PROJECT_ID = "savvypiggy-d0bc4"
+
+# Created with:  npx wrangler kv namespace create DIVIDENDS
+[[kv_namespaces]]
+binding = "DIVIDENDS"
+id = "0cd5e7e70e22487fab78ef1bf963c5bd"
+
+# Half past midnight UTC is half past eight in the morning in Malaysia, so a
+# pay date is already refreshed before anyone opens the app.
+[triggers]
+crons = ["30 0 * * *"]

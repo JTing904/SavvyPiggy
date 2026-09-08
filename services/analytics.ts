@@ -1,4 +1,4 @@
-import type { Activity, PiggyBank } from '../types';
+import type { Activity, PiggyBank, Trade } from '../types';
 import { fromCents, toCents } from './money';
 
 /**
@@ -354,11 +354,133 @@ export const summarize = (
 
 export const RETENTION_MONTHS = 12;
 
-/** The first day still kept: everything dated before it is archivable. */
-export const retentionCutoff = (now: Date, months = RETENTION_MONTHS) =>
-  new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
+/** Whole months of ledger to keep. `null` keeps everything. */
+export const RETENTION_CHOICES: { months: number | null; label: string }[] = [
+  { months: 6, label: '6 months' },
+  { months: 12, label: '12 months' },
+  { months: 24, label: '24 months' },
+  { months: null, label: 'Keep all' },
+];
 
-export const archivable = (activities: Activity[], now: Date, months = RETENTION_MONTHS) => {
+/**
+ * The first day still kept. Retention works in whole months so a statement is
+ * never half deleted: on any day in September with a twelve-month window, the
+ * ledger starts on the first of the previous September.
+ */
+export const retentionCutoff = (now: Date, months: number | null = RETENTION_MONTHS) =>
+  months === null ? new Date(0) : new Date(now.getFullYear(), now.getMonth() - months, 1);
+
+export const archivable = (activities: Activity[], now: Date, months: number | null = RETENTION_MONTHS) => {
   const cutoff = retentionCutoff(now, months);
   return activities.filter((a) => new Date(a.date) < cutoff);
 };
+
+/* ------------------------------------------------------------- statements */
+
+export interface MonthReport {
+  /** Sortable and stable: "2026-08". */
+  key: string;
+  label: string;
+  start: Date;
+  /** Exclusive. */
+  end: Date;
+  activities: number;
+  /** Net into the goals that month, in whole ringgit as the ledger stores it. */
+  net: number;
+  trades: number;
+  /** The month still running, whose figures are not final. */
+  current: boolean;
+  /** The date this month's records are cleared, if a window is set. */
+  clearedOn: Date | null;
+}
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+/**
+ * One entry per month that has anything in it, newest first.
+ *
+ * Trades count towards a month as much as deposits do: a statement covers the
+ * saving and the investing side by side, so a month with only a share purchase
+ * is still a month worth exporting.
+ */
+export const monthsWithRecords = (
+  activities: Activity[],
+  trades: Trade[],
+  now: Date = new Date(),
+  months: number | null = RETENTION_MONTHS
+): MonthReport[] => {
+  const seen = new Map<string, { start: Date; activities: number; net: number; trades: number }>();
+
+  const touch = (d: Date) => {
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const key = monthKey(start);
+    let entry = seen.get(key);
+    if (!entry) {
+      entry = { start, activities: 0, net: 0, trades: 0 };
+      seen.set(key, entry);
+    }
+    return entry;
+  };
+
+  for (const a of activities) {
+    const entry = touch(new Date(a.date));
+    entry.activities += 1;
+    // What actually reached the goals, so a withdrawal reads as the minus it is.
+    entry.net += a.distributions.reduce((sum, d) => sum + d.amount, 0);
+  }
+  for (const t of trades) touch(new Date(t.tradedAt)).trades += 1;
+
+  const thisMonth = monthKey(now);
+
+  return [...seen.entries()]
+    .map(([key, e]) => ({
+      key,
+      label: `${MONTH_NAMES[e.start.getMonth()]} ${e.start.getFullYear()}`,
+      start: e.start,
+      end: new Date(e.start.getFullYear(), e.start.getMonth() + 1, 1),
+      activities: e.activities,
+      net: e.net,
+      trades: e.trades,
+      current: key === thisMonth,
+      // Cleared on the first of the month once it falls outside the window.
+      clearedOn:
+        months === null
+          ? null
+          : new Date(e.start.getFullYear(), e.start.getMonth() + months + 1, 1),
+    }))
+    .sort((a, b) => b.key.localeCompare(a.key));
+};
+
+/**
+ * One month's figures, whether that month has finished or not.
+ *
+ * The instant a summary is taken from decides both which month it covers and
+ * how many days it counts, so it has to land inside the month: the first of
+ * the next month would summarise the wrong month entirely, and the first of
+ * this one would report a finished month as a single day. It is the earlier of
+ * now and the month's last moment — today for the month still running, the
+ * last day for every month before it.
+ */
+export const monthSummary = (
+  activities: Activity[],
+  banks: PiggyBank[],
+  month: Pick<MonthReport, 'label' | 'end'>,
+  now: Date = new Date()
+): Summary => {
+  const asOf = new Date(Math.min(now.getTime(), month.end.getTime() - 1));
+  const summary = summarize(activities, banks, 'month', asOf);
+  // The range already is this month; only the wording is ours.
+  return { ...summary, range: { ...summary.range, label: month.label } };
+};
+
+/**
+ * The month that goes next, for the warning on screen: simply the oldest one
+ * on record. A month already past its date has not been cleared yet — the
+ * clearing runs when the app opens — so it is still the right one to name.
+ */
+export const nextToClear = (months: MonthReport[]) =>
+  [...months]
+    .filter((m) => m.clearedOn !== null && m.activities > 0)
+    .sort((a, b) => a.key.localeCompare(b.key))[0] ?? null;

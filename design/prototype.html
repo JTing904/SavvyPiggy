@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SavvyPiggy — RM + Holdings prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#4ADE80; --accent:#2DD4BF; --bg:#0A0F0D; --surface:#141C19;
+    --text:#E6EDEA; --muted:#7E8F88; --line:rgba(255,255,255,.07);
+    --amber:#FBBF24; --purple:#A78BFA; --pink:#F472B6; --ink:#06110B;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#050a08;color:var(--text);
+    font-family:'Plus Jakarta Sans',system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;gap:18px;padding:28px 16px 60px}
+  .material-symbols-rounded{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;
+    line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;
+    word-wrap:normal;direction:ltr;-webkit-font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+
+  .hint{color:var(--muted);font-size:13px;font-weight:600;text-align:center;max-width:420px;line-height:1.6}
+  .hint b{color:var(--primary)}
+
+  /* ---------- phone ---------- */
+  .phone{width:390px;height:844px;border-radius:46px;background:var(--bg);position:relative;
+    overflow:hidden;border:10px solid #04100b;box-shadow:0 40px 90px -30px #000,0 0 0 1px rgba(255,255,255,.08)}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:104px;height:26px;
+    border-radius:999px;background:#04100b;z-index:40}
+  .screen{position:absolute;inset:0;display:none;flex-direction:column;padding-top:46px}
+  .screen.on{display:flex}
+  .scroll{flex:1;overflow-y:auto;padding:0 20px 120px;scrollbar-width:none}
+  .scroll::-webkit-scrollbar{display:none}
+  .status{position:absolute;top:16px;left:24px;right:24px;display:flex;justify-content:space-between;
+    font-size:11px;font-weight:700;color:var(--muted);z-index:30}
+
+  /* ---------- bits ---------- */
+  .row{display:flex;align-items:center;gap:10px}
+  .sp{flex:1}
+  .eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .circle{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.06);
+    display:grid;place-items:center;color:#cfe0d8;flex:none;cursor:pointer;border:0}
+  .circle:active{transform:scale(.9)}
+  h2.title{font-size:24px;font-weight:800;letter-spacing:-.03em;margin:0}
+
+  /* ---------- carousel ---------- */
+  .rail{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+    margin:0 -20px;padding:2px 20px;scrollbar-width:none}
+  .rail::-webkit-scrollbar{display:none}
+  .cardwrap{flex:0 0 330px;scroll-snap-align:center}
+  .savecard{height:186px;border-radius:30px;padding:20px 22px;color:var(--ink);
+    background:linear-gradient(135deg,var(--primary),var(--accent));display:flex;flex-direction:column}
+  .invcard{height:186px;border-radius:30px;padding:20px 22px;background:var(--surface);
+    border:1px solid rgba(45,212,191,.35);display:flex;flex-direction:column;cursor:pointer}
+  .big{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-top:2px}
+  .chip{background:var(--ink);color:#fff;border-radius:999px;padding:8px 16px;font-size:12px;font-weight:800}
+  .dots{display:flex;gap:6px;justify-content:center;margin-top:12px}
+  .dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.2);transition:.2s}
+  .dot.on{background:var(--primary);width:18px;border-radius:99px}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:26px;padding:18px}
+  .amber{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.22);border-radius:26px;padding:18px}
+  .bar{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;border-radius:99px}
+
+  /* ---------- wallet stack ---------- */
+  .stack{margin-top:16px}
+  .stock{border-radius:26px;padding:16px 20px 18px;color:var(--ink);cursor:pointer;
+    box-shadow:0 10px 26px -12px rgba(0,0,0,.8);margin-top:-46px;position:relative;
+    transition:margin .28s cubic-bezier(.3,.9,.3,1)}
+  .stock:first-child{margin-top:0}
+  .stock .detail{max-height:0;overflow:hidden;opacity:0;transition:max-height .28s ease,opacity .18s ease}
+  .stock.open{margin-bottom:8px}
+  .stock.open .detail{max-height:460px;opacity:1;margin-top:12px}
+  .pill{font-size:9px;font-weight:800;background:rgba(6,17,11,.18);border-radius:999px;
+    padding:4px 9px;letter-spacing:.02em;white-space:nowrap}
+  .stock.open + .stock{margin-top:12px}
+  .divider{height:1px;background:rgba(6,17,11,.18);margin:2px 0 12px}
+  .stat{font-size:9px;font-weight:800;letter-spacing:.1em;opacity:.75}
+  .statv{font-size:14px;font-weight:800}
+  .act{flex:1;text-align:center;border-radius:999px;padding:10px;font-size:12px;font-weight:800;
+    background:rgba(6,17,11,.16);cursor:pointer}
+
+  /* ---------- nav ---------- */
+  .nav{position:absolute;left:18px;right:18px;bottom:14px;height:76px;border-radius:34px;
+    background:rgba(20,28,25,.97);border:1px solid var(--line);display:flex;align-items:center;
+    justify-content:space-between;padding:0 22px;z-index:20;backdrop-filter:blur(10px)}
+  .nav button{background:none;border:0;color:var(--muted);font:inherit;font-size:9px;font-weight:800;
+    display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;width:52px}
+  .nav button.on{color:var(--primary)}
+  .nav .fab{width:54px;height:54px;border-radius:50%;background:var(--primary);color:var(--ink);
+    display:grid;place-items:center;margin-top:-26px;border:5px solid var(--bg);cursor:pointer}
+
+  /* ---------- sheet ---------- */
+  .sheet{position:absolute;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(4px);z-index:50;
+    display:none;align-items:flex-end}
+  .sheet.on{display:flex}
+  .sheetbody{width:100%;background:var(--surface);border-radius:34px 34px 0 0;padding:26px 22px 30px;
+    animation:up .28s cubic-bezier(.3,.9,.3,1)}
+  @keyframes up{from{transform:translateY(60px);opacity:.4}to{transform:none;opacity:1}}
+  .field{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:18px;
+    padding:14px 16px;font-size:14px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:10px}
+  .result{display:flex;align-items:center;gap:12px;padding:12px;border-radius:18px;cursor:pointer}
+  .result:hover{background:rgba(255,255,255,.05)}
+  .tick{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;font-size:11px;font-weight:800}
+  .btn{border:0;border-radius:999px;padding:15px;font:inherit;font-size:14px;font-weight:800;cursor:pointer;width:100%}
+  .btn-p{background:var(--primary);color:var(--ink)}
+  .btn-g{background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--line)}
+  .inp{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:18px;
+    padding:14px 16px;font:inherit;font-size:16px;font-weight:800;color:var(--text);width:100%}
+  .inp.bare{background:none;border:0;padding:0;font-size:16px}
+  .inp:focus{outline:none;border-color:rgba(74,222,128,.5)}
+  .tl{font-size:12px;font-weight:700;color:var(--muted)}
+  .tv{font-size:13px;font-weight:800}
+</style>
+</head>
+<body>
+
+<p class="hint">
+  SavvyPiggy 原型 · 只看 UI，功能没接<br>
+  可以点：<b>顶部卡片左右滑</b> · <b>投资卡 → 持仓页</b> · <b>股票卡展开</b> · <b>加入持仓</b> · <b>底栏</b> · <b>铃铛看派息提醒</b>
+</p>
+
+<div class="phone">
+  <div class="notch"></div>
+  <div class="status"><span>9:41</span><span>▮▮▮ ▮</span></div>
+
+  <!-- ================= HOME ================= -->
+  <section class="screen on" id="s-home">
+    <div class="scroll">
+      <div class="row" style="margin-bottom:16px">
+        <div>
+          <div class="eyebrow">Good afternoon</div>
+          <div style="font-size:19px;font-weight:800;margin-top:2px">J T</div>
+        </div>
+        <div class="sp"></div>
+        <button class="circle" onclick="go('alert')"><span class="material-symbols-rounded" style="font-size:20px">notifications</span></button>
+        <div class="circle" style="background:rgba(74,222,128,.22);border:2px solid rgba(74,222,128,.6)"></div>
+      </div>
+
+      <div class="rail" id="rail" onscroll="syncDots()">
+        <div class="cardwrap">
+          <div class="savecard">
+            <div class="eyebrow" style="color:var(--ink);opacity:.6">Total savings</div>
+            <div class="big">RM1,240.50</div>
+            <div class="sp"></div>
+            <div class="row">
+              <div>
+                <div class="eyebrow" style="color:var(--ink);opacity:.6">Saved today</div>
+                <div style="font-size:15px;font-weight:800">+RM50.00</div>
+              </div>
+              <div class="sp"></div>
+              <div class="chip">Deposit</div>
+            </div>
+          </div>
+        </div>
+        <div class="cardwrap">
+          <div class="invcard" onclick="go('hold')">
+            <div class="eyebrow" style="color:var(--accent)">Investments</div>
+            <div class="big" style="color:var(--text)">RM8,430.00</div>
+            <div class="row" style="gap:8px;margin-top:4px">
+              <span style="color:var(--primary);font-size:13px;font-weight:800">▲ RM120.50</span>
+              <span style="color:var(--muted);font-size:12px;font-weight:700">+1.45% today</span>
+            </div>
+            <div class="sp"></div>
+            <div class="row">
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--primary)"></span>
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:-4px"></span>
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--amber);margin-left:-4px"></span>
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--purple);margin-left:-4px"></span>
+              <span style="color:var(--muted);font-size:11px;font-weight:700;margin-left:4px">4 counters</span>
+              <div class="sp"></div>
+              <span style="color:var(--accent);font-size:12px;font-weight:800">View ›</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dots"><span class="dot on" id="d0"></span><span class="dot" id="d1"></span></div>
+
+      <div class="amber" style="margin-top:16px">
+        <div class="eyebrow" style="color:var(--amber)">Borrowed</div>
+        <div style="font-size:24px;font-weight:800;color:var(--amber);margin-top:2px">RM7.10</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Deposits clear this before anything reaches your goals.</div>
+      </div>
+
+      <div class="row" style="margin-top:22px">
+        <div style="font-size:16px;font-weight:800">Your Piggy Banks</div>
+        <div class="sp"></div>
+        <div style="color:var(--primary);font-size:12px;font-weight:800">View All</div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="row"><span style="font-weight:700;font-size:14px">Emergency fund</span><div class="sp"></div>
+          <span style="font-weight:800;color:var(--primary)">RM4,120</span></div>
+        <div class="bar"><i style="width:82%;background:var(--primary)"></i></div>
+      </div>
+      <div class="card" style="margin-top:10px">
+        <div class="row"><span style="font-weight:700;font-size:14px">Tokyo 2027</span><div class="sp"></div>
+          <span style="font-weight:800;color:var(--accent)">RM3,835</span></div>
+        <div class="bar"><i style="width:46%;background:var(--accent)"></i></div>
+      </div>
+
+      <div class="row" style="margin-top:22px">
+        <div style="font-size:16px;font-weight:800">Recent activity</div><div class="sp"></div>
+        <div style="color:var(--muted);font-size:11px;font-weight:700">Today</div>
+      </div>
+      <div class="row" style="background:rgba(255,255,255,.04);border-radius:22px;padding:14px 16px;margin-top:10px">
+        <span style="font-size:13px;font-weight:700">Scheduled deposit</span><div class="sp"></div>
+        <span style="font-weight:800;color:var(--primary)">+RM50.00</span></div>
+      <div class="row" style="background:rgba(255,255,255,.04);border-radius:22px;padding:14px 16px;margin-top:8px">
+        <span style="font-size:13px;font-weight:700">Spent · groceries</span><div class="sp"></div>
+        <span style="font-weight:800;color:var(--muted)">-RM32.10</span></div>
+    </div>
+  </section>
+
+  <!-- ================= HOLDINGS ================= -->
+  <section class="screen" id="s-hold">
+    <div class="scroll">
+      <div class="row" style="margin-bottom:18px">
+        <button class="circle" onclick="go('home')"><span class="material-symbols-rounded" style="font-size:20px">arrow_back</span></button>
+        <h2 class="title">Holdings</h2>
+        <div class="sp"></div>
+        <button class="circle" onclick="refresh()"><span class="material-symbols-rounded" style="font-size:20px" id="reficon">refresh</span></button>
+      </div>
+
+      <div class="eyebrow">Total market value</div>
+      <div style="font-size:36px;font-weight:800;letter-spacing:-.03em;margin-top:2px">RM8,430.00</div>
+      <div class="row" style="gap:8px;margin-top:4px">
+        <span style="color:var(--primary);font-size:14px;font-weight:800">▲ RM930.00</span>
+        <span style="color:var(--muted);font-size:12px;font-weight:700">+12.4% since you bought</span>
+      </div>
+      <div style="color:var(--muted);font-size:11px;margin-top:6px" id="updated">Updated 2 min ago · tap ↻ to refresh</div>
+
+      <div class="stack" id="stack"></div>
+
+      <button class="btn btn-g" style="margin-top:18px;color:var(--primary)" onclick="sheet(true)">+  Add a holding</button>
+    </div>
+  </section>
+
+  <!-- ================= ALERTS (dividend) ================= -->
+  <section class="screen" id="s-alert">
+    <div class="scroll">
+      <div class="row" style="margin-bottom:18px">
+        <button class="circle" onclick="go('home')"><span class="material-symbols-rounded" style="font-size:20px">arrow_back</span></button>
+        <h2 class="title">Alerts</h2>
+        <div class="sp"></div>
+        <span style="color:var(--muted);font-size:11px;font-weight:800">2 new</span>
+      </div>
+
+      <div class="card" style="border-color:rgba(74,222,128,.25);background:linear-gradient(160deg,var(--surface),rgba(74,222,128,.08))">
+        <div class="row" style="align-items:flex-start">
+          <div class="tick" style="background:var(--primary);color:var(--ink)"><span class="material-symbols-rounded" style="font-size:18px">payments</span></div>
+          <div style="flex:1">
+            <div class="row"><b style="font-size:14px;color:var(--primary)">Dividend credited</b><div class="sp"></div>
+              <span style="color:var(--muted);font-size:10px;font-weight:700">10m ago</span></div>
+            <p style="margin:6px 0 0;font-size:12px;color:#c7d6cf;line-height:1.6">
+              <b style="color:#fff">Maxis</b> paid RM0.04 per unit. Your 2,000 units came to
+              <b style="color:var(--primary)">RM80.00</b>, split across your goals.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+              <div class="row" style="background:rgba(255,255,255,.05);border-radius:12px;padding:8px 10px">
+                <span style="font-size:11px;font-weight:700;color:#cfe0d8">Emergency</span><div class="sp"></div>
+                <span style="font-size:11px;font-weight:800">RM32.00</span></div>
+              <div class="row" style="background:rgba(255,255,255,.05);border-radius:12px;padding:8px 10px">
+                <span style="font-size:11px;font-weight:700;color:#cfe0d8">Tokyo 2027</span><div class="sp"></div>
+                <span style="font-size:11px;font-weight:800">RM24.00</span></div>
+              <div class="row" style="background:rgba(255,255,255,.05);border-radius:12px;padding:8px 10px">
+                <span style="font-size:11px;font-weight:700;color:#cfe0d8">Laptop</span><div class="sp"></div>
+                <span style="font-size:11px;font-weight:800">RM16.00</span></div>
+              <div class="row" style="background:rgba(255,255,255,.05);border-radius:12px;padding:8px 10px">
+                <span style="font-size:11px;font-weight:700;color:#cfe0d8">Charity</span><div class="sp"></div>
+                <span style="font-size:11px;font-weight:800">RM8.00</span></div>
+            </div>
+            <p style="margin:12px 0 0;font-size:10px;color:var(--muted);line-height:1.6">
+              Worked out from the 2,000 units you recorded. Received a different amount? Open it in History and edit.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="row" style="align-items:flex-start">
+          <div class="tick" style="background:rgba(251,191,36,.14);color:var(--amber)"><span class="material-symbols-rounded" style="font-size:18px">event</span></div>
+          <div style="flex:1">
+            <div class="row"><b style="font-size:14px">Maybank goes ex-dividend</b><div class="sp"></div>
+              <span style="color:var(--muted);font-size:10px;font-weight:700">2d ago</span></div>
+            <p style="margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.6">
+              RM0.33 per unit · 500 units ≈ <b style="color:var(--text)">RM165.00</b><br>
+              Pays on <b style="color:var(--text)">26 Mar</b> — it will be added automatically that day.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px;opacity:.72">
+        <div class="row" style="align-items:flex-start">
+          <div class="tick" style="background:rgba(74,222,128,.12);color:var(--primary)"><span class="material-symbols-rounded" style="font-size:18px">local_fire_department</span></div>
+          <div style="flex:1">
+            <div class="row"><b style="font-size:14px">30-day streak</b><div class="sp"></div>
+              <span style="color:var(--muted);font-size:10px;font-weight:700">Aug 28</span></div>
+            <p style="margin:6px 0 0;font-size:12px;color:var(--muted)">Saved every single day for a month.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= sheet ================= -->
+  <div class="sheet" id="sheet" onclick="if(event.target.id==='sheet')sheet(false)">
+    <div class="sheetbody">
+      <div style="font-size:22px;font-weight:800">Add a holding</div>
+      <p style="color:var(--muted);font-size:12px;margin:6px 0 16px">Search Bursa by name — no need to remember the code.</p>
+      <div class="field"><span class="material-symbols-rounded" style="font-size:18px;color:var(--muted)">search</span>
+        <span id="q">maybank</span></div>
+      <div style="margin-top:12px">
+        <div class="result" onclick="picked('held')">
+          <div class="tick" style="background:rgba(74,222,128,.14);color:var(--primary)">KLS</div>
+          <div style="flex:1"><div class="row" style="gap:6px"><div style="font-weight:800;font-size:14px">MAYBANK</div>
+              <span class="pill" style="background:rgba(74,222,128,.16);color:var(--primary)">In your holdings</span></div>
+            <div style="color:var(--muted);font-size:11px;font-weight:600">1155.KL · Kuala Lumpur</div></div>
+          <span style="color:var(--primary);font-weight:800;font-size:13px">RM10.56</span>
+        </div>
+        <div class="result" onclick="picked('new')">
+          <div class="tick" style="background:rgba(45,212,191,.14);color:var(--accent)">KLS</div>
+          <div style="flex:1"><div style="font-weight:800;font-size:14px">TENAGA</div>
+            <div style="color:var(--muted);font-size:11px;font-weight:600">5347.KL · Kuala Lumpur</div></div>
+          <span style="color:var(--accent);font-weight:800;font-size:13px">RM14.02</span>
+        </div>
+      </div>
+      <div id="picked" style="display:none;margin-top:14px">
+        <div class="row" style="gap:10px">
+          <div style="flex:1"><div class="eyebrow" style="margin-bottom:6px">Units</div>
+            <div class="field">500</div></div>
+          <div style="flex:1"><div class="eyebrow" style="margin-bottom:6px">Avg cost / unit</div>
+            <div class="field">RM9.20</div></div>
+        </div>
+        <p style="color:var(--muted);font-size:11px;margin:12px 0 0;line-height:1.6">
+          Keep units up to date — dividends are worked out from this number.</p>
+      </div>
+      <div class="row" style="gap:10px;margin-top:18px">
+        <button class="btn btn-g" onclick="sheet(false)">Cancel</button>
+        <button class="btn btn-p" onclick="sheet(false)">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= buy / sell ================= -->
+  <div class="sheet" id="trade" onclick="if(event.target.id==='trade')closeTrade()">
+    <div class="sheetbody">
+      <div class="row">
+        <div style="font-size:22px;font-weight:800" id="t-title">Buy more · MAYBANK</div>
+      </div>
+      <div class="row" id="t-merge" style="display:none;gap:10px;background:rgba(74,222,128,.1);
+        border:1px solid rgba(74,222,128,.25);border-radius:16px;padding:12px 14px;margin:12px 0 4px">
+        <span class="material-symbols-rounded" style="font-size:18px;color:var(--primary)">merge</span>
+        <span style="font-size:11px;font-weight:700;color:#c7d6cf;line-height:1.5">
+          You already hold MAYBANK — this adds to that position instead of making a second row.</span>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:6px 0 16px" id="t-hold">
+        You hold <b style="color:var(--text)">500 units</b> at <b style="color:var(--text)">RM9.20</b> average</p>
+
+      <div class="row" style="gap:10px;align-items:stretch">
+        <div style="flex:1">
+          <div class="eyebrow" style="margin-bottom:6px">Units</div>
+          <input class="inp" id="t-units" type="number" value="100" oninput="calcTrade()">
+        </div>
+        <div style="flex:1">
+          <div class="eyebrow" style="margin-bottom:6px" id="t-plabel">Price paid / unit</div>
+          <div class="inp" style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--muted);font-weight:800">RM</span>
+            <input class="inp bare" id="t-price" type="number" step="0.01" value="10.50" oninput="calcTrade()">
+          </div>
+        </div>
+      </div>
+
+      <div style="background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:20px;padding:16px;margin-top:16px">
+        <div class="eyebrow" id="t-preview-title">After this purchase</div>
+        <div class="row" style="margin-top:10px"><span class="tl">Units</span><div class="sp"></div><span class="tv" id="t-r1">500 → 600</span></div>
+        <div class="row" style="margin-top:8px"><span class="tl">Average cost</span><div class="sp"></div><span class="tv" id="t-r2">RM9.20 → RM9.42</span></div>
+        <div class="row" style="margin-top:8px"><span class="tl" id="t-l3">Total invested</span><div class="sp"></div><span class="tv" id="t-r3">RM4,600.00 → RM5,650.00</span></div>
+      </div>
+      <p style="color:var(--muted);font-size:11px;margin:12px 0 0;line-height:1.6" id="t-note">
+        The average is recalculated from what you actually paid — you never work it out yourself.</p>
+
+      <div class="row" style="gap:10px;margin-top:18px">
+        <button class="btn btn-g" onclick="closeTrade()">Cancel</button>
+        <button class="btn btn-p" onclick="closeTrade()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= nav ================= -->
+  <div class="nav">
+    <button class="on" id="n-home" onclick="go('home')"><span class="material-symbols-rounded" style="font-size:22px">home</span>Home</button>
+    <button onclick="go('home')"><span class="material-symbols-rounded" style="font-size:22px">history</span>History</button>
+    <div class="fab"><span class="material-symbols-rounded" style="font-size:26px">add</span></div>
+    <button onclick="go('home')"><span class="material-symbols-rounded" style="font-size:22px">account_balance_wallet</span>Strategy</button>
+    <button onclick="go('home')"><span class="material-symbols-rounded" style="font-size:22px">monitoring</span>Report</button>
+  </div>
+</div>
+
+<p class="hint" style="font-size:12px">
+  数字全是示例。派息卡片就是 Worker 抓到派息日、自动入账之后你会看到的样子。
+</p>
+
+<script>
+  const STOCKS = [
+    { code:'1155.KL', name:'MAYBANK',   price:'RM10.56', d:'▲ 0.38%', value:'RM5,280.00',
+      units:'500', cost:'RM9.20', gain:'+RM680.00  (+14.8%)', c1:'#4ADE80', c2:'#2DD4BF',
+      div:{ state:'due', units:'500', ex:'12 Mar 2026', pay:'26 Mar 2026', dps:'RM0.3300', est:'RM165.00',
+            note:'Second interim · will be added on the pay date' } },
+    { code:'6012.KL', name:'MAXIS',     price:'RM3.42',  d:'▼ 0.29%', value:'RM1,710.00',
+      units:'2,000', cost:'RM3.05', gain:'+RM185.00  (+12.1%)', c1:'#2DD4BF', c2:'#1F7F8C',
+      div:{ state:'paid', units:'2,000', ex:'8 Sep 2026', pay:'30 Sep 2026', dps:'RM0.0400', est:'RM80.00',
+            note:'Credited to your goals on 30 Sep' } },
+    { code:'5296.KL', name:'MR D.I.Y.', price:'RM1.37',  d:'▲ 1.48%', value:'RM1,096.00',
+      units:'800', cost:'RM1.19', gain:'+RM144.00  (+15.1%)', c1:'#FBBF24', c2:'#CC741A',
+      div:{ state:'paid', units:'800', ex:'24 Aug 2026', pay:'12 Sep 2026', dps:'RM0.0130', est:'RM10.40',
+            note:'Credited to your goals on 12 Sep' } },
+    { code:'7113.KL', name:'TOP GLOVE', price:'RM0.64',  d:'▼ 1.54%', value:'RM344.00',
+      units:'537', cost:'RM0.78', gain:'-RM75.18  (-17.9%)',  c1:'#A78BFA', c2:'#7352C7',
+      div:{ state:'none', note:'No dividend announced' } },
+  ];
+
+  const PILL = { due:'⏳', paid:'✓', none:'' };
+  const divBlock = (d) => {
+    if (d.state === 'none')
+      return `<div class="divider"></div>
+        <div class="stat">NEXT DIVIDEND</div>
+        <div style="font-size:12px;font-weight:700;opacity:.7;margin-top:4px">${d.note}</div>`;
+    return `<div class="divider"></div>
+      <div class="row"><div class="stat">NEXT DIVIDEND</div><div class="sp"></div>
+        <span class="pill">${d.state === 'paid' ? '✓ Credited' : '⏳ Scheduled'}</span></div>
+      <div class="row" style="margin-top:8px">
+        <div><div class="stat">EX DATE</div><div class="statv">${d.ex}</div></div>
+        <div class="sp"></div>
+        <div style="text-align:center"><div class="stat">PER UNIT</div><div class="statv">${d.dps}</div></div>
+        <div class="sp"></div>
+        <div style="text-align:right"><div class="stat">PAY DATE</div><div class="statv">${d.pay}</div></div>
+      </div>
+      <div class="row" style="margin-top:10px;background:rgba(6,17,11,.14);border-radius:14px;padding:10px 12px">
+        <span style="font-size:11px;font-weight:700;opacity:.8">Your ${d.units} units ≈</span>
+        <div class="sp"></div>
+        <span style="font-size:15px;font-weight:800">${d.est}</span>
+      </div>
+      <div style="font-size:10px;font-weight:600;opacity:.7;margin-top:8px;line-height:1.5">${d.note}</div>`;
+  };
+
+  document.getElementById('stack').innerHTML = STOCKS.map((s, i) => `
+    <div class="stock" style="background:linear-gradient(135deg,${s.c1},${s.c2})" onclick="toggle(${i},this)">
+      <div class="row"><b style="font-size:15px">${s.name}</b><div class="sp"></div>
+        ${s.div.state !== 'none' ? `<span class="pill">${s.div.state === 'paid' ? '✓ ' + s.div.pay.slice(0, 6) : '⏳ ' + s.div.pay.slice(0, 6)}</span>` : ''}
+        <span style="font-size:10px;font-weight:800;opacity:.8">${s.code}</span></div>
+      <div class="row" style="gap:8px;margin-top:2px">
+        <span style="font-size:20px;font-weight:800">${s.price}</span>
+        <span style="font-size:11px;font-weight:800;opacity:.8">${s.d}</span></div>
+      <div class="row" style="margin-top:6px">
+        <span style="font-size:10px;font-weight:700;opacity:.75">Market value</span><div class="sp"></div>
+        <span style="font-size:14px;font-weight:800">${s.value}</span></div>
+      <div class="detail">
+        <div class="divider"></div>
+        <div class="row"><div><div class="stat">UNITS</div><div class="statv">${s.units}</div></div>
+          <div class="sp"></div><div style="text-align:right"><div class="stat">AVG COST</div><div class="statv">${s.cost}</div></div></div>
+        <div class="row" style="margin-top:10px"><div><div class="stat">MARKET VALUE</div><div class="statv">${s.value}</div></div>
+          <div class="sp"></div><div style="text-align:right"><div class="stat">GAIN</div><div class="statv">${s.gain}</div></div></div>
+        ${divBlock(s.div)}
+        <div class="row" style="gap:8px;margin-top:14px">
+          <div class="act" onclick="event.stopPropagation();openTrade('buy')">Buy more</div>
+          <div class="act" onclick="event.stopPropagation();openTrade('sell')">Sell</div>
+          <div class="act" onclick="event.stopPropagation()">Edit</div>
+        </div>
+      </div>
+    </div>`).join('');
+
+  const go = (id) => {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+    document.getElementById('s-' + id).classList.add('on');
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
+    if (id === 'home') document.getElementById('n-home').classList.add('on');
+    document.querySelectorAll('.scroll').forEach(s => s.scrollTop = 0);
+  };
+
+  const toggle = (i, el) => {
+    const open = el.classList.contains('open');
+    document.querySelectorAll('.stock').forEach(s => s.classList.remove('open'));
+    if (!open) el.classList.add('open');
+  };
+
+  const sheet = (on) => {
+    document.getElementById('sheet').classList.toggle('on', on);
+    if (!on) document.getElementById('picked').style.display = 'none';
+  };
+  const picked = (kind) => {
+    if (kind === 'held') {
+      // One counter, one row — never two. Picking one you already own is a top-up.
+      sheet(false);
+      openTrade('buy', true);
+      return;
+    }
+    document.getElementById('picked').style.display = 'block';
+  };
+
+  const syncDots = () => {
+    const r = document.getElementById('rail');
+    const i = r.scrollLeft > 160 ? 1 : 0;
+    document.getElementById('d0').classList.toggle('on', i === 0);
+    document.getElementById('d1').classList.toggle('on', i === 1);
+  };
+
+  // deep links: prototype.html#hold / #alert — handy for sharing one screen
+  const fromHash = () => {
+    const [id, open] = location.hash.replace('#', '').split('/');
+    if (!document.getElementById('s-' + id)) return;
+    go(id);
+    // '#hold/0' opens straight into a card, handy for sharing one state
+    if (open !== undefined) { const c = document.querySelectorAll('.stock')[Number(open)]; if (c) c.classList.add('open'); }
+    const mode = location.hash.split('/')[2];
+    if (mode === 'buy' || mode === 'sell') openTrade(mode, mode === 'buy' && location.hash.endsWith('merge'));
+  };
+  window.addEventListener('hashchange', fromHash);
+
+  // MAYBANK, the position the sheets act on. Cost is kept as a total in sen so
+  // nothing is lost to rounding when the average is recomputed.
+  const POS = { units: 500, costSen: 460000 };
+  const rm = (sen) => 'RM' + (sen / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let tradeMode = 'buy';
+
+  const openTrade = (mode, merging) => {
+    tradeMode = mode;
+    document.getElementById('t-merge').style.display = merging ? 'flex' : 'none';
+    document.getElementById('t-title').textContent = (mode === 'buy' ? 'Buy more · ' : 'Sell · ') + 'MAYBANK';
+    document.getElementById('t-plabel').textContent = mode === 'buy' ? 'Price paid / unit' : 'Price sold / unit';
+    document.getElementById('t-price').value = mode === 'buy' ? '10.50' : '10.56';
+    document.getElementById('t-units').value = '100';
+    document.getElementById('t-preview-title').textContent = mode === 'buy' ? 'After this purchase' : 'After this sale';
+    document.getElementById('t-note').textContent = mode === 'buy'
+      ? 'The average is recalculated from what you actually paid — you never work it out yourself.'
+      : 'Selling leaves the average alone. Only the units and what you have invested go down.';
+    calcTrade();
+    document.getElementById('trade').classList.add('on');
+  };
+  const closeTrade = () => document.getElementById('trade').classList.remove('on');
+
+  const calcTrade = () => {
+    const units = Math.max(0, Math.floor(Number(document.getElementById('t-units').value) || 0));
+    const priceSen = Math.round((Number(document.getElementById('t-price').value) || 0) * 100);
+    const avgSen = POS.costSen / POS.units;
+    const $ = (id) => document.getElementById(id);
+
+    if (tradeMode === 'buy') {
+      const newUnits = POS.units + units;
+      const newCost = POS.costSen + units * priceSen;
+      $('t-r1').textContent = POS.units + ' → ' + newUnits;
+      $('t-r2').textContent = rm(avgSen) + ' → ' + rm(newUnits ? newCost / newUnits : 0);
+      $('t-l3').textContent = 'Total invested';
+      $('t-r3').textContent = rm(POS.costSen) + ' → ' + rm(newCost);
+    } else {
+      const sold = Math.min(units, POS.units);
+      const costOut = Math.round(sold * avgSen);
+      const realised = sold * priceSen - costOut;
+      $('t-r1').textContent = POS.units + ' → ' + (POS.units - sold);
+      $('t-r2').textContent = rm(avgSen) + ' (unchanged)';
+      $('t-l3').textContent = 'Realised gain';
+      $('t-r3').textContent = (realised >= 0 ? '+' : '-') + rm(Math.abs(realised));
+    }
+  };
+
+  let spinning = false;
+  const refresh = () => {
+    if (spinning) return;
+    spinning = true;
+    const el = document.getElementById('updated');
+    el.textContent = 'Refreshing…';
+    setTimeout(() => { el.textContent = 'Updated just now · tap ↻ to refresh'; spinning = false; }, 900);
+  };
+
+  // Run the deep link last: it can call openTrade(), which is defined above.
+  fromHash();
+</script>
+</body>
+</html>

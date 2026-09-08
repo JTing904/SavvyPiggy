@@ -82,7 +82,7 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
   return (
     <div className="flex flex-col h-full bg-bg-dark safe-pt">
       {/* Header */}
-      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/80 backdrop-blur-md z-20">
+      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/95 z-20">
         <button
           className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
           onClick={onCancel}
@@ -167,11 +167,11 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
               </div>
             ) : (
               <div className="relative">
-                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-600">$</span>
+                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-slate-600">RM</span>
                 <input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="w-full h-20 pl-12 pr-6 rounded-3xl bg-surface border border-white/5 text-3xl font-black focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 text-white shadow-xl"
+                  className="w-full h-20 pl-[4.5rem] pr-6 rounded-3xl bg-surface border border-white/5 text-3xl font-black focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 text-white shadow-xl"
                   placeholder="0.00"
                   type="number"
                 />

@@ -1,6 +1,9 @@
-import type { Activity, PiggyBank } from '../types';
+import type { Activity, Holding, PiggyBank, Trade } from '../types';
+import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './holdings';
+import { fromCents } from './money';
 import type { Summary } from './analytics';
 import { A4, buildImagePdf, type PdfPage } from './pdf';
+import { formatMoney } from './money';
 
 /**
  * Draws the statement onto A4-shaped canvases with the browser's own text
@@ -29,8 +32,14 @@ const TYPE_LABEL: Record<Activity['type'], string> = {
   borrow: 'Borrowed',
 };
 
-const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`;
-const signed = (n: number) => `${n < 0 ? '-' : '+'}$${Math.abs(n).toFixed(2)}`;
+const TRADE_LABEL: Record<Trade['kind'], string> = {
+  buy: 'Buy',
+  sell: 'Sell',
+  dividend: 'Dividend',
+};
+
+const money = (n: number) => formatMoney(n);
+const signed = (n: number) => formatMoney(n, { signed: true });
 const pad = (n: number) => String(n).padStart(2, '0');
 const dateTime = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -197,10 +206,29 @@ export interface StatementInput {
   banks: PiggyBank[];
   owner: string;
   now?: Date;
+  /**
+   * The investing side of the same period. Saving and investing are reported
+   * one after the other and never added together — the shares are not part of
+   * the savings balance. A dividend is the one thing that belongs to both: it
+   * is income from a holding and money that reached the goals, so it shows in
+   * each section.
+   */
+  trades?: Trade[];
+  holdings?: Holding[];
+  quotes?: Quotes;
 }
 
 /** Renders the pages; exported separately so a preview could reuse them. */
-export const renderStatement = ({ summary, activities, banks, owner, now = new Date() }: StatementInput) => {
+export const renderStatement = ({
+  summary,
+  activities,
+  banks,
+  owner,
+  now = new Date(),
+  trades = [],
+  holdings = [],
+  quotes = {},
+}: StatementInput) => {
   const doc = new Doc();
   const contentWidth = W - MARGIN * 2;
 
@@ -208,7 +236,7 @@ export const renderStatement = ({ summary, activities, banks, owner, now = new D
   doc.font(11, 800);
   doc.text('SAVVYPIGGY', MARGIN, doc.y + 10 * SCALE, GREEN);
   doc.font(24, 800);
-  doc.text('Savings Statement', MARGIN, doc.y + 38 * SCALE);
+  doc.text('Statement', MARGIN, doc.y + 38 * SCALE);
   doc.font(9.5, 400);
   doc.text(owner, W - MARGIN, doc.y + 12 * SCALE, MUTED, 'right');
   doc.text(`Generated ${dateTime(now)}`, W - MARGIN, doc.y + 26 * SCALE, MUTED, 'right');
@@ -249,13 +277,13 @@ export const renderStatement = ({ summary, activities, banks, owner, now = new D
 
   // Goals
   doc.heading('Goals');
-  const goalCol = contentWidth - (90 + 80 + 80 + 60) * SCALE;
+  const goalCol = contentWidth - (104 + 92 + 92 + 60) * SCALE;
   doc.table(
     [
       { title: 'Goal', width: goalCol },
-      { title: 'Credited', width: 90 * SCALE, align: 'right' },
-      { title: 'Balance', width: 80 * SCALE, align: 'right' },
-      { title: 'Target', width: 80 * SCALE, align: 'right' },
+      { title: 'Credited', width: 104 * SCALE, align: 'right' },
+      { title: 'Balance', width: 92 * SCALE, align: 'right' },
+      { title: 'Target', width: 92 * SCALE, align: 'right' },
       { title: 'Funded', width: 60 * SCALE, align: 'right' },
     ],
     summary.banks.map((b) => [
@@ -285,13 +313,13 @@ export const renderStatement = ({ summary, activities, banks, owner, now = new D
     doc.text('No transactions in this period.', MARGIN, doc.y + 8 * SCALE, MUTED);
     doc.y += 16 * SCALE;
   } else {
-    const fixed = (95 + 90 + 75) * SCALE;
+    const fixed = (95 + 90 + 90) * SCALE;
     const flexible = contentWidth - fixed;
     doc.table(
       [
         { title: 'Date', width: 95 * SCALE },
         { title: 'Type', width: 90 * SCALE },
-        { title: 'Amount', width: 75 * SCALE, align: 'right' },
+        { title: 'Amount', width: 90 * SCALE, align: 'right' },
         { title: 'Goals', width: Math.round(flexible * 0.6) },
         { title: 'Note', width: flexible - Math.round(flexible * 0.6) },
       ],
@@ -302,12 +330,108 @@ export const renderStatement = ({ summary, activities, banks, owner, now = new D
         return [
           dateTime(new Date(a.date)),
           TYPE_LABEL[a.type] ?? a.type,
-          { text: `${outgoing ? '-' : '+'}${money(a.amount)}`, color: outgoing ? RED : GREEN },
+          { text: signed(outgoing ? -a.amount : a.amount), color: outgoing ? RED : GREEN },
           parts.join(', ') || '—',
           a.note ?? '',
         ];
       })
     );
+  }
+
+  /* ------------------------------------------------------------ investing */
+
+  const inPeriodTrades = [...trades]
+    .filter((t) => {
+      const d = new Date(t.tradedAt);
+      return d >= summary.range.start && d < summary.range.end;
+    })
+    .sort((a, b) => a.tradedAt - b.tradedAt);
+
+  if (inPeriodTrades.length > 0 || holdings.length > 0) {
+    doc.heading(`Investments (${inPeriodTrades.length} trade${inPeriodTrades.length === 1 ? '' : 's'})`);
+
+    if (inPeriodTrades.length === 0) {
+      doc.font(9.5, 400);
+      doc.text('No trades in this period.', MARGIN, doc.y + 8 * SCALE, MUTED);
+      doc.y += 16 * SCALE;
+    } else {
+      const fixed = (95 + 80 + 90 + 70 + 90) * SCALE;
+      doc.table(
+        [
+          { title: 'Date', width: 95 * SCALE },
+          { title: 'Action', width: 80 * SCALE },
+          { title: 'Counter', width: contentWidth - fixed },
+          { title: 'Units', width: 70 * SCALE, align: 'right' },
+          { title: 'Per unit', width: 90 * SCALE, align: 'right' },
+          { title: 'Amount', width: 90 * SCALE, align: 'right' },
+        ],
+        inPeriodTrades.map((t) => {
+          const perUnit = t.kind === 'dividend' ? (t.perUnitPoints ?? 0) / 100 : t.priceCents;
+          return [
+            dateTime(new Date(t.tradedAt)).slice(0, 10),
+            TRADE_LABEL[t.kind],
+            `${t.name} (${t.symbol})`,
+            t.units.toLocaleString('en-US'),
+            money(fromCents(perUnit)),
+            {
+              text: money(fromCents(tradeCents(t))),
+              color: t.kind === 'buy' ? INK : GREEN,
+            },
+          ];
+        })
+      );
+    }
+
+    if (holdings.length > 0) {
+      doc.heading('Positions at the end of the period');
+      const fixed = (70 + 90 + 92 + 92 + 88) * SCALE;
+      let costTotal = 0;
+      let valueTotal = 0;
+      const rows = holdings.map((h) => {
+        const price = quotes[h.symbol]?.priceCents ?? Math.round(averageCostCents(h));
+        const value = marketValueCents(h, price);
+        const gain = value - h.costCents;
+        costTotal += h.costCents;
+        valueTotal += value;
+        return [
+          `${h.name} (${h.symbol})`,
+          h.units.toLocaleString('en-US'),
+          money(fromCents(Math.round(averageCostCents(h)))),
+          money(fromCents(h.costCents)),
+          money(fromCents(value)),
+          { text: signed(fromCents(gain)), color: gain < 0 ? RED : GREEN },
+        ];
+      });
+      const total = valueTotal - costTotal;
+      rows.push([
+        'Total',
+        '',
+        '',
+        money(fromCents(costTotal)),
+        money(fromCents(valueTotal)),
+        { text: signed(fromCents(total)), color: total < 0 ? RED : GREEN },
+      ]);
+
+      doc.table(
+        [
+          { title: 'Counter', width: contentWidth - fixed },
+          { title: 'Units', width: 70 * SCALE, align: 'right' },
+          { title: 'Avg cost', width: 90 * SCALE, align: 'right' },
+          { title: 'Cost', width: 92 * SCALE, align: 'right' },
+          { title: 'Value', width: 92 * SCALE, align: 'right' },
+          { title: 'Gain', width: 88 * SCALE, align: 'right' },
+        ],
+        rows
+      );
+      doc.font(8.5, 400);
+      doc.text(
+        'Prices are the last seen when this statement was made. Investments are reported alongside the savings and are not part of the savings balance.',
+        MARGIN,
+        doc.y + 6 * SCALE,
+        MUTED
+      );
+      doc.y += 12 * SCALE;
+    }
   }
 
   doc.footers(`SavvyPiggy · ${owner} · ${summary.range.label}`);

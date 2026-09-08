@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SavvyPiggy · 滑卡片换模式</title>
+<style>
+  :root{
+    --bg:#0A0F0D; --surface:#141C19; --primary:#4ADE80; --accent:#2DD4BF;
+    --text:#E2E8F0; --muted:#64748B; --dim:#94A3B8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#050807; color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    -webkit-tap-highlight-color:transparent;
+    display:flex; flex-direction:column; align-items:center; gap:18px; padding:18px 12px 40px;
+  }
+  .intro{max-width:390px; text-align:center}
+  .intro h1{font-size:19px; font-weight:800; color:#fff; margin:0 0 8px}
+  .intro p{font-size:13px; line-height:1.7; color:var(--dim); margin:0}
+  .g{color:var(--primary); font-weight:700}
+  .t{color:var(--accent); font-weight:700}
+
+  .frame{
+    width:min(390px,100%); height:min(780px,82vh); position:relative; overflow:hidden;
+    background:var(--bg); border-radius:36px;
+    box-shadow:0 0 0 8px #16181c, 0 0 0 10px #2a2d33, 0 30px 70px rgba(0,0,0,.7);
+  }
+  .screen{position:absolute; inset:0; display:flex; flex-direction:column}
+  .hidden{display:none !important}
+
+  /* ---------- header ---------- */
+  .head{display:flex; align-items:center; gap:12px; padding:22px 22px 10px}
+  .ava{width:42px;height:42px;border-radius:50%;flex:0 0 auto;
+       background:linear-gradient(135deg,var(--primary),var(--accent));
+       display:flex;align-items:center;justify-content:center;color:#000;font-weight:900;font-size:17px}
+  .head .hi{font-size:11px;font-weight:700;color:var(--muted);margin:0}
+  .head .nm{font-size:17px;font-weight:800;color:#fff;margin:1px 0 0}
+  .spacer{flex:1}
+  .iconbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.09);
+           background:rgba(20,28,25,.72);color:var(--dim);display:flex;align-items:center;
+           justify-content:center;position:relative;flex:0 0 auto}
+  .badge{position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:50%;background:var(--primary)}
+
+  /* ---------- carousel ---------- */
+  .rail{display:flex;gap:12px;padding:0 22px;overflow-x:auto;scroll-snap-type:x mandatory;
+        scroll-behavior:smooth;scrollbar-width:none}
+  .rail::-webkit-scrollbar{display:none}
+  .bigcard{
+    scroll-snap-align:center; flex:0 0 auto; width:calc(min(390px,100vw) - 44px);
+    height:186px; border-radius:30px; padding:18px; color:#000; position:relative; overflow:hidden;
+    display:flex; flex-direction:column; justify-content:space-between;
+  }
+  .gloss{position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(120% 90% at 8% -12%,rgba(255,255,255,.45) 0%,rgba(255,255,255,.10) 34%,rgba(255,255,255,0) 62%)}
+  .rel{position:relative}
+  .kicker{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:900;
+          letter-spacing:.08em;text-transform:uppercase}
+  .amount{font-size:33px;font-weight:900;letter-spacing:-.02em;margin:0}
+  .sub{font-size:11px;font-weight:700;opacity:.72;margin:4px 0 0}
+  .pill{height:38px;border:0;border-radius:999px;background:rgba(0,0,0,.2);color:#000;
+        font-size:12px;font-weight:900;font-family:inherit;width:100%}
+
+  .dots{display:flex;justify-content:center;gap:6px;margin-top:12px}
+  .dot{height:6px;border-radius:999px;background:rgba(255,255,255,.2);width:6px;transition:all .25s}
+  .dot.on{width:20px}
+  .dot.on.save{background:var(--primary)}
+  .dot.on.inv{background:var(--accent)}
+
+  /* ---------- body ---------- */
+  .body{flex:1;overflow-y:auto;padding:20px 22px 150px;scrollbar-width:none}
+  .body::-webkit-scrollbar{display:none}
+  .h3{font-size:14px;font-weight:800;color:#fff;margin:0 0 12px}
+  .glass{background:rgba(20,28,25,.72);border:1px solid rgba(255,255,255,.09);border-radius:22px}
+  .row{display:flex;align-items:center;gap:12px;padding:14px}
+  .row + .row{margin-top:10px}
+  .chip{width:42px;height:42px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .row .nm{font-size:13px;font-weight:800;color:#fff;margin:0}
+  .row .mt{font-size:11px;font-weight:700;color:var(--muted);margin:2px 0 0}
+  .bar{height:6px;border-radius:999px;background:rgba(255,255,255,.1);margin-top:8px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:999px}
+  .val{font-size:13px;font-weight:900;color:#fff;flex:0 0 auto}
+
+  /* ---------- stacked stock cards ---------- */
+  .stack{margin-top:14px}
+  .scard{position:relative;border-radius:26px;padding:16px 20px 20px;color:#000}
+  .scard + .scard{margin-top:-46px}
+  .srow1{display:flex;align-items:center;gap:8px}
+  .sname{font-size:15px;font-weight:900;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ssym{font-size:10px;font-weight:900;opacity:.8;flex:0 0 auto}
+  .srow2{display:flex;align-items:baseline;gap:8px;margin-top:2px}
+  .spx{font-size:20px;font-weight:900;margin:0}
+  .schg{font-size:11px;font-weight:900;opacity:.8}
+  .srow3{display:flex;align-items:center;gap:8px;margin-top:6px}
+  .slab{font-size:10px;font-weight:700;opacity:.75}
+  .sval{font-size:14px;font-weight:900}
+
+  /* ---------- sub screen ---------- */
+  .subhead{display:flex;align-items:center;gap:14px;padding:24px 22px 14px}
+  .subhead h2{font-size:23px;font-weight:900;color:#fff;margin:0;letter-spacing:-.02em}
+  .kv{display:flex;font-size:13px;margin-top:12px}
+  .kv span:first-child{flex:1;color:var(--dim);font-weight:700}
+  .kv span:last-child{color:#fff;font-weight:900}
+  .hr{height:1px;background:rgba(255,255,255,.1);margin:16px 0}
+  .note{font-size:11px;font-weight:600;color:var(--muted);line-height:1.7;margin:12px 0 0}
+  .ghostbtn{width:100%;height:52px;margin-top:24px;border-radius:999px;
+            background:rgba(20,28,25,.72);border:1px solid rgba(255,255,255,.1);
+            color:var(--accent);font-weight:900;font-size:14px;font-family:inherit}
+  .placeholder{color:var(--muted);font-size:13px;margin-top:26px;line-height:1.7}
+
+  /* ---------- trade history ---------- */
+  .daylabel{font-size:10.5px;font-weight:800;color:var(--muted);letter-spacing:.08em;
+            text-transform:uppercase;margin:22px 0 10px}
+  .daylabel:first-child{margin-top:4px}
+  .trow{display:flex;align-items:center;gap:12px;padding:14px}
+  .trow + .trow{margin-top:10px}
+  .tag{font-size:9px;font-weight:900;padding:4px 9px;border-radius:999px;letter-spacing:.06em}
+  .tag.buy{background:rgba(74,222,128,.18);color:#4ADE80}
+  .tag.sell{background:rgba(248,113,113,.18);color:#F87171}
+  .tag.div{background:rgba(45,212,191,.18);color:#2DD4BF}
+  .tmain{flex:1;min-width:0}
+  .tmain p{margin:0}
+  .tname{font-size:13px;font-weight:800;color:#fff}
+  .tdesc{font-size:11px;font-weight:700;color:var(--muted);margin-top:2px !important}
+  .tamt{font-size:13px;font-weight:900;flex:0 0 auto;text-align:right}
+
+  /* ---------- sheet ---------- */
+  .sheetwrap{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.62);
+             display:flex;align-items:flex-end}
+  .sheet{width:100%;background:#141C19;border-top:1px solid rgba(255,255,255,.1);
+         border-radius:30px 30px 0 0;padding:14px 22px 26px;max-height:88%;overflow-y:auto}
+  .grab{width:40px;height:4px;border-radius:999px;background:rgba(255,255,255,.18);margin:0 auto 18px}
+  .sheet h3{font-size:18px;font-weight:900;color:#fff;margin:0 0 2px}
+  .sheet .cap{font-size:11.5px;font-weight:600;color:var(--muted);margin:0 0 18px;line-height:1.6}
+  .lab{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+       color:var(--muted);margin:16px 0 7px}
+  .input{width:100%;height:52px;border-radius:16px;background:rgba(255,255,255,.05);
+         border:1px solid rgba(255,255,255,.1);color:#fff;font-size:16px;font-weight:800;
+         padding:0 16px;font-family:inherit}
+  .input:focus{outline:none;border-color:rgba(74,222,128,.5)}
+  .two{display:flex;gap:10px}
+  .two > div{flex:1}
+  .recap{background:rgba(255,255,255,.04);border-radius:18px;padding:14px 16px;margin-top:20px}
+  .recap .kv{margin-top:8px}
+  .recap .kv:first-child{margin-top:0}
+  .savebtn{width:100%;height:54px;margin-top:20px;border-radius:999px;border:0;
+           background:var(--primary);color:#000;font-size:15px;font-weight:900;font-family:inherit}
+  .delbtn{width:100%;height:50px;margin-top:10px;border-radius:999px;
+          background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3);
+          color:#F87171;font-size:14px;font-weight:900;font-family:inherit}
+
+  /* ---------- nav ---------- */
+  .navwrap{position:absolute;left:0;right:0;bottom:0;padding:0 14px 18px}
+  .nav{display:flex;align-items:center;padding:8px;border-radius:34px;
+       background:rgba(20,28,25,.86);backdrop-filter:blur(14px);
+       border:1px solid rgba(255,255,255,.1);box-shadow:0 20px 50px rgba(0,0,0,.6)}
+  .tab{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+       padding:8px 2px;border:0;background:none;color:var(--muted);font-family:inherit}
+  .tab span{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+            width:100%;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fab{flex:0 0 auto;margin:0 4px;width:54px;height:54px;margin-top:-42px;border-radius:50%;
+       border:4px solid var(--bg);color:#000;display:flex;align-items:center;justify-content:center;
+       transition:background .25s, box-shadow .25s}
+
+  .legend{max-width:390px;text-align:center;font-size:11.5px;line-height:1.9;color:var(--muted)}
+  .legend b{color:#fff}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-home"><path d="M3 11l9-8 9 8v9a2 2 0 0 1-2 2h-4v-6H9v6H5a2 2 0 0 1-2-2z"/></g>
+  <g id="i-history"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></g>
+  <g id="i-wallet"><path d="M3 8a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M16 12h3"/></g>
+  <g id="i-chart"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></g>
+  <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+  <g id="i-candles"><path d="M7 3v18M7 7h0M17 3v18"/><rect x="4" y="7" width="6" height="9" rx="1"/><rect x="14" y="10" width="6" height="7" rx="1"/></g>
+  <g id="i-pay"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M12 10v5M10 11.5h4M10 13.5h4"/></g>
+  <g id="i-trend"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></g>
+  <g id="i-bell"><path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 0 0 3 0"/></g>
+  <g id="i-back"><path d="M15 5l-7 7 7 7"/></g>
+  <g id="i-piggy"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M9.5 10h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/></g>
+  <g id="i-plane"><path d="M12 2l3 8 7 2-7 2-3 8-3-8-7-2 7-2z"/></g>
+  <g id="i-shield"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/></g>
+  <g id="i-bolt"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></g>
+  <g id="i-right"><path d="M9 5l7 7-7 7"/></g>
+</defs></svg>
+
+<div class="intro">
+  <h1>滑卡片 = 换模式</h1>
+  <p>在 Home 左右滑顶部的卡片。滑到 <span class="t">Investments</span> 那一刻，底部导航整排换成投资的；
+     滑回 <span class="g">Savings</span> 就变回存款的。点导航可以进子页面，左上角返回回 Home。</p>
+</div>
+
+<div class="frame">
+
+  <!-- ===================== HOME ===================== -->
+  <section id="screen-home" class="screen">
+    <div class="head">
+      <div class="ava">J</div>
+      <div style="min-width:0">
+        <p class="hi">Good evening</p>
+        <p class="nm">Edward JT</p>
+      </div>
+      <div class="spacer"></div>
+      <button class="iconbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-bell"/></svg><i class="badge"></i></button>
+    </div>
+
+    <div class="rail" id="rail">
+      <!-- savings -->
+      <div class="bigcard" style="background:linear-gradient(152deg,#8BF0B3 0%,#4ADE80 38%,#1E7A45 100%);
+           box-shadow:0 2px 3px rgba(0,0,0,.45),0 18px 32px -12px rgba(0,0,0,.7),
+                      inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 0 rgba(0,0,0,.22),
+                      inset 0 -18px 30px -20px rgba(0,0,0,.55)">
+        <div class="gloss"></div>
+        <div class="kicker rel">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-piggy"/></svg>
+          Total savings
+        </div>
+        <div class="rel">
+          <p class="amount">RM5,271.60</p>
+          <p class="sub">6 goals · RM120.00 in this week</p>
+        </div>
+        <button class="pill rel">Deposit</button>
+      </div>
+      <!-- investments -->
+      <div class="bigcard" style="background:linear-gradient(152deg,#7CE9DC 0%,#2DD4BF 38%,#106B60 100%);
+           box-shadow:0 2px 3px rgba(0,0,0,.45),0 18px 32px -12px rgba(0,0,0,.7),
+                      inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 0 rgba(0,0,0,.22),
+                      inset 0 -18px 30px -20px rgba(0,0,0,.55)">
+        <div class="gloss"></div>
+        <div class="kicker rel">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trend"/></svg>
+          Investments
+        </div>
+        <div class="rel">
+          <p class="amount">RM5,480.00</p>
+          <p class="sub">2 counters · ▼RM24.00 today</p>
+        </div>
+        <button class="pill rel" onclick="go('history')">All trades</button>
+      </div>
+    </div>
+
+    <div class="dots">
+      <i id="dot0" class="dot on save"></i>
+      <i id="dot1" class="dot"></i>
+    </div>
+
+    <div class="body">
+      <!-- savings mode body -->
+      <div id="home-save">
+        <p class="h3">Your goals</p>
+        <div class="glass row">
+          <div class="chip" style="background:rgba(74,222,128,.18);color:#4ADE80">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><use href="#i-plane"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <p class="nm">Japan trip</p><div class="bar"><i style="width:62%;background:#4ADE80"></i></div>
+          </div><p class="val">RM1,860</p>
+        </div>
+        <div class="glass row">
+          <div class="chip" style="background:rgba(45,212,191,.18);color:#2DD4BF">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><use href="#i-shield"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <p class="nm">Emergency fund</p><div class="bar"><i style="width:88%;background:#2DD4BF"></i></div>
+          </div><p class="val">RM2,640</p>
+        </div>
+        <div class="glass row">
+          <div class="chip" style="background:rgba(251,191,36,.18);color:#FBBF24">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><use href="#i-bolt"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <p class="nm">New bike</p><div class="bar"><i style="width:31%;background:#FBBF24"></i></div>
+          </div><p class="val">RM771</p>
+        </div>
+      </div>
+
+      <!-- invest mode body -->
+      <div id="home-invest" class="hidden">
+        <div style="display:flex;align-items:center">
+          <p class="h3" style="margin:0">Your counters</p>
+          <div class="spacer"></div>
+          <p style="margin:0;color:#34D399;font-weight:900;font-size:13px">+RM670.00 · +13.9%</p>
+        </div>
+        <div class="stack" id="stack"></div>
+        <div class="glass row" style="margin-top:16px" onclick="go('dividends')">
+          <div class="chip" style="background:rgba(45,212,191,.18);color:#2DD4BF">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><use href="#i-pay"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <p class="nm">Next dividend</p><p class="mt">MAYBANK · pays 26 Mar · RM165.00</p>
+          </div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-right"/></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SUB ===================== -->
+  <section id="screen-sub" class="screen hidden">
+    <div class="subhead">
+      <button class="iconbtn" onclick="go('home')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-back"/></svg>
+      </button>
+      <h2 id="sub-title">Holdings</h2>
+    </div>
+    <div class="body" id="sub-body"></div>
+  </section>
+
+  <!-- ===================== NAV ===================== -->
+  <div class="navwrap"><div class="nav" id="nav"></div></div>
+
+  <div id="sheet" class="sheetwrap hidden"></div>
+</div>
+
+<div class="legend">
+  导航 5 个位置，两个模式一一对应。没有独立的 Holdings 页 —— 股票卡就在 Home 上。<br>
+  <b class="g">存款</b> Home · History · <b>+ 存钱</b> · Strategy · Report<br>
+  <b class="t">投资</b> Home · Trades · <b>+ 加股票 / 买卖</b> · Dividends · Growth
+</div>
+
+<script>
+var NAV = {
+  save:   { tint:'#4ADE80', tabs:[
+    {id:'home',icon:'i-home',label:'Home'},{id:'history',icon:'i-history',label:'History'},
+    {id:'strategy',icon:'i-wallet',label:'Strategy'},{id:'report',icon:'i-chart',label:'Report'}]},
+  invest: { tint:'#2DD4BF', tabs:[
+    {id:'home',icon:'i-home',label:'Home'},{id:'history',icon:'i-history',label:'History'},
+    {id:'dividends',icon:'i-pay',label:'Dividends'},{id:'growth',icon:'i-trend',label:'Growth'}]}
+};
+
+var STOCKS = [
+  {name:'MAYBANK', sym:'1155.KL', px:'RM10.54', chg:'▼ 0.4%', value:'RM5,270.00', day:'-RM20.00', c:'#4ADE80'},
+  {name:'BIMB',    sym:'5258.KL', px:'RM2.10',  chg:'▼ 0.5%', value:'RM210.00',   day:'-RM4.00',  c:'#2DD4BF'}
+];
+
+var mode = 'save', tab = 'home';
+
+function mix(hex, amt, to){
+  var v = parseInt(hex.slice(1),16);
+  function ch(s){ var c=(v>>s)&255; return Math.round(c + (to-c)*amt); }
+  return 'rgb('+ch(16)+','+ch(8)+','+ch(0)+')';
+}
+function cardStyle(color){
+  return 'background:linear-gradient(152deg,'+mix(color,.28,255)+' 0%,'+color+' 38%,'+mix(color,.42,0)+' 100%);'
+       + 'box-shadow:0 2px 3px rgba(0,0,0,.45),0 16px 28px -12px rgba(0,0,0,.65),'
+       + 'inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.22),'
+       + 'inset 0 -16px 28px -20px rgba(0,0,0,.55);';
+}
+function stackHtml(){
+  return STOCKS.map(function(s,i){
+    return '<div class="scard" style="'+cardStyle(s.c)+'z-index:'+(i+1)+'">'
+      + '<div class="gloss" style="border-radius:26px"></div><div class="rel">'
+      + '<div class="srow1"><p class="sname">'+s.name+'</p><div class="spacer"></div><span class="ssym">'+s.sym+'</span></div>'
+      + '<div class="srow2"><p class="spx">'+s.px+'</p><span class="schg">'+s.chg+'</span></div>'
+      + '<div class="srow3"><span class="slab">Market value · '+s.day+' today</span><div class="spacer"></div>'
+      + '<span class="sval">'+s.value+'</span></div></div></div>';
+  }).join('');
+}
+
+var TRADES = [
+  {id:0, day:'15 Mar 2026', kind:'buy',  name:'MAYBANK', sym:'1155.KL', units:400, px:'10.87', total:'RM4,348.00'},
+  {id:1, day:'12 Mar 2026', kind:'div',  name:'MAYBANK', sym:'1155.KL', units:100, px:'0.3300', total:'RM33.00'},
+  {id:2, day:'02 Mar 2026', kind:'sell', name:'BIMB',    sym:'5258.KL', units:50,  px:'2.14',  total:'RM107.00'},
+  {id:3, day:'02 Mar 2026', kind:'buy',  name:'BIMB',    sym:'5258.KL', units:150, px:'2.06',  total:'RM309.00'},
+  {id:4, day:'01 Mar 2026', kind:'buy',  name:'MAYBANK', sym:'1155.KL', units:100, px:'9.20',  total:'RM920.00'}
+];
+
+var LABEL = { buy:'BUY', sell:'SELL', div:'DIVIDEND' };
+
+function tradeRow(t){
+  var desc = t.kind === 'div'
+    ? t.units + ' 股 × RM' + t.px + ' 已入账'
+    : t.units + ' 股 @ RM' + t.px;
+  var colour = t.kind === 'sell' ? '#F87171' : t.kind === 'div' ? '#2DD4BF' : '#fff';
+  var sign = t.kind === 'buy' ? '' : '+';
+  return '<div class="glass trow" onclick="openSheet(' + t.id + ')">'
+    + '<span class="tag ' + t.kind + '">' + LABEL[t.kind] + '</span>'
+    + '<div class="tmain"><p class="tname">' + t.name + '</p><p class="tdesc">' + desc + '</p></div>'
+    + '<p class="tamt" style="color:' + colour + '">' + sign + t.total + '</p></div>';
+}
+
+function tradeHistory(){
+  var out = '', last = null;
+  TRADES.forEach(function(t){
+    if (t.day !== last){ out += '<p class="daylabel">' + t.day + '</p>'; last = t.day; }
+    out += tradeRow(t);
+  });
+  return out + '<p class="note" style="text-align:center;margin-top:24px">'
+    + '点任何一笔可以改日期、股数、价格，或者删掉。<br>股数和成本会自动重算。</p>';
+}
+
+function openSheet(id){
+  var t = TRADES.filter(function(x){ return x.id === id; })[0];
+  var iso = { '01 Mar 2026':'2026-03-01', '02 Mar 2026':'2026-03-02',
+              '12 Mar 2026':'2026-03-12', '15 Mar 2026':'2026-03-15' }[t.day];
+  var isDiv = t.kind === 'div';
+  document.getElementById('sheet').innerHTML =
+      '<div class="sheet">'
+    + '<div class="grab"></div>'
+    + '<h3>' + (isDiv ? '派息 · ' : t.kind === 'buy' ? '买入 · ' : '卖出 · ') + t.name + '</h3>'
+    + '<p class="cap">' + (isDiv
+        ? '这笔是系统按除权日持有的股数自动记的。实际到手跟公告不一样（税、手续费）时，改这里的金额。'
+        : '改哪一笔就点哪一笔 —— 其它交易不受影响，除权日那天持有多少股会自己重算。') + '</p>'
+    + '<p class="lab">' + (isDiv ? '派息日' : '成交日期') + '</p>'
+    + '<input class="input" type="date" value="' + iso + '">'
+    + '<div class="two"><div><p class="lab">股数</p>'
+    + '<input class="input" value="' + t.units + '"></div>'
+    + '<div><p class="lab">' + (isDiv ? '每股派息 RM' : '每股价格 RM') + '</p>'
+    + '<input class="input" value="' + t.px + '"></div></div>'
+    + '<div class="recap">'
+    + '<div class="kv"><span>这笔金额</span><span>' + t.total + '</span></div>'
+    + '<div class="kv"><span>改完之后 ' + t.name + ' 共</span><span>500 股</span></div>'
+    + '<div class="kv"><span>均价</span><span>RM10.54</span></div>'
+    + '</div>'
+    + '<button class="savebtn" onclick="closeSheet()">Save</button>'
+    + '<button class="delbtn" onclick="closeSheet()">删掉这一笔</button>'
+    + '</div>';
+  document.getElementById('sheet').classList.remove('hidden');
+}
+function closeSheet(){ document.getElementById('sheet').classList.add('hidden'); }
+document.getElementById('sheet').addEventListener('click', function(e){
+  if (e.target.id === 'sheet') closeSheet();
+});
+
+var SUB = {
+  save: {
+    history:  ['History',  '<p class="placeholder">按天分组的存取记录。</p>'],
+    strategy: ['Strategy', '<p class="placeholder">分账百分比与罐子设定。</p>'],
+    report:   ['Report',   '<p class="placeholder">月度图表与 PDF 对账单。</p>']
+  },
+  invest: {
+    history:  ['Trades',   '{{TRADES}}'],
+    growth:   ['Growth',   '<p class="placeholder">持仓的盈亏走势与派息收入。</p>'],
+    dividends:['Dividends',
+        '<div class="glass" style="padding:20px">'
+      + '<p style="margin:0;font-size:15px;font-weight:900;color:#fff">MAYBANK</p>'
+      + '<div class="kv"><span>除权日 Ex-date</span><span>12 Mar 2026</span></div>'
+      + '<div class="kv"><span>派息日 Pay date</span><span>26 Mar 2026</span></div>'
+      + '<div class="kv"><span>每股</span><span>RM0.3300</span></div>'
+      + '<div class="kv"><span>除权日持有</span><span>500 股</span></div>'
+      + '<div class="hr"></div>'
+      + '<div style="display:flex;align-items:center"><span style="flex:1;color:#2DD4BF;font-weight:900;font-size:14px">入账金额</span>'
+      + '<span style="color:#2DD4BF;font-weight:900;font-size:21px">RM165.00</span></div>'
+      + '<p class="note">派息日当天自动记一笔存款，按你现有的百分比分给各个罐子。到账后会出现在 Trades 里，可以改可以删。</p></div>']
+  }
+};
+
+function svg(id, active){
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="'
+       + (active ? 2.4 : 1.9) + '" stroke-linecap="round" stroke-linejoin="round"><use href="#'+id+'"/></svg>';
+}
+
+function renderNav(){
+  var cfg = NAV[mode];
+  function btn(t){
+    var on = tab === t.id;
+    return '<button class="tab" onclick="go(\'' + t.id + '\')" style="color:' + (on ? cfg.tint : '#64748B') + '">'
+         + svg(t.icon, on) + '<span>' + t.label + '</span></button>';
+  }
+  document.getElementById('nav').innerHTML =
+      cfg.tabs.slice(0,2).map(btn).join('')
+    + '<button class="fab" style="background:'+cfg.tint+';box-shadow:0 12px 28px '+cfg.tint+'55">'
+    + '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><use href="#i-plus"/></svg></button>'
+    + cfg.tabs.slice(2).map(btn).join('');
+}
+
+function go(id){
+  tab = id;
+  var home = document.getElementById('screen-home'), sub = document.getElementById('screen-sub');
+  if (id === 'home'){ home.classList.remove('hidden'); sub.classList.add('hidden'); }
+  else {
+    home.classList.add('hidden'); sub.classList.remove('hidden');
+    var entry = SUB[mode][id];
+    document.getElementById('sub-title').textContent = entry[0];
+    document.getElementById('sub-body').innerHTML = entry[1].replace('{{TRADES}}', tradeHistory());
+  }
+  renderNav();
+}
+
+var rail = document.getElementById('rail');
+rail.addEventListener('scroll', function(){
+  var next = rail.scrollLeft > rail.clientWidth / 2 ? 'invest' : 'save';
+  document.getElementById('dot0').className = 'dot' + (next === 'save'   ? ' on save' : '');
+  document.getElementById('dot1').className = 'dot' + (next === 'invest' ? ' on inv'  : '');
+  if (next === mode) return;
+  mode = next; tab = 'home';
+  document.getElementById('home-save').classList.toggle('hidden', mode !== 'save');
+  document.getElementById('home-invest').classList.toggle('hidden', mode !== 'invest');
+  document.getElementById('stack').innerHTML = stackHtml();
+  renderNav();
+});
+
+document.getElementById('stack').innerHTML = stackHtml();
+renderNav();
+</script>
+</body>
+</html>

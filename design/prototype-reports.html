@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SavvyPiggy · 每月报表</title>
+<style>
+  :root{ --bg:#0A0F0D; --surface:#141C19; --primary:#4ADE80; --accent:#2DD4BF;
+         --amber:#FBBF24; --red:#F87171; --text:#E2E8F0; --muted:#64748B; --dim:#94A3B8; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#050807;color:var(--text);
+       font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       -webkit-tap-highlight-color:transparent;
+       display:flex;flex-direction:column;align-items:center;gap:16px;padding:18px 12px 40px}
+  .intro{max-width:390px;text-align:center}
+  .intro h1{font-size:18px;font-weight:800;color:#fff;margin:0 0 6px}
+  .intro p{font-size:13px;line-height:1.7;color:var(--dim);margin:0}
+  .intro b.g{color:var(--primary)} .intro b.t{color:var(--accent)} .intro b.r{color:var(--red)}
+
+  .frame{width:min(390px,100%);height:min(780px,82vh);position:relative;overflow:hidden;
+         background:var(--bg);border-radius:36px;
+         box-shadow:0 0 0 8px #16181c,0 0 0 10px #2a2d33,0 30px 70px rgba(0,0,0,.7)}
+  .screen{position:absolute;inset:0;overflow-y:auto;padding:26px 22px 40px;scrollbar-width:none}
+  .screen::-webkit-scrollbar{display:none}
+  .hidden{display:none !important}
+
+  .head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .back{width:38px;height:38px;flex:0 0 auto;border-radius:50%;border:1px solid rgba(255,255,255,.09);
+        background:rgba(19,26,23,.88);color:var(--dim);display:flex;align-items:center;justify-content:center}
+  h2.page{font-size:23px;font-weight:900;color:#fff;margin:0;letter-spacing:-.02em}
+  p.sub{font-size:12px;font-weight:600;color:var(--muted);margin:2px 0 0}
+
+  .chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-bottom:16px}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:0 0 auto;padding:8px 16px;border-radius:999px;font-size:12px;font-weight:800;
+        background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted)}
+  .chip.on{background:var(--primary);color:#000;border-color:var(--primary)}
+
+  .card{background:rgba(19,26,23,.88);border:1px solid rgba(255,255,255,.09);border-radius:24px;padding:18px}
+  .fake-chart{height:110px;display:flex;align-items:flex-end;gap:7px;margin-top:12px}
+  .fake-chart i{flex:1;background:linear-gradient(180deg,var(--primary),rgba(74,222,128,.25));border-radius:6px 6px 3px 3px;display:block}
+
+  .bigbtn{width:100%;display:flex;align-items:center;gap:14px;margin-top:14px;
+          background:rgba(19,26,23,.88);border:1px solid rgba(255,255,255,.1);
+          border-radius:24px;padding:18px;color:inherit;font-family:inherit;text-align:left}
+  .bigbtn:active{transform:scale(.985)}
+  .bigbtn .ic{width:44px;height:44px;flex:0 0 auto;border-radius:15px;background:rgba(74,222,128,.16);
+              color:var(--primary);display:flex;align-items:center;justify-content:center}
+  .bigbtn p{margin:0;font-size:14px;font-weight:800;color:#fff}
+  .bigbtn small{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-top:3px;line-height:1.5}
+
+  .h3{font-size:14px;font-weight:800;color:#fff;margin:24px 0 4px}
+  .hint{font-size:11px;font-weight:600;color:var(--muted);margin:0 0 12px;line-height:1.6}
+
+  .mrow{display:flex;align-items:center;gap:10px;background:rgba(19,26,23,.88);
+        border:1px solid rgba(255,255,255,.09);border-radius:22px;padding:13px 13px 13px 17px}
+  .mrow + .mrow{margin-top:9px}
+  .mrow .grow{flex:1;min-width:0;background:none;border:0;color:inherit;font-family:inherit;text-align:left;padding:0}
+  .mrow .name{font-size:14px;font-weight:800;color:#fff;margin:0}
+  .mrow .meta{font-size:11px;font-weight:700;color:var(--muted);margin:3px 0 0}
+  .mrow .net{color:var(--primary)} .mrow .inv{color:var(--accent)}
+  .iconbtn{width:38px;height:38px;flex:0 0 auto;border-radius:13px;border:1px solid rgba(255,255,255,.1);
+           background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center}
+  .iconbtn:active{transform:scale(.9)}
+  .tag{font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;
+       border-radius:999px;margin-left:7px}
+  .tag.now{background:rgba(45,212,191,.16);color:var(--accent)}
+  .tag.go{background:rgba(248,113,113,.16);color:var(--red)}
+
+  .legend{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:14px;
+          font-size:11px;font-weight:700;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:6px}
+
+  .warn{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.28);border-radius:24px;padding:18px;margin-top:24px}
+  .warn p.t{margin:0;font-size:14px;font-weight:900;color:var(--amber)}
+  .warn p.b{margin:8px 0 0;font-size:11.5px;font-weight:600;color:rgba(253,230,138,.75);line-height:1.7}
+
+  .seg{display:flex;gap:8px;margin-top:14px}
+  .seg button{flex:1;padding:11px 0;border-radius:14px;font-size:12px;font-weight:800;font-family:inherit;
+              background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--muted)}
+  .seg button.on{background:var(--amber);color:#000;border-color:var(--amber)}
+
+  .safe{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:14px;border-radius:18px;
+        background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.22)}
+  .safe p{margin:0;font-size:11.5px;font-weight:700;color:rgba(187,247,208,.85);line-height:1.7}
+
+  /* --- report preview --- */
+  .sheet{background:#fff;color:#0F172A;border-radius:14px;padding:18px;margin-top:14px;
+         font-family:Georgia,"Times New Roman",serif}
+  .sheet h4{margin:0;font-size:15px;letter-spacing:-.01em}
+  .sheet .who{font-size:10.5px;color:#64748B;margin:2px 0 14px}
+  .sheet .band{background:#0A0F0D;color:#fff;border-radius:8px;padding:10px 12px;margin:0 0 12px;
+               display:flex;align-items:center;font-family:system-ui,sans-serif}
+  .sheet .band b{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:800;flex:1;opacity:.7}
+  .sheet .band i{font-style:normal;font-size:16px;font-weight:900}
+  .sheet .sect{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+               color:#0F766E;border-bottom:1.5px solid #CBD5E1;padding-bottom:5px;margin:16px 0 8px;
+               font-family:system-ui,sans-serif}
+  .sheet table{width:100%;border-collapse:collapse;font-size:10.5px;font-family:system-ui,sans-serif}
+  .sheet th{text-align:left;font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:#64748B;
+            padding:4px 0;border-bottom:1px solid #E2E8F0}
+  .sheet td{padding:5px 0;border-bottom:1px solid #F1F5F9}
+  .sheet td.r,.sheet th.r{text-align:right}
+  .sheet .tot{font-weight:800}
+  .sheet .foot{font-size:9px;color:#94A3B8;margin-top:14px;line-height:1.6;font-family:system-ui,sans-serif}
+
+  .toast{position:absolute;left:16px;right:16px;bottom:22px;background:rgba(19,26,23,.97);
+         border:1px solid rgba(74,222,128,.35);border-radius:18px;padding:14px 16px;
+         display:flex;align-items:center;gap:10px;opacity:0;transform:translateY(12px);
+         transition:opacity .18s, transform .18s;pointer-events:none;z-index:9}
+  .toast.show{opacity:1;transform:none}
+  .toast p{margin:0;font-size:12px;font-weight:800;color:#fff}
+  .toast small{display:block;font-weight:600;color:var(--muted);margin-top:2px;font-size:10.5px}
+
+  .note{max-width:390px;text-align:center;font-size:11.5px;line-height:1.9;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-pdf"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 18h3"/></g>
+  <g id="i-csv"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/></g>
+  <g id="i-check"><path d="M20 6L9 17l-5-5"/></g>
+  <g id="i-back"><path d="M15 5l-7 7 7 7"/></g>
+  <g id="i-right"><path d="M9 5l7 7-7 7"/></g>
+  <g id="i-doc"><path d="M4 4a2 2 0 0 1 2-2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></g>
+  <g id="i-shield"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></g>
+</defs></svg>
+
+<div class="intro">
+  <h1>每月报表 · 独立页面</h1>
+  <p>Report 页只留图表和一个按钮。点它进 <b class="g">Statements</b> —— 月份清单、
+     <b class="r">PDF</b>／<b class="g">CSV</b>、以及自动删除设置。
+     点月份名字可以看那份报表里<b class="t">存款和投资</b>长什么样。</p>
+</div>
+
+<div class="frame">
+
+  <!-- ========== Report ========== -->
+  <section id="s-report" class="screen">
+    <div class="head"><div><h2 class="page">Report</h2><p class="sub">Sep 1 – Sep 8, 2026 · 8 days</p></div></div>
+
+    <div class="chips">
+      <div class="chip">Week</div><div class="chip on">Month</div>
+      <div class="chip">Quarter</div><div class="chip">Year</div><div class="chip">All Time</div>
+    </div>
+
+    <div class="card">
+      <p style="margin:0;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Distributed this month</p>
+      <p style="margin:6px 0 0;font-size:28px;font-weight:900;color:#fff;letter-spacing:-.02em">RM480.00</p>
+      <div class="fake-chart">
+        <i style="height:34%"></i><i style="height:58%"></i><i style="height:22%"></i><i style="height:71%"></i>
+        <i style="height:44%"></i><i style="height:88%"></i><i style="height:30%"></i><i style="height:52%"></i>
+      </div>
+    </div>
+
+    <button class="bigbtn" onclick="go('s-list')">
+      <span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-doc"/></svg></span>
+      <span style="flex:1;min-width:0">
+        <p>Statements</p>
+        <small>每月一份对账单 · 存款与投资 · 自动清理设置</small>
+      </span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-right"/></svg>
+    </button>
+
+    <p class="hint" style="margin-top:18px;text-align:center">
+      上面的周期只影响这一页的图表。<br>导出永远按月，在 Statements 里。
+    </p>
+  </section>
+
+  <!-- ========== Statements ========== -->
+  <section id="s-list" class="screen hidden">
+    <div class="head">
+      <button class="back" onclick="go('s-report')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-back"/></svg></button>
+      <div><h2 class="page">Statements</h2><p class="sub">一个月一份，存款与投资都在里面</p></div>
+    </div>
+
+    <div id="months"></div>
+
+    <div class="legend">
+      <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-pdf"/></svg> PDF 对账单</span>
+      <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-csv"/></svg> CSV 明细</span>
+    </div>
+
+    <p class="h3">Keeping the app light</p>
+    <p class="hint">
+      每次开 app 都会把全部流水读一遍。记录越多读得越多，免费额度是<b>每天 5 万次读取</b> ——
+      几千条之后一天开几次就会撞上。所以旧流水会自动清掉。
+    </p>
+
+    <div class="warn">
+      <p class="t">下个月会自动清掉</p>
+      <p class="b">
+        <b>August 2025</b> 的 31 笔流水，在 <b>1 Oct 2026</b> 被删。<br>
+        想留就先按上面那一行的 PDF 或 CSV 存下来。
+      </p>
+      <div class="seg">
+        <button>6 个月</button><button class="on">12 个月</button>
+        <button>24 个月</button><button>永不</button>
+      </div>
+    </div>
+
+    <div class="safe">
+      <svg width="19" height="19" style="flex:0 0 auto" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-shield"/></svg>
+      <p><b>你的钱一分都不会动。</b>余额记在罐子上，流水只是历史。删记录不会让任何罐子少一分，
+         债务、投资持仓也一样不受影响。</p>
+    </div>
+  </section>
+
+  <!-- ========== One month's report ========== -->
+  <section id="s-preview" class="screen hidden">
+    <div class="head">
+      <button class="back" onclick="go('s-list')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-back"/></svg></button>
+      <div><h2 class="page" id="pv-month">August 2026</h2><p class="sub">报表里包含什么</p></div>
+    </div>
+
+    <div class="sheet">
+      <h4>Monthly statement</h4>
+      <p class="who">Edward JT · August 2026 · generated 8 Sep 2026</p>
+
+      <div class="band"><b>Saved this month</b><i>RM1,240.50</i></div>
+
+      <p class="sect">Savings · 31 records</p>
+      <table>
+        <tr><th>Date</th><th>Type</th><th>Goal</th><th class="r">Amount</th></tr>
+        <tr><td>02 Aug</td><td>Deposit</td><td>Japan trip</td><td class="r">120.00</td></tr>
+        <tr><td>02 Aug</td><td>Deposit</td><td>Emergency</td><td class="r">80.00</td></tr>
+        <tr><td>09 Aug</td><td>Scheduled</td><td>split ×4</td><td class="r">166.60</td></tr>
+        <tr><td>15 Aug</td><td>Withdrawal</td><td>New bike</td><td class="r">−45.00</td></tr>
+        <tr class="tot"><td colspan="3">Net into goals</td><td class="r">1,240.50</td></tr>
+      </table>
+
+      <p class="sect">Goals at 31 Aug</p>
+      <table>
+        <tr><th>Goal</th><th class="r">Received</th><th class="r">Balance</th></tr>
+        <tr><td>Japan trip</td><td class="r">480.00</td><td class="r">1,860.00</td></tr>
+        <tr><td>Emergency fund</td><td class="r">520.50</td><td class="r">2,640.00</td></tr>
+        <tr><td>New bike</td><td class="r">240.00</td><td class="r">771.00</td></tr>
+      </table>
+
+      <p class="sect">Investments · 3 trades</p>
+      <table>
+        <tr><th>Date</th><th>Action</th><th>Counter</th><th class="r">Units</th><th class="r">Amount</th></tr>
+        <tr><td>05 Aug</td><td>Buy</td><td>MAYBANK</td><td class="r">100</td><td class="r">1,060.00</td></tr>
+        <tr><td>19 Aug</td><td>Dividend</td><td>PBBANK</td><td class="r">300</td><td class="r">31.50</td></tr>
+        <tr><td>27 Aug</td><td>Sell</td><td>BIMB</td><td class="r">50</td><td class="r">107.00</td></tr>
+      </table>
+
+      <p class="sect">Positions at 31 Aug</p>
+      <table>
+        <tr><th>Counter</th><th class="r">Units</th><th class="r">Cost</th><th class="r">Value</th><th class="r">Gain</th></tr>
+        <tr><td>MAYBANK</td><td class="r">100</td><td class="r">1,060.00</td><td class="r">1,054.00</td><td class="r">−6.00</td></tr>
+        <tr><td>BIMB</td><td class="r">100</td><td class="r">210.00</td><td class="r">210.00</td><td class="r">0.00</td></tr>
+        <tr class="tot"><td>Total</td><td class="r">—</td><td class="r">1,270.00</td><td class="r">1,264.00</td><td class="r">−6.00</td></tr>
+      </table>
+
+      <p class="foot">
+        Savings and investments are reported side by side and never added together —
+        the investments are not part of your savings balance. Dividends are the one
+        crossing point: they are paid into the goals and appear in both sections.
+      </p>
+    </div>
+
+    <p class="hint" style="margin-top:16px;text-align:center">
+      CSV 是同一份内容的两段表格（存款一段、投资一段），<br>Excel 打开就是上下两张表。
+    </p>
+  </section>
+
+  <div class="toast" id="toast">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg>
+    <div><p id="toast-title">Saved</p><small id="toast-file"></small></div>
+  </div>
+</div>
+
+<div class="note">
+  文件名 <b>SavvyPiggy-August-2026.pdf</b> / <b>.csv</b><br>
+  存进手机下载夹，可以直接分享。
+</div>
+
+<script>
+var MONTHS = [
+  { label: 'September 2026', n: 12, net: '+RM480.00',   inv: '1 笔交易', tag: 'now' },
+  { label: 'August 2026',    n: 31, net: '+RM1,240.50', inv: '3 笔交易' },
+  { label: 'July 2026',      n: 28, net: '+RM980.00',   inv: '2 笔交易' },
+  { label: 'June 2026',      n: 24, net: '+RM860.00',   inv: '—' },
+  { label: 'May 2026',       n: 19, net: '+RM640.00',   inv: '1 笔交易' },
+  { label: 'August 2025',    n: 31, net: '+RM1,100.00', inv: '—', tag: 'go' }
+];
+
+function icon(id, colour) {
+  return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + colour +
+         '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#' + id + '"/></svg>';
+}
+
+document.getElementById('months').innerHTML = MONTHS.map(function (m) {
+  var tag = m.tag === 'now' ? '<span class="tag now">so far</span>'
+          : m.tag === 'go'  ? '<span class="tag go">1 Oct 删</span>' : '';
+  return '<div class="mrow">'
+    + '<button class="grow" onclick="preview(\'' + m.label + '\')">'
+    + '<p class="name">' + m.label + tag + '</p>'
+    + '<p class="meta">' + m.n + ' 笔 · <span class="net">' + m.net + '</span>'
+    + ' · <span class="inv">' + m.inv + '</span></p></button>'
+    + '<button class="iconbtn" onclick="save(\'' + m.label + '\',\'pdf\')">' + icon('i-pdf', '#F87171') + '</button>'
+    + '<button class="iconbtn" onclick="save(\'' + m.label + '\',\'csv\')">' + icon('i-csv', '#4ADE80') + '</button>'
+    + '</div>';
+}).join('');
+
+function go(id) {
+  ['s-report', 's-list', 's-preview'].forEach(function (s) {
+    document.getElementById(s).classList.toggle('hidden', s !== id);
+  });
+}
+function preview(label) {
+  document.getElementById('pv-month').textContent = label;
+  go('s-preview');
+}
+
+var timer;
+function save(label, kind) {
+  document.getElementById('toast-title').textContent = kind === 'pdf' ? 'Statement saved' : 'Records saved';
+  document.getElementById('toast-file').textContent = 'SavvyPiggy-' + label.replace(' ', '-') + '.' + kind;
+  var t = document.getElementById('toast');
+  t.classList.add('show');
+  clearTimeout(timer);
+  timer = setTimeout(function () { t.classList.remove('show'); }, 2200);
+}
+</script>
+</body>
+</html>

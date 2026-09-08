@@ -4,6 +4,7 @@ import { evenSplit, sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
+import { formatMoney } from '../services/money';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
@@ -18,7 +19,6 @@ type Draft = Record<string, { splitPercentage: number; isLocked: boolean; autoSp
 
 const STEP = 5;
 const clampPct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
-const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 interface StepperProps {
   value: number;
@@ -79,7 +79,7 @@ const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChan
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="w-9 bg-transparent text-center text-xl font-black text-white leading-none focus:outline-none"
+            className="w-9 border-0 bg-transparent text-center text-xl font-black text-white leading-none focus:outline-none"
           />
           <span className="text-slate-500 text-sm font-bold leading-none">%</span>
         </div>
@@ -267,8 +267,8 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                     <div className="min-w-0">
                       <h4 className="text-white font-bold truncate">{bank.name}</h4>
                       <p className={`text-xs truncate ${overspent ? 'text-red-400' : 'text-slate-500'}`}>
-                        {money(bank.currentAmount)}
-                        {hasTarget ? ` of ${money(bank.targetAmount)}` : ' · no limit'}
+                        {formatMoney(bank.currentAmount, { decimals: 0 })}
+                        {hasTarget ? ` of ${formatMoney(bank.targetAmount, { decimals: 0 })}` : ' · no limit'}
                       </p>
                     </div>
                   </div>
@@ -322,7 +322,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                     </span>
                     {hasTarget && !overspent && (
                       <span className="text-slate-500 tabular-nums">
-                        {remaining > 0 ? `${money(remaining)} remaining` : 'Target reached'}
+                        {remaining > 0 ? `${formatMoney(remaining, { decimals: 0 })} remaining` : 'Target reached'}
                       </span>
                     )}
                   </div>

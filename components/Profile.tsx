@@ -6,6 +6,7 @@ import { currentStreak, summarize } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
 import { APP_VERSION } from '../services/version';
 import { SLICE_COLORS } from './DonutChart';
+import { formatMoney } from '../services/money';
 
 interface ProfileProps {
   banks: PiggyBank[];
@@ -20,10 +21,10 @@ interface ProfileProps {
   onOpenStrategy: () => void;
   onOpenAlerts: () => void;
   onOpenReport: () => void;
+  onOpenHoldings: () => void;
+  holdingCount: number;
 }
 
-const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const whole = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 const monthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 const shortDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
@@ -96,6 +97,8 @@ const Profile: React.FC<ProfileProps> = ({
   onOpenStrategy,
   onOpenAlerts,
   onOpenReport,
+  onOpenHoldings,
+  holdingCount,
 }) => {
   const { user, logout } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -142,7 +145,7 @@ const Profile: React.FC<ProfileProps> = ({
   const stats = [
     {
       label: 'Saved',
-      value: whole(totalBalance),
+      value: formatMoney(totalBalance, { decimals: 0 }),
       // The full sentence would be clipped in a third of a phone's width.
       hint:
         summary.change === null
@@ -228,7 +231,7 @@ const Profile: React.FC<ProfileProps> = ({
               trailing={
                 liveRules.length > 0 ? (
                   <span className="shrink-0 px-3 h-7 rounded-full bg-primary/10 text-primary text-[11px] font-black flex items-center">
-                    {money(liveRules.reduce((sum, s) => sum + s.amount, 0))}
+                    {formatMoney(liveRules.reduce((sum, s) => sum + s.amount, 0))}
                   </span>
                 ) : undefined
               }
@@ -267,7 +270,7 @@ const Profile: React.FC<ProfileProps> = ({
             <div className="flex items-center justify-between gap-3">
               <p className="text-white font-black text-sm">Active distribution</p>
               <span className="px-3 h-7 rounded-full bg-white/5 text-slate-400 text-[11px] font-black flex items-center">
-                {whole(totalBalance - archivedTotal)} active
+                {formatMoney(totalBalance - archivedTotal, { decimals: 0 })} active
               </span>
             </div>
 
@@ -307,7 +310,7 @@ const Profile: React.FC<ProfileProps> = ({
                   <span className="text-slate-400 text-xs font-bold flex-1">
                     Archived goals ({archived.length})
                   </span>
-                  <span className="text-slate-500 text-xs font-black">{whole(archivedTotal)} put away</span>
+                  <span className="text-slate-500 text-xs font-black">{formatMoney(archivedTotal, { decimals: 0 })} put away</span>
                   <span className={`material-symbols-rounded text-slate-600 transition-transform ${showArchive ? 'rotate-180' : ''}`}>
                     expand_more
                   </span>
@@ -323,7 +326,7 @@ const Profile: React.FC<ProfileProps> = ({
                         <div className="min-w-0 flex-1">
                           <p className="text-slate-300 text-sm font-bold truncate">{b.name}</p>
                           <p className="text-slate-600 text-[10px] font-medium">
-                            {money(b.currentAmount)}
+                            {formatMoney(b.currentAmount)}
                             {b.archivedAt ? ` · archived ${shortDate(new Date(b.archivedAt))}` : ''}
                           </p>
                         </div>
@@ -357,6 +360,16 @@ const Profile: React.FC<ProfileProps> = ({
               dot={unreadAlerts > 0}
             />
             <Row
+              icon="trending_up"
+              title="Investments"
+              subtitle={
+                holdingCount === 0
+                  ? 'Track Bursa counters, kept apart from savings'
+                  : `${holdingCount} counter${holdingCount === 1 ? '' : 's'} · separate from your savings`
+              }
+              onClick={onOpenHoldings}
+            />
+            <Row
               icon="description"
               title="Statements & exports"
               subtitle="Download your ledger as CSV or PDF"
@@ -364,8 +377,8 @@ const Profile: React.FC<ProfileProps> = ({
             />
             <Row
               icon="payments"
-              title="Amounts shown as $"
-              subtitle="Dollar formatting and 12-hour times, everywhere in the app"
+              title="Amounts shown in RM"
+              subtitle="Ringgit formatting and 12-hour times, everywhere in the app"
             />
             <Row icon="cloud_done" title="Synced with Firebase" subtitle="Changes save instantly across your devices" />
           </Card>

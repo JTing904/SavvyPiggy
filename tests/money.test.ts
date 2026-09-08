@@ -1,4 +1,4 @@
-import { toCents, splitByPercentage, splitProportionally, type Share } from '../services/money';
+import { formatMoney, toCents, splitByPercentage, splitProportionally, type Share } from '../services/money';
 import { eq, report } from './harness';
 
 const cents = <T,>(shares: Share<T>[]) => shares.map((s) => [s.item, s.cents]);
@@ -145,5 +145,14 @@ eq(
   ),
   [['b', 100]]
 );
+
+// --- display
+eq('money reads the Malaysian way', formatMoney(1240.5), 'RM1,240.50');
+eq('the sign leads, never RM-10.00', formatMoney(-10), '-RM10.00');
+eq('signed shows the plus too', formatMoney(45, { signed: true }), '+RM45.00');
+eq('signed keeps the minus single', formatMoney(-5, { signed: true }), '-RM5.00');
+eq('headline figures can drop the cents', formatMoney(1240.5, { decimals: 0 }), 'RM1,241');
+eq('csv wants a bare number', formatMoney(1240.5, { symbol: false }), '1,240.50');
+eq('zero is not signed', formatMoney(0), 'RM0.00');
 
 report();

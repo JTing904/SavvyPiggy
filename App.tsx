@@ -14,10 +14,19 @@ import RedeemInvite from './components/RedeemInvite';
 import AutoDeposits from './components/AutoDeposits';
 import Report from './components/Report';
 import Alerts from './components/Alerts';
+import Statements from './components/Statements';
+import Trades from './components/Trades';
+import Dividends from './components/Dividends';
+import Growth from './components/Growth';
+import TradeSheet, { type TradeDraft } from './components/TradeSheet';
+import type { Mode } from './components/Navigation';
 import { useAuth } from './contexts/AuthContext';
 import { usePiggyData } from './hooks/usePiggyData';
 import { useMembership } from './hooks/useMembership';
 import { useBackHandler } from './hooks/useBackHandler';
+import { useDividends } from './hooks/useDividends';
+import { useLedgerPruning } from './hooks/useLedgerPruning';
+import { useQuotes } from './hooks/useQuotes';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
@@ -42,12 +51,29 @@ const App: React.FC = () => {
   const [showAutoDeposits, setShowAutoDeposits] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [showStatements, setShowStatements] = useState(false);
+  /* Which half of the app the bar and Home body are showing. The card the
+     user swipes to on Home sets it; nothing else does. */
+  const [mode, setMode] = useState<Mode>('save');
+  const [tradeDraft, setTradeDraft] = useState<TradeDraft | null>(null);
   const [showQuickPick, setShowQuickPick] = useState(false);
   const [quickAction, setQuickAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
 
-  const { banks, activities, schedules, loans, alerts, prefs, savings, loading: dataLoading, error, retry } =
+  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, loading: dataLoading, error, retry } =
     usePiggyData(uid);
+
+  // Prices and dividends both key off the counters in the log; a sold-out
+  // position still matters, because its last dividend can pay weeks later.
+  const symbols = useMemo(() => [...new Set(trades.map((t) => t.symbol))], [trades]);
+  const { quotes } = useQuotes(symbols);
+  const {
+    dividends,
+    busy: dividendsBusy,
+    refresh: refreshDividends,
+  } = useDividends({ uid, trades, banks, loans, prefs, savings, ready: !dataLoading });
+
+  useLedgerPruning(uid, savings, !dataLoading);
 
   // Archived goals keep their money and their history, so every screen that
   // looks backwards still gets the full list — only the working lists hide them.
@@ -116,13 +142,16 @@ const App: React.FC = () => {
   // their own handler on top of this one.
   useEffect(listenForBack, []);
   useBackHandler(showQuickPick, () => setShowQuickPick(false));
+  useBackHandler(tradeDraft !== null, () => setTradeDraft(null));
   useBackHandler(true, () => {
-    if (showCreateGoal) setShowCreateGoal(false);
+    if (showStatements) setShowStatements(false);
+    else if (showCreateGoal) setShowCreateGoal(false);
     else if (showAutoDeposits) setShowAutoDeposits(false);
     else if (showAlerts) setShowAlerts(false);
     else if (showProfile) setShowProfile(false);
     else if (selectedGoalId) setSelectedGoalId(null);
     else if (activeTab !== Tab.HOME) setActiveTab(Tab.HOME);
+    else if (mode !== 'save') setMode('save');
     else exitApp();
   });
 
@@ -133,6 +162,7 @@ const App: React.FC = () => {
         setSelectedGoalId(null);
         setShowProfile(false);
         setShowAlerts(false);
+        setMode('save');
         setActiveTab(target === 'report' ? Tab.STATS : Tab.HOME);
       }),
     []
@@ -273,6 +303,21 @@ const App: React.FC = () => {
       );
     }
 
+    if (showStatements) {
+      return (
+        <Statements
+          activities={activities}
+          banks={banks}
+          trades={trades}
+          quotes={quotes}
+          savings={savings}
+          owner={user?.displayName || user?.email || 'SavvyPiggy'}
+          onSaveSettings={(patch) => handleSaveSavings(patch)}
+          onBack={() => setShowStatements(false)}
+        />
+      );
+    }
+
     if (showProfile) {
       return (
         <Profile
@@ -297,6 +342,12 @@ const App: React.FC = () => {
             setShowProfile(false);
             setActiveTab(Tab.STATS);
           }}
+          onOpenHoldings={() => {
+            setShowProfile(false);
+            setMode('invest');
+            setActiveTab(Tab.HOME);
+          }}
+          holdingCount={holdings.length}
         />
       );
     }
@@ -330,6 +381,15 @@ const App: React.FC = () => {
             onSelectGoal={setSelectedGoalId}
             onOpenProfile={() => setShowProfile(true)}
             onOpenAlerts={() => setShowAlerts(true)}
+            mode={mode}
+            onModeChange={setMode}
+            onTrade={(holding, kind) =>
+              setTradeDraft({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })
+            }
+            onOpenTrades={() => setActiveTab(Tab.TRADES)}
+            holdings={holdings}
+            trades={trades}
+            quotes={quotes}
             unreadAlerts={unread}
             quickAction={quickAction}
             onQuickActionHandled={() => setQuickAction(null)}
@@ -338,11 +398,11 @@ const App: React.FC = () => {
       case Tab.STATS:
         return (
           <Report
-            uid={uid!}
             banks={banks}
             activities={activities}
             onOpenStrategy={() => setActiveTab(Tab.BANKS)}
             onOpenProfile={() => setShowProfile(true)}
+            onOpenStatements={() => setShowStatements(true)}
           />
         );
       case Tab.BANKS:
@@ -365,6 +425,20 @@ const App: React.FC = () => {
             onEditActivity={handleEditActivity}
           />
         );
+      case Tab.TRADES:
+        return <Trades uid={uid!} trades={trades} onBack={() => setActiveTab(Tab.HOME)} />;
+      case Tab.DIVIDENDS:
+        return (
+          <Dividends
+            dividends={dividends}
+            trades={trades}
+            busy={dividendsBusy}
+            onRefresh={() => void refreshDividends(true)}
+            onBack={() => setActiveTab(Tab.HOME)}
+          />
+        );
+      case Tab.GROWTH:
+        return <Growth trades={trades} quotes={quotes} onBack={() => setActiveTab(Tab.HOME)} />;
       default:
         return <div className="flex items-center justify-center h-full text-white/50">Feature coming soon</div>;
     }
@@ -375,6 +449,7 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
       {withNav && (
         <Navigation
+          mode={mode}
           activeTab={activeTab}
           onTabChange={(tab) => {
             // Leaving for another tab should close whatever detail is open.
@@ -387,32 +462,53 @@ const App: React.FC = () => {
         />
       )}
 
+      {tradeDraft && uid && (
+        <TradeSheet
+          uid={uid}
+          trades={trades}
+          draft={tradeDraft}
+          onClose={() => setTradeDraft(null)}
+          onDone={() => undefined}
+        />
+      )}
+
       {showQuickPick && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
           onClick={() => setShowQuickPick(false)}
         >
           <div
             className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300 p-7 safe-pb"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-white text-2xl font-black">Move money</h3>
+            {/* The same button, two jobs: which one follows the card on Home. */}
+            <h3 className="text-white text-2xl font-black">
+              {mode === 'save' ? 'Move money' : 'Record a trade'}
+            </h3>
             <div className="grid grid-cols-2 gap-3 mt-5">
-              {(
-                [
-                  { mode: 'deposit', label: 'Deposit', icon: 'south_west', tint: 'text-primary' },
-                  { mode: 'withdraw', label: 'Spend', icon: 'north_east', tint: 'text-slate-400' },
-                ] as const
+              {(mode === 'save'
+                ? ([
+                    { key: 'deposit', label: 'Deposit', icon: 'south_west', tint: 'text-primary' },
+                    { key: 'withdraw', label: 'Spend', icon: 'north_east', tint: 'text-slate-400' },
+                  ] as const)
+                : ([
+                    { key: 'buy', label: 'Buy', icon: 'trending_up', tint: 'text-accent' },
+                    { key: 'sell', label: 'Sell', icon: 'trending_down', tint: 'text-slate-400' },
+                  ] as const)
               ).map((option) => (
                 <button
-                  key={option.mode}
+                  key={option.key}
                   onClick={() => {
                     setShowQuickPick(false);
                     setSelectedGoalId(null);
                     setShowProfile(false);
                     setShowAlerts(false);
+                    if (option.key === 'buy' || option.key === 'sell') {
+                      setTradeDraft({ mode: 'new', kind: option.key });
+                      return;
+                    }
                     setActiveTab(Tab.HOME);
-                    setQuickAction(option.mode);
+                    setQuickAction(option.key);
                   }}
                   className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-[1.75rem] py-6 active:scale-95 transition-transform"
                 >
@@ -422,8 +518,9 @@ const App: React.FC = () => {
               ))}
             </div>
             <p className="text-slate-500 text-xs font-medium leading-relaxed mt-5">
-              Spending without picking a goal records borrowed money instead — your next deposits clear it before
-              anything reaches your goals.
+              {mode === 'save'
+                ? 'Spending without picking a goal records borrowed money instead — your next deposits clear it before anything reaches your goals.'
+                : 'Every trade keeps the day it was done. That date is what decides which dividends are yours, so enter the day you dealt, not the day you typed it in.'}
             </p>
           </div>
         </div>
@@ -437,7 +534,10 @@ const App: React.FC = () => {
   if (isMember === null) return shell(<Splash label="Checking your invite" />);
   if (!isMember) return shell(<RedeemInvite user={user} />);
 
-  return shell(renderContent(), !showCreateGoal && !showAutoDeposits && !showProfile && !showAlerts && !dataLoading);
+  return shell(
+    renderContent(),
+    !showCreateGoal && !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !dataLoading
+  );
 };
 
 export default App;
