@@ -118,7 +118,7 @@ eq('one alarm per feature plus per live rule', plan.map((n) => n.id), [1, 2, 100
 eq('reminder repeats daily at the chosen time', plan[0].schedule, { on: { hour: 21, minute: 15 } });
 eq('digest repeats monthly on the 1st', plan[1].schedule, { on: { day: 1, hour: 9, minute: 0 } });
 eq('rule nudge is a one-off on the next due morning', (plan[3].schedule?.at as Date).toString().slice(0, 21), 'Sun Sep 20 2026 09:00');
-eq('rule nudge names the amount', plan[2].title, 'Auto deposit of $50.00 due today');
+eq('rule nudge names the amount', plan[2].title, 'Auto deposit of RM50.00 due today');
 
 eq('everything off plans nothing', plannedNotifications({ receipts: true, milestones: true, reminder: false, reminderTime: '20:00', digest: false }, [], NOW), []);
 

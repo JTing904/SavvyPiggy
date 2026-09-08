@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Activity, ActivityType, PiggyBank } from '../types';
-import { fromCents, toCents } from '../services/money';
+import { formatMoney, fromCents, toCents } from '../services/money';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { SLICE_COLORS } from './DonutChart';
 
@@ -18,8 +18,8 @@ interface ActivityLogProps {
   onEditActivity: (id: string, newAmount: number) => void;
 }
 
-const money = (n: number) =>
-  `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Callers put the sign on themselves, so this only ever renders the size. */
+const money = (n: number) => formatMoney(Math.abs(n));
 
 /** What actually reached the goals, and what left them, in cents. */
 const inflow = (a: Activity) => a.distributions.reduce((s, d) => (d.amount > 0 ? s + toCents(d.amount) : s), 0);
@@ -261,7 +261,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, banks, onDeleteAc
             Total saved · {monthLabel(month)}
           </p>
           <div className="flex items-end gap-3 mt-2 flex-wrap">
-            <h3 className="text-white text-4xl font-black tracking-tight">{money(fromCents(savedThisMonth))}</h3>
+            <h3 className="text-white text-3xl font-black tracking-tight">{money(fromCents(savedThisMonth))}</h3>
             {change !== null && (
               <span
                 className={`flex items-center gap-0.5 text-sm font-black ${change < 0 ? 'text-slate-400' : 'text-primary'}`}
@@ -396,7 +396,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, banks, onDeleteAc
       {/* Month picker */}
       {pickMonth && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
           onClick={() => setPickMonth(false)}
         >
           <div

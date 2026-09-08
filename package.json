@@ -18,7 +18,8 @@
     "android:open": "npm run android:sync && cap open android",
     "android:apk": "npm run android:sync && node scripts/build-apk.mjs assembleDebug",
     "test": "node scripts/unit-tests.mjs",
-    "android:release": "npm run android:sync && node scripts/build-apk.mjs assembleRelease"
+    "android:release": "npm run android:sync && node scripts/build-apk.mjs assembleRelease",
+    "dividends:check": "node scripts/run-ts.mjs scripts/live-dividends.ts"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.4.0",

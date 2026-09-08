@@ -9,6 +9,34 @@ export const toCents = (amount: number) => Math.floor(amount * 100 + 1e-6);
 
 export const fromCents = (cents: number) => cents / 100;
 
+/* --------------------------------------------------------------- display */
+
+/** Malaysian ringgit, written the local way: no space between symbol and digits. */
+export const CURRENCY = 'RM';
+
+export interface MoneyFormat {
+  /** 2 by default; 0 drops the cents for headline figures. */
+  decimals?: 0 | 2;
+  /** Always show + or -, for ledger entries that read as movements. */
+  signed?: boolean;
+  /** Off where the surrounding text already says which currency it is. */
+  symbol?: boolean;
+}
+
+/**
+ * The one place money becomes text: RM1,240.50, -RM10.00, +RM45.00.
+ * The sign always leads, so a negative never reads as "RM-10.00".
+ */
+export const formatMoney = (amount: number, format: MoneyFormat = {}) => {
+  const { decimals = 2, signed = false, symbol = true } = format;
+  const digits = Math.abs(amount).toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  const sign = amount < 0 ? '-' : signed ? '+' : '';
+  return `${sign}${symbol ? CURRENCY : ''}${digits}`;
+};
+
 export interface Share<T> {
   item: T;
   weight: number;

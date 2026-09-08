@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   addDoc,
   deleteDoc,
@@ -9,6 +10,8 @@ import {
   onSnapshot,
   orderBy,
   query,
+  where,
+  limit,
   writeBatch,
   runTransaction,
   increment,
@@ -17,7 +20,10 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { Activity, ActivityType, Alert, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule } from '../types';
+import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Trade, AlertKind } from '../types';
+import { retentionCutoff } from './analytics';
+import { dayStart } from './holdings';
+import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
 import { fromCents, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planWithdrawal, type Movement } from './ledger';
@@ -35,6 +41,10 @@ const activityRef = (uid: string, id: string) => doc(db, 'users', uid, 'activiti
 const scheduleRef = (uid: string, id: string) => doc(db, 'users', uid, 'schedules', id);
 const loanRef = (uid: string, id: string) => doc(db, 'users', uid, 'loans', id);
 const alertRef = (uid: string, id: string) => doc(db, 'users', uid, 'alerts', id);
+const tradesCol = (uid: string) => collection(db, 'users', uid, 'trades');
+const tradeRef = (uid: string, id: string) => doc(db, 'users', uid, 'trades', id);
+/** Only still read, to move anyone who has one onto the trade log. */
+const legacyHoldingsCol = (uid: string) => collection(db, 'users', uid, 'holdings');
 const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notifications');
 const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings');
 
@@ -91,16 +101,30 @@ export const subscribeToBanks = (
     onError
   );
 
+/**
+ * The ledger, back as far as it is kept.
+ *
+ * Every open re-reads all of these, and a free project allows fifty thousand
+ * document reads a day — which a few thousand entries turns into a handful of
+ * app opens. Reading only what is kept is what stops that arriving. When
+ * nothing is being cleared the window is open and everything is read, which is
+ * the honest consequence of choosing to keep it all.
+ */
 export const subscribeToActivities = (
   uid: string,
+  retentionMonths: number | null,
   onChange: (activities: Activity[]) => void,
   onError: (e: FirestoreError) => void
-): Unsubscribe =>
-  onSnapshot(
-    query(activitiesCol(uid), orderBy('date', 'desc')),
+): Unsubscribe => {
+  const from = retentionCutoff(new Date(), retentionMonths).toISOString();
+  return onSnapshot(
+    retentionMonths === null
+      ? query(activitiesCol(uid), orderBy('date', 'desc'))
+      : query(activitiesCol(uid), where('date', '>=', from), orderBy('date', 'desc')),
     (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Activity)),
     onError
   );
+};
 
 export const subscribeToSchedules = (
   uid: string,
@@ -132,6 +156,19 @@ export const subscribeToAlerts = (
   onSnapshot(
     query(alertsCol(uid), orderBy('date', 'desc')),
     (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Alert)),
+    onError
+  );
+
+export const subscribeToTrades = (
+  uid: string,
+  onChange: (trades: Trade[]) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe =>
+  onSnapshot(
+    // Newest first, which is the order the trade log reads in. Positions are
+    // replayed from the whole set, so the order here is only for the screen.
+    query(tradesCol(uid), orderBy('tradedAt', 'desc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Trade)),
     onError
   );
 
@@ -383,6 +420,45 @@ export const pruneActivities = async (uid: string, ids: string[]) => {
   return ids.length;
 };
 
+/**
+ * Clears ledger entries older than the kept window, a few hundred at a time.
+ *
+ * This deliberately queries rather than working from what the app has in
+ * memory: the subscription only carries what is kept, so the entries due to go
+ * are exactly the ones it cannot see.
+ *
+ * As with pruneActivities, only activity documents are removed. Goal balances,
+ * debts and the trade log stay exactly as they are — clearing history can
+ * never move money.
+ */
+/** Whether anything at all sits before the cutoff — one document read. */
+export const hasOlderThan = async (uid: string, cutoff: Date) => {
+  const snap = await getDocs(
+    query(activitiesCol(uid), where('date', '<', cutoff.toISOString()), orderBy('date', 'asc'), limit(1))
+  );
+  return !snap.empty;
+};
+
+export const pruneOlderThan = async (uid: string, cutoff: Date, max = 800) => {
+  const before = cutoff.toISOString();
+  let removed = 0;
+
+  while (removed < max) {
+    const snap = await getDocs(
+      query(activitiesCol(uid), where('date', '<', before), orderBy('date', 'asc'), limit(400))
+    );
+    if (snap.empty) break;
+
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    removed += snap.size;
+    // A short page means there was nothing else waiting.
+    if (snap.size < 400) break;
+  }
+  return removed;
+};
+
 /* ------------------------------------------------------------------ alerts */
 
 export const addAlert = (uid: string, { id, ...rest }: AlertDraft) =>
@@ -400,6 +476,147 @@ export const pruneAlerts = async (uid: string, ids: string[]) => {
   const batch = writeBatch(db);
   ids.slice(0, 400).forEach((id) => batch.delete(alertRef(uid, id)));
   await batch.commit();
+};
+
+/* ------------------------------------------------------------------ trades */
+
+/**
+ * Positions are not stored. This log is, and the position is replayed from it,
+ * so a trade entered wrong is fixed by fixing that one trade rather than by
+ * overwriting a total and losing the history a dividend depends on.
+ */
+export const createTrade = (uid: string, trade: Omit<Trade, 'id' | 'createdAt'>) =>
+  addDoc(tradesCol(uid), { ...trade, tradedAt: dayStart(trade.tradedAt), createdAt: Date.now() });
+
+export const updateTrade = (uid: string, id: string, patch: Partial<Omit<Trade, 'id'>>) =>
+  updateDoc(tradeRef(uid, id), patch.tradedAt ? { ...patch, tradedAt: dayStart(patch.tradedAt) } : patch);
+
+export const deleteTrade = (uid: string, id: string) => deleteDoc(tradeRef(uid, id));
+
+/**
+ * Positions recorded before the log existed carried a total and no history.
+ * Each becomes a single opening buy on the day it was first entered, which is
+ * the most that can honestly be said about when those units were acquired —
+ * the real dates were never asked for. Runs once: the old row is removed in
+ * the same batch, so a second run finds nothing to do.
+ */
+export const migrateHoldingsToTrades = async (uid: string) => {
+  const snap = await getDocs(legacyHoldingsCol(uid));
+  if (snap.empty) return 0;
+
+  const batch = writeBatch(db);
+  for (const legacy of snap.docs) {
+    const holding = legacy.data() as Omit<Holding, 'id'>;
+    if (holding.units > 0) {
+      batch.set(doc(tradesCol(uid)), {
+        symbol: holding.symbol,
+        name: holding.name,
+        kind: 'buy',
+        units: holding.units,
+        // The average is all that survived, so it stands in for the price.
+        priceCents: Math.round(holding.costCents / holding.units),
+        tradedAt: dayStart(holding.createdAt ?? Date.now()),
+        createdAt: Date.now(),
+      });
+    }
+    batch.delete(legacy.ref);
+  }
+  await batch.commit();
+  return snap.size;
+};
+
+/**
+ * Paying a dividend into the savings, on the day it lands.
+ *
+ * It goes in as an ordinary deposit — the same split across the same goals,
+ * clearing any borrowing first — because it is ordinary money. What is not
+ * ordinary is that the app decides to record it rather than the user, so two
+ * things are true of this function:
+ *
+ * It runs inside a transaction keyed on the dividend's own id, so opening the
+ * app on two phones, or twice in a minute, credits it once. The id is the
+ * counter and the ex-date, which is what identifies a payment.
+ *
+ * And it writes the trade with the units it was worked out on, so the log
+ * shows how the figure was reached. Companies deduct tax and fees, so the
+ * amount that lands is often not the amount announced — the trade is editable
+ * like any other, and the alert says to check it.
+ */
+export const creditDividend = async (
+  uid: string,
+  due: DueDividend,
+  name: string,
+  banks: PiggyBank[],
+  loans: Loan[],
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
+) => {
+  const { dividend, units, amountCents } = due;
+  const id = dividendTradeId(dividend.symbol, dividend.exDate);
+  const plan = planDeposit(amountCents, banks, loans, null, savings.overflow);
+  // Nowhere for it to go means nothing is recorded, and it stays due: better
+  // to credit it late, once there is a goal, than to lose it quietly.
+  if (plan.movements.length === 0 && plan.repayments.length === 0) return null;
+
+  const now = new Date();
+
+  return runTransaction(db, async (tx) => {
+    // The read is what makes this safe to run from anywhere, at any time.
+    if ((await tx.get(tradeRef(uid, id))).exists()) return null;
+
+    tx.set(tradeRef(uid, id), {
+      symbol: dividend.symbol,
+      name,
+      kind: 'dividend' satisfies Trade['kind'],
+      units,
+      priceCents: 0,
+      perUnitPoints: dividend.perUnitPoints,
+      exDate: dividend.exDate,
+      tradedAt: dayStart(dividend.payDate),
+      createdAt: Date.now(),
+    });
+
+    tx.set(doc(activitiesCol(uid)), {
+      type: 'manual' satisfies ActivityType,
+      date: now.toISOString(),
+      amount: fromCents(amountCents),
+      distributions: toDistributions(plan.movements),
+      repaid: fromCents(plan.repaidCents),
+      repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
+      note: `${name} dividend`,
+    });
+
+    plan.movements.forEach((m) =>
+      tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
+    );
+
+    plan.repayments.forEach((r) => {
+      const left = outstandingCents(r.loan) - r.cents;
+      tx.update(loanRef(uid, r.loan.id), {
+        outstanding: fromCents(left),
+        settledAt: left === 0 ? now.toISOString() : null,
+      });
+    });
+
+    // This one the user did not type in, so it is worth telling them about
+    // whatever their milestone setting says.
+    tx.set(alertRef(uid, `dividend_${id}`), {
+      kind: 'dividend' satisfies AlertKind,
+      date: now.toISOString(),
+      read: false,
+      counter: name,
+      units,
+      amount: fromCents(amountCents),
+    });
+
+    if (alerts.milestones) {
+      for (const draft of milestoneAlerts(banks, plan.movements, now, savings.overflow)) {
+        const { id: alertId, ...rest } = draft;
+        tx.set(alertRef(uid, alertId), { ...rest, read: false });
+      }
+    }
+
+    return { amountCents, units };
+  });
 };
 
 /* --------------------------------------------------------------- schedules */

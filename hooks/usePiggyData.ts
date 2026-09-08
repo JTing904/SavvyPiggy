@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, NotificationPrefs, SavingsSettings } from '../types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings } from '../types';
+import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
   subscribeToBanks,
@@ -9,6 +10,8 @@ import {
   subscribeToAlerts,
   subscribeToPrefs,
   subscribeToSavings,
+  subscribeToTrades,
+  migrateHoldingsToTrades,
 } from '../services/firestore';
 
 /** Live Firestore data for one user. Every collection streams in real time. */
@@ -20,7 +23,9 @@ export const usePiggyData = (uid: string | undefined) => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_PREFS);
   const [savings, setSavings] = useState<SavingsSettings>(DEFAULT_SAVINGS);
+  const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activitiesReady, setActivitiesReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // onSnapshot tears the listener down on error, so recovering means resubscribing.
   const [attempt, setAttempt] = useState(0);
@@ -29,12 +34,12 @@ export const usePiggyData = (uid: string | undefined) => {
   useEffect(() => {
     if (!uid) {
       setBanks([]);
-      setActivities([]);
       setSchedules([]);
       setLoans([]);
       setAlerts([]);
       setPrefs(DEFAULT_PREFS);
       setSavings(DEFAULT_SAVINGS);
+      setTrades([]);
       setLoading(false);
       return;
     }
@@ -42,14 +47,14 @@ export const usePiggyData = (uid: string | undefined) => {
     setLoading(true);
     setError(null);
     let banksReady = false;
-    let activitiesReady = false;
     let schedulesReady = false;
     let loansReady = false;
     let alertsReady = false;
     let prefsReady = false;
     let savingsReady = false;
+    let tradesReady = false;
     const settle = () => {
-      if (banksReady && activitiesReady && schedulesReady && loansReady && alertsReady && prefsReady && savingsReady) setLoading(false);
+      if (banksReady && schedulesReady && loansReady && alertsReady && prefsReady && savingsReady && tradesReady) setLoading(false);
     };
     const fail = (e: { message: string }) => {
       setError(e.message);
@@ -65,16 +70,6 @@ export const usePiggyData = (uid: string | undefined) => {
       },
       fail
     );
-    const unsubActivities = subscribeToActivities(
-      uid,
-      (a) => {
-        setActivities(a);
-        activitiesReady = true;
-        settle();
-      },
-      fail
-    );
-
     const unsubSchedules = subscribeToSchedules(
       uid,
       (sch) => {
@@ -125,16 +120,74 @@ export const usePiggyData = (uid: string | undefined) => {
       fail
     );
 
+    const unsubTrades = subscribeToTrades(
+      uid,
+      (t) => {
+        setTrades(t);
+        tradesReady = true;
+        settle();
+      },
+      fail
+    );
+
+    // Anyone who recorded a position before the log existed is moved onto it
+    // once, here, where a uid is known and the listener will pick the result
+    // straight up. A failure leaves the old row alone to try again next time.
+    void migrateHoldingsToTrades(uid).catch(() => undefined);
+
     return () => {
+      unsubTrades();
       unsubSavings();
       unsubAlerts();
       unsubPrefs();
       unsubBanks();
-      unsubActivities();
       unsubSchedules();
       unsubLoans();
     };
   }, [uid, attempt]);
 
-  return { banks, activities, schedules, loans, alerts, prefs, savings, loading, error, retry };
+  /**
+   * The ledger is read through the window the user keeps, so the daily read
+   * allowance is spent on records that still exist. Changing the window
+   * reopens this; nothing else here depends on it.
+   */
+  useEffect(() => {
+    if (!uid) {
+      setActivities([]);
+      setActivitiesReady(true);
+      return;
+    }
+    setActivitiesReady(false);
+    return subscribeToActivities(
+      uid,
+      savings.retentionMonths,
+      (a) => {
+        setActivities(a);
+        setActivitiesReady(true);
+      },
+      (e) => {
+        setError(e.message);
+        setActivitiesReady(true);
+      }
+    );
+  }, [uid, attempt, savings.retentionMonths]);
+
+  // Positions are replayed rather than stored, so they update the moment a
+  // trade in the log does.
+  const holdings = useMemo(() => buildHoldings(trades), [trades]);
+
+  return {
+    banks,
+    activities,
+    schedules,
+    loans,
+    alerts,
+    prefs,
+    savings,
+    trades,
+    holdings,
+    loading: loading || !activitiesReady,
+    error,
+    retry,
+  };
 };

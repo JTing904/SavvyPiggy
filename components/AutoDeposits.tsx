@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Frequency, PiggyBank, Schedule } from '../types';
 import { describe, FREQUENCIES, MONTH_LABELS, WEEKDAY_LABELS } from '../services/schedules';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { formatMoney } from '../services/money';
 
 interface AutoDepositsProps {
   schedules: Schedule[];
@@ -70,7 +71,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-bg-dark safe-pt">
-      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/80 backdrop-blur-md z-20">
+      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/95 z-20">
         <button
           className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
           onClick={onCancel}
@@ -103,7 +104,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
             <div key={s.id} className="bg-surface border border-white/5 rounded-[2rem] p-5 shadow-xl">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-white text-2xl font-black">${s.amount.toFixed(2)}</p>
+                  <p className="text-white text-2xl font-black">{formatMoney(s.amount)}</p>
                   <p className="text-primary text-xs font-bold mt-0.5">{describe(s)}</p>
                   <p className="text-slate-500 text-xs font-medium mt-1 truncate">
                     → {targetName(s.targetBankId)}
@@ -138,7 +139,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
               <div className="space-y-3">
                 <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Amount</label>
                 <div className="relative">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-600">$</span>
+                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-xl font-black text-slate-600">RM</span>
                   <input
                     autoFocus
                     value={amount}
@@ -146,7 +147,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                     type="number"
                     inputMode="decimal"
                     placeholder="0.00"
-                    className="w-full h-16 pl-11 pr-5 rounded-2xl bg-white/5 border border-white/10 text-2xl font-black text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
+                    className="w-full h-16 pl-[4.25rem] pr-5 rounded-2xl bg-white/5 border border-white/10 text-2xl font-black text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
                   />
                 </div>
               </div>
@@ -241,7 +242,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
               <div className="rounded-2xl bg-primary/5 border border-primary/20 px-5 py-4">
                 <p className="text-primary text-xs font-bold leading-relaxed">
-                  ${(parseFloat(amount) || 0).toFixed(2)} · {describe({ frequency, weekday, dayOfMonth, month })}
+                  {formatMoney(parseFloat(amount) || 0)} · {describe({ frequency, weekday, dayOfMonth, month })}
                 </p>
               </div>
 

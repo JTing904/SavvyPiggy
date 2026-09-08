@@ -14,6 +14,8 @@ export const ALERT_RETENTION_DAYS = 90;
 
 export const DEFAULT_SAVINGS: SavingsSettings = {
   overflow: false,
+  retentionMonths: 12,
+  retentionAcknowledged: false,
 };
 
 export const DEFAULT_PREFS: NotificationPrefs = {

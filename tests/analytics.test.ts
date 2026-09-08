@@ -4,10 +4,13 @@ import {
   currentStreak,
   periodRange,
   rangeLabel,
+  monthSummary,
+  monthsWithRecords,
+  nextToClear,
   retentionCutoff,
   summarize,
 } from '../services/analytics';
-import type { Activity, PiggyBank } from '../types';
+import type { Activity, Trade, PiggyBank } from '../types';
 import { eq, report } from './harness';
 
 const bank = (id: string, extra: Partial<PiggyBank> = {}): PiggyBank => ({
@@ -131,8 +134,57 @@ eq('streak broken by a gap', currentStreak([deposit(at(2026, 9, 5), { car: 1 }),
 eq('withdrawals do not extend a streak', currentStreak([{ id: 'w', type: 'withdraw', date: at(2026, 9, 5), amount: 1, distributions: [{ bankId: 'car', amount: -1, percentage: 100 }] }], NOW), 0);
 
 // --- archive
-eq('cutoff is 12 months back', retentionCutoff(NOW).toISOString().slice(0, 10), new Date(2025, 8, 5).toISOString().slice(0, 10));
+const asDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Whole months, so a statement is never half cleared: in September with a
+// twelve-month window the ledger starts on the first of the previous September.
+eq('the cutoff is the first of the month, twelve back', asDay(retentionCutoff(NOW)), '2025-09-01');
+eq('a shorter window moves it forward', asDay(retentionCutoff(NOW, 6)), '2026-03-01');
+eq('keeping everything reaches back past any record', retentionCutoff(NOW, null).getTime(), 0);
 eq('only records before the cutoff are archivable', archivable(ACTS, NOW).map((a) => a.distributions[0].amount), [1]);
-eq('a record on the cutoff day stays', archivable([deposit(at(2025, 9, 5, 0), { car: 1 })], NOW).length, 0);
+eq('a record from the first kept month stays', archivable([deposit(at(2025, 9, 5, 0), { car: 1 })], NOW).length, 0);
+eq('a record from the month before it goes', archivable([deposit(at(2025, 8, 31, 0), { car: 1 })], NOW).length, 1);
+eq('nothing is archivable when everything is kept', archivable(ACTS, NOW, null).length, 0);
+
+// --- monthly statements
+{
+  const trade = (tradedAt: number): Trade => ({
+    id: `t${tradedAt}`, symbol: '1155.KL', name: 'MAYBANK', kind: 'buy',
+    units: 100, priceCents: 1000, tradedAt, createdAt: tradedAt,
+  });
+  const months = monthsWithRecords(
+    [deposit(at(2026, 9, 2), { car: 30 }), deposit(at(2026, 9, 4), { car: 20 }), deposit(at(2026, 7, 9), { car: 40 })],
+    [trade(new Date(2026, 7, 15).getTime()), trade(new Date(2026, 5, 1).getTime())],
+    NOW
+  );
+  eq('newest month first, one entry each', months.map((m) => m.key), ['2026-09', '2026-08', '2026-07', '2026-06']);
+  eq('a month is labelled the way people say it', months[0].label, 'September 2026');
+  eq('deposits are counted and netted', { n: months[0].activities, net: months[0].net }, { n: 2, net: 50 });
+  eq('the running month is marked', months.map((m) => m.current), [true, false, false, false]);
+  // A month with only a share purchase is still a month worth exporting.
+  eq('trades make a month of their own', { n: months[1].activities, t: months[1].trades }, { n: 0, t: 1 });
+  eq('a month is cleared on the first, twelve months on', asDay(months[2].clearedOn!), '2027-08-01');
+  eq('keeping everything clears nothing',
+    monthsWithRecords([deposit(at(2026, 9, 2), { car: 1 })], [], NOW, null)[0].clearedOn, null);
+  eq('nothing recorded, nothing to report', monthsWithRecords([], [], NOW), []);
+
+  // The bug this guards: summarising from the month's exclusive end lands in
+  // the next month and reports nothing at all.
+  const sept = months[0];
+  const septActs = [deposit(at(2026, 9, 2), { car: 30 }), deposit(at(2026, 9, 4), { car: 20 })];
+  const running = monthSummary(septActs, BANKS, sept, NOW);
+  eq('the month still running counts what is in it', running.distributed, 50);
+  eq('and counts the days so far, not the whole month', running.range.days, 5);
+  eq('the label is the month, not a date range', running.range.label, 'September 2026');
+
+  const july = months[2];
+  const julyActs = [deposit(at(2026, 7, 9), { car: 40 })];
+  const finished = monthSummary(julyActs, BANKS, july, NOW);
+  eq('a finished month counts what was in it', finished.distributed, 40);
+  eq('and counts every one of its days', finished.range.days, 31);
+
+  const due = nextToClear(monthsWithRecords(ACTS, [], NOW));
+  eq('the oldest month on record is the one to warn about', due?.key, '2025-01');
+}
 
 report();

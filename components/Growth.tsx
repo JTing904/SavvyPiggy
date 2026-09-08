@@ -1,0 +1,160 @@
+import React, { useMemo } from 'react';
+import type { Trade } from '../types';
+import { averageCostCents, buildHoldings, marketValueCents, performance, type Quotes } from '../services/holdings';
+import { formatMoney, fromCents } from '../services/money';
+import { SLICE_COLORS } from './DonutChart';
+
+interface GrowthProps {
+  trades: Trade[];
+  quotes: Quotes;
+  onBack: () => void;
+}
+
+const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
+  formatMoney(fromCents(cents), opts);
+
+const tone = (cents: number) => (cents < 0 ? 'text-red-400' : cents > 0 ? 'text-primary' : 'text-white');
+
+/**
+ * Whether the investing is actually ahead.
+ *
+ * The number on the Home card is only the paper gain on what is still held,
+ * which is the flattering half of the story: it says nothing about what past
+ * sales made or lost, and nothing about the dividends. This screen adds all
+ * three and measures them against every ringgit ever put in.
+ *
+ * There is no chart. Drawing one would need a price for every past day, which
+ * the app does not have and would have to invent.
+ */
+const Growth: React.FC<GrowthProps> = ({ trades, quotes, onBack }) => {
+  const total = useMemo(() => performance(trades, quotes), [trades, quotes]);
+  const holdings = useMemo(() => buildHoldings(trades), [trades]);
+
+  const parts = [
+    { label: 'On what you still hold', cents: total.unrealisedCents, note: 'Paper gain, moves with the market' },
+    { label: 'On what you have sold', cents: total.realisedCents, note: 'Banked, cannot change' },
+    { label: 'Dividends paid in', cents: total.dividendCents, note: 'Already split into your goals' },
+  ];
+
+  return (
+    <div className="flex flex-col h-full bg-bg-dark safe-pt">
+      <div className="flex items-center px-6 py-4 gap-4 sticky top-0 bg-bg-dark/95 z-20">
+        <button
+          onClick={onBack}
+          className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
+        >
+          <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
+        </button>
+        <h2 className="text-white text-2xl font-black tracking-tight">Growth</h2>
+      </div>
+
+      <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-40">
+        {trades.length === 0 ? (
+          <div className="text-center py-20">
+            <span className="material-symbols-rounded text-slate-700 text-5xl">trending_up</span>
+            <p className="text-white font-black mt-4">Nothing to measure yet</p>
+            <p className="text-slate-500 text-xs font-bold mt-2 leading-relaxed px-6">
+              Record a buy and this will show what the investing has come to.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="rounded-[2rem] bg-surface border border-white/5 p-6 shadow-xl">
+              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
+                Total return
+              </p>
+              <p className={`text-4xl font-black tracking-tight mt-1 ${tone(total.totalCents)}`}>
+                {money(total.totalCents, { signed: true })}
+              </p>
+              <p className="text-slate-500 text-xs font-bold mt-1">
+                {total.returnPercent >= 0 ? '+' : ''}
+                {total.returnPercent}% on {money(total.investedCents)} put in
+              </p>
+
+              <div className="h-px bg-white/10 my-5" />
+
+              <div className="space-y-4">
+                {parts.map((part) => (
+                  <div key={part.label} className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-[13px] font-black">{part.label}</p>
+                      <p className="text-slate-600 text-[11px] font-bold mt-0.5">{part.note}</p>
+                    </div>
+                    <p className={`text-[13px] font-black shrink-0 ${tone(part.cents)}`}>
+                      {money(part.cents, { signed: true })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="rounded-3xl glass p-5">
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Held now</p>
+                <p className="text-white text-xl font-black mt-1">{money(total.valueCents)}</p>
+                <p className="text-slate-600 text-[11px] font-bold mt-0.5">
+                  cost {money(total.costCents)}
+                </p>
+              </div>
+              <div className="rounded-3xl glass p-5">
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
+                  Income
+                </p>
+                <p className="text-accent text-xl font-black mt-1">{money(total.dividendCents)}</p>
+                <p className="text-slate-600 text-[11px] font-bold mt-0.5">
+                  {total.costCents > 0
+                    ? `${Math.round((total.dividendCents / total.costCents) * 1000) / 10}% of cost`
+                    : 'no positions'}
+                </p>
+              </div>
+            </div>
+
+            {holdings.length > 0 && (
+              <>
+                <p className="text-slate-500 text-[10px] font-black tracking-widest mt-8 mb-3">
+                  BY COUNTER
+                </p>
+                <div className="space-y-2.5">
+                  {holdings.map((holding, index) => {
+                    const price = quotes[holding.symbol]?.priceCents ?? Math.round(averageCostCents(holding));
+                    const value = marketValueCents(holding, price);
+                    const gainCents = value - holding.costCents;
+                    const share = total.valueCents > 0 ? Math.round((value / total.valueCents) * 100) : 0;
+                    return (
+                      <div key={holding.id} className="flex items-center gap-3 p-4 rounded-3xl glass">
+                        <span
+                          className="size-2.5 rounded-full shrink-0"
+                          style={{ background: SLICE_COLORS[index % SLICE_COLORS.length] }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-black text-[13px] truncate">{holding.name}</p>
+                          <p className="text-slate-500 text-[11px] font-bold mt-0.5">
+                            {share}% of the portfolio · {holding.units.toLocaleString('en-US')} units
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-white text-[13px] font-black">{money(value)}</p>
+                          <p className={`text-[11px] font-black ${tone(gainCents)}`}>
+                            {money(gainCents, { signed: true })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <p className="text-slate-600 text-[11px] font-bold text-center mt-8 leading-relaxed px-2">
+              Dividends are counted here as income, and they have already been split into your goals — so
+              they show in your savings as well. This screen is about the investing; it is not added to
+              your total savings anywhere.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Growth;

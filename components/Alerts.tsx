@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { Alert, AlertKind, NotificationPrefs } from '../types';
 import { formatTime } from '../services/alerts';
 import { checkPermission, requestPermission, type Permission } from '../services/notifications';
+import { formatMoney } from '../services/money';
 
 interface AlertsProps {
   alerts: Alert[];
@@ -15,14 +16,12 @@ interface AlertsProps {
 type Filter = 'all' | 'deposits' | 'milestones' | 'streaks';
 
 const FILTERS: { key: Filter; label: string; kinds: AlertKind[] }[] = [
-  { key: 'all', label: 'All', kinds: ['receipt', 'milestone', 'reached', 'streak'] },
-  { key: 'deposits', label: 'Deposits', kinds: ['receipt'] },
+  { key: 'all', label: 'All', kinds: ['receipt', 'milestone', 'reached', 'streak', 'dividend', 'housekeeping'] },
+  { key: 'deposits', label: 'Deposits', kinds: ['receipt', 'dividend'] },
   { key: 'milestones', label: 'Milestones', kinds: ['milestone', 'reached'] },
   { key: 'streaks', label: 'Streaks', kinds: ['streak'] },
 ];
 
-const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const whole = (n: number) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -65,6 +64,8 @@ const ICONS: Record<AlertKind, string> = {
   milestone: 'emoji_events',
   reached: 'celebration',
   streak: 'local_fire_department',
+  dividend: 'payments',
+  housekeeping: 'cleaning_services',
 };
 
 const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSavePrefs, onOpenStrategy }) => {
@@ -114,7 +115,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
               {a.lines?.map((l) => (
                 <div key={l.bankId} className="flex items-center justify-between gap-2 bg-white/5 rounded-xl px-3 py-2 min-w-0">
                   <span className="text-slate-300 text-[11px] font-bold truncate">{l.name}</span>
-                  <span className="text-white text-[11px] font-black shrink-0">{money(l.amount)}</span>
+                  <span className="text-white text-[11px] font-black shrink-0">{formatMoney(l.amount)}</span>
                 </div>
               ))}
             </div>
@@ -125,7 +126,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
               A deposit pushed <span className="text-white font-bold">{a.bankName}</span> past {a.percent}% of its target.{' '}
-              <span className="text-primary font-bold">{money(a.amount ?? 0)}</span> left to go.
+              <span className="text-primary font-bold">{formatMoney(a.amount ?? 0)}</span> left to go.
             </p>
             <div className="flex items-center gap-3 mt-3">
               <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
@@ -139,7 +140,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         return (
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
-              <span className="text-white font-bold">{a.bankName}</span> reached its {whole(a.amount ?? 0)} target.
+              <span className="text-white font-bold">{a.bankName}</span> reached its {formatMoney(a.amount ?? 0, { decimals: 0 })} target.
               {a.percent ? ` It still takes ${a.percent}% of every deposit.` : ''}
               {a.overflow ? ' Its share now goes to your other goals automatically.' : ''}
             </p>
@@ -166,19 +167,39 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             You have put money into your goals every day for {a.days} days straight. Keep it going.
           </p>
         );
+      case 'housekeeping':
+        return (
+          <p className="text-slate-400 text-xs font-medium leading-relaxed">
+            The app reads your whole history every time it opens, so records older than {a.months} months
+            are cleared to keep that quick. Nothing has been removed yet. Open Report → Statements to save
+            those months first, or to keep them for longer. Your balances are never affected.
+          </p>
+        );
+      case 'dividend':
+        return (
+          <p className="text-slate-400 text-xs font-medium leading-relaxed">
+            Worked out on the {a.units?.toLocaleString('en-US')} units you held on the ex-date and split
+            across your goals like any other deposit. Companies deduct tax and fees, so check the amount
+            that actually landed and correct it in Trades if it differs.
+          </p>
+        );
     }
   };
 
   const title = (a: Alert) => {
     switch (a.kind) {
       case 'receipt':
-        return `Auto deposit posted (${money(a.amount ?? 0)})`;
+        return `Auto deposit posted (${formatMoney(a.amount ?? 0)})`;
       case 'milestone':
         return `Milestone: ${a.bankName}`;
       case 'reached':
         return `Goal reached: ${a.bankName}`;
       case 'streak':
         return `${a.days}-day savings streak`;
+      case 'housekeeping':
+        return 'Old records are ready to be cleared';
+      case 'dividend':
+        return `${a.counter} paid ${formatMoney(a.amount ?? 0)}`;
     }
   };
 

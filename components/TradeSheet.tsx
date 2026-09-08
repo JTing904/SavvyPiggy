@@ -1,0 +1,327 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import type { Trade } from '../types';
+import { averageCostCents, buildHoldings, dayStart, normalizeSymbol, replay } from '../services/holdings';
+import { searchSymbols, type SymbolHit } from '../services/quotes';
+import { createTrade, deleteTrade, updateTrade } from '../services/firestore';
+import { formatMoney, fromCents, toCents } from '../services/money';
+import { useBackHandler } from '../hooks/useBackHandler';
+
+/**
+ * What the sheet has been opened to do. Recording a trade and correcting one
+ * ask for the same three things — a date, a number of units and a price — so
+ * they share a form; only what happens on Save differs.
+ */
+export type TradeDraft =
+  | { mode: 'new'; kind: 'buy' | 'sell'; symbol?: string; name?: string }
+  | { mode: 'edit'; trade: Trade };
+
+interface TradeSheetProps {
+  uid: string;
+  /** The whole log, so the sheet can show what the position becomes. */
+  trades: Trade[];
+  draft: TradeDraft;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}
+
+const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
+  formatMoney(fromCents(cents), opts);
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Both directions of the date field, in local time — the day is the point. */
+const toInputDate = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const fromInputDate = (text: string) => {
+  const [y, m, d] = text.split('-').map(Number);
+  if (!y || !m || !d) return dayStart(Date.now());
+  return new Date(y, m - 1, d).getTime();
+};
+
+const LABEL: Record<Trade['kind'], string> = { buy: 'Buy', sell: 'Sell', dividend: 'Dividend' };
+
+const Field: React.FC<{
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  prefix?: string;
+  autoFocus?: boolean;
+}> = ({ label, value, onChange, type = 'number', prefix, autoFocus }) => (
+  <div className="flex-1 min-w-0">
+    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
+    <div className="flex items-center gap-2 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
+      {prefix && <span className="text-slate-500 font-black shrink-0">{prefix}</span>}
+      <input
+        autoFocus={autoFocus}
+        type={type}
+        inputMode={type === 'number' ? 'decimal' : undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={type === 'number' ? '0' : undefined}
+        className="w-full border-0 bg-transparent text-white text-lg font-black focus:outline-none placeholder:text-slate-700"
+      />
+    </div>
+  </div>
+);
+
+const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, onDone }) => {
+  const editing = draft.mode === 'edit' ? draft.trade : null;
+  const kind: Trade['kind'] = editing ? editing.kind : draft.kind;
+
+  const [symbol, setSymbol] = useState(editing?.symbol ?? (draft.mode === 'new' ? draft.symbol ?? '' : ''));
+  const [name, setName] = useState(editing?.name ?? (draft.mode === 'new' ? draft.name ?? '' : ''));
+  const [units, setUnits] = useState(editing ? String(editing.units) : '');
+  const [price, setPrice] = useState(editing ? fromCents(editing.priceCents).toFixed(kind === 'dividend' ? 4 : 2) : '');
+  const [date, setDate] = useState(toInputDate(editing?.tradedAt ?? Date.now()));
+  const [term, setTerm] = useState('');
+  const [hits, setHits] = useState<SymbolHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useBackHandler(true, onClose);
+
+  const needsCounter = !symbol;
+  /** You can only sell what you hold, so a sale picks from the positions. */
+  const held = useMemo(() => buildHoldings(trades), [trades]);
+
+  // Searching runs a beat after typing stops, so a name costs one request.
+  useEffect(() => {
+    if (!needsCounter || kind !== 'buy') return;
+    const text = term.trim();
+    if (text.length < 2) {
+      setHits([]);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      setHits(await searchSymbols(text));
+      setSearching(false);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [term, needsCounter, kind]);
+
+  const unitsIn = Math.max(0, Math.floor(Number(units) || 0));
+  const priceCents = toCents(Number(price) || 0);
+  const tradedAt = fromInputDate(date);
+  const canSave = !!symbol && unitsIn > 0 && priceCents > 0 && !busy;
+
+  /**
+   * What the position becomes once this trade is in the log — every other
+   * trade left exactly as it is. Editing one line can only ever move the
+   * numbers by that line's worth, and this is where you see it before saving.
+   */
+  const outcome = useMemo(() => {
+    if (!symbol) return null;
+    const mine = trades.filter((t) => t.symbol === symbol);
+    const before = replay(mine);
+    const candidate: Trade = {
+      id: editing?.id ?? 'draft',
+      symbol,
+      name,
+      kind,
+      units: unitsIn,
+      priceCents,
+      tradedAt,
+      createdAt: editing?.createdAt ?? Date.now(),
+    };
+    const after = replay([...mine.filter((t) => t.id !== editing?.id), candidate]);
+    return { before, after };
+  }, [trades, symbol, name, kind, unitsIn, priceCents, tradedAt, editing]);
+
+  const save = async () => {
+    if (!canSave) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const body = { symbol, name: name || symbol, kind, units: unitsIn, priceCents, tradedAt };
+      if (editing) {
+        await updateTrade(uid, editing.id, body);
+        onDone(`${name || symbol} trade corrected.`);
+      } else {
+        await createTrade(uid, body);
+        onDone(`${LABEL[kind]} recorded · ${unitsIn} units of ${name || symbol}.`);
+      }
+      onClose();
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : 'Could not save that.');
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!editing || busy) return;
+    if (!confirm('Delete this trade? The position will be worked out again without it.')) return;
+    setBusy(true);
+    try {
+      await deleteTrade(uid, editing.id);
+      onDone('Trade deleted.');
+      onClose();
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : 'Could not delete that.');
+      setBusy(false);
+    }
+  };
+
+  const title = editing ? `Edit · ${LABEL[kind]}` : kind === 'buy' ? 'Buy' : 'Sell';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/85" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md mx-auto bg-surface rounded-t-[2rem] border-t border-white/10 px-6 pt-4 pb-8 max-h-[90%] overflow-y-auto no-scrollbar safe-pb"
+      >
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
+
+        <h3 className="text-white text-xl font-black">
+          {title}
+          {name && ` · ${name}`}
+        </h3>
+        <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
+          {editing
+            ? 'Fixing one trade leaves every other one alone, so how many units you held on a past ex-date is worked out again from scratch — correctly.'
+            : kind === 'buy'
+              ? 'Recording the day it was done, not the day you typed it in. That date is what a dividend is decided on.'
+              : 'Selling after an ex-date still leaves that dividend yours, which is why the date matters here too.'}
+        </p>
+
+        {needsCounter && kind === 'sell' ? (
+          <div className="mt-5">
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">
+              Which counter
+            </p>
+            {held.length === 0 ? (
+              <p className="text-slate-500 text-xs font-bold leading-relaxed">
+                Nothing is held right now, so there is nothing to sell.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {held.map((holding) => (
+                  <button
+                    key={holding.id}
+                    onClick={() => {
+                      setSymbol(holding.symbol);
+                      setName(holding.name);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 text-left active:scale-95 transition-transform"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-black text-sm truncate">{holding.name}</p>
+                      <p className="text-slate-500 text-[11px] font-bold">
+                        {holding.units.toLocaleString('en-US')} units · {holding.symbol}
+                      </p>
+                    </div>
+                    <span className="material-symbols-rounded text-slate-600">chevron_right</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : needsCounter ? (
+          <div className="mt-5">
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Counter</p>
+            <div className="flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
+              <span className="material-symbols-rounded text-slate-500">search</span>
+              <input
+                autoFocus
+                value={term}
+                onChange={(e) => setTerm(e.target.value)}
+                placeholder="Name or code, e.g. maybank"
+                className="w-full border-0 bg-transparent text-white font-bold focus:outline-none placeholder:text-slate-700"
+              />
+            </div>
+            {searching && <p className="text-slate-500 text-xs font-bold mt-3">Searching…</p>}
+            {!searching && term.trim().length >= 2 && hits.length === 0 && (
+              <p className="text-slate-500 text-xs font-bold mt-3 leading-relaxed">
+                Nothing on Bursa matched. Try the four-digit code.
+              </p>
+            )}
+            <div className="mt-3 space-y-2">
+              {hits.map((hit) => (
+                <button
+                  key={hit.symbol}
+                  onClick={() => {
+                    setSymbol(normalizeSymbol(hit.symbol));
+                    setName(hit.name);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 text-left active:scale-95 transition-transform"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-black text-sm truncate">{hit.name}</p>
+                    <p className="text-slate-500 text-[11px] font-bold">{hit.symbol}</p>
+                  </div>
+                  <span className="material-symbols-rounded text-slate-600">add</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mt-5">
+              <Field label={kind === 'dividend' ? 'Pay date' : 'Trade date'} value={date} onChange={setDate} type="date" />
+            </div>
+            <div className="flex gap-3 mt-4">
+              <Field label="Units" value={units} onChange={setUnits} autoFocus={!editing} />
+              <Field
+                label={kind === 'dividend' ? 'Per unit' : 'Price per unit'}
+                value={price}
+                onChange={setPrice}
+                prefix="RM"
+              />
+            </div>
+
+            {outcome && canSave && (
+              <div className="mt-5 rounded-2xl bg-white/5 p-4 space-y-2.5">
+                <div className="flex text-[13px]">
+                  <span className="flex-1 text-slate-400 font-bold">This trade</span>
+                  <span className="text-white font-black">{money(unitsIn * priceCents)}</span>
+                </div>
+                <div className="flex text-[13px]">
+                  <span className="flex-1 text-slate-400 font-bold">{name || symbol} after this</span>
+                  <span className="text-white font-black">
+                    {outcome.before.units.toLocaleString('en-US')} → {outcome.after.units.toLocaleString('en-US')} units
+                  </span>
+                </div>
+                <div className="flex text-[13px]">
+                  <span className="flex-1 text-slate-400 font-bold">Average cost</span>
+                  <span className="text-white font-black">
+                    {money(Math.round(averageCostCents(outcome.after)))}
+                  </span>
+                </div>
+                {kind === 'sell' && outcome.after.units === outcome.before.units && unitsIn > 0 && (
+                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">
+                    Nothing was held on that date, so this sale changes nothing. Check the date.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {problem && <p className="text-red-400 text-xs font-bold mt-4">{problem}</p>}
+
+            <button
+              onClick={() => void save()}
+              disabled={!canSave}
+              className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
+            >
+              {editing ? 'Save changes' : `Record this ${kind}`}
+            </button>
+
+            {editing && (
+              <button
+                onClick={() => void remove()}
+                className="w-full h-12 mt-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black active:scale-95 transition-transform"
+              >
+                Delete this trade
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default TradeSheet;
