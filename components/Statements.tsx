@@ -8,7 +8,7 @@ import {
   type MonthReport,
 } from '../services/analytics';
 import { buildHoldings, type Quotes } from '../services/holdings';
-import { buildMonthCsv, monthFileName } from '../services/export';
+import { buildMonthWorkbook, monthFileName } from '../services/export';
 import { buildStatementPdf } from '../services/statement';
 import { saveFile } from '../services/share';
 import { formatMoney } from '../services/money';
@@ -87,7 +87,7 @@ const Statements: React.FC<StatementsProps> = ({
     trades: trades.filter((t) => t.tradedAt >= month.start.getTime() && t.tradedAt < month.end.getTime()),
   });
 
-  const download = async (month: MonthReport, kind: 'pdf' | 'csv') => {
+  const download = async (month: MonthReport, kind: 'pdf' | 'sheet') => {
     if (busy) return;
     setBusy(`${month.key}:${kind}`);
     try {
@@ -96,11 +96,11 @@ const Statements: React.FC<StatementsProps> = ({
       // trade up to then rather than from what is held today.
       const holdings = buildHoldings(trades.filter((t) => t.tradedAt < month.end.getTime()));
 
-      if (kind === 'csv') {
+      if (kind === 'sheet') {
         await saveFile(
-          monthFileName(month.label, 'csv'),
-          'text/csv;charset=utf-16le',
-          buildMonthCsv({ label: month.label, banks, holdings, quotes, ...slice })
+          monthFileName(month.label, 'xlsx'),
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          buildMonthWorkbook({ label: month.label, banks, holdings, quotes, ...slice })
         );
       } else {
         await saveFile(
@@ -126,7 +126,7 @@ const Statements: React.FC<StatementsProps> = ({
     }
   };
 
-  const IconButton: React.FC<{ month: MonthReport; kind: 'pdf' | 'csv' }> = ({ month, kind }) => (
+  const IconButton: React.FC<{ month: MonthReport; kind: 'pdf' | 'sheet' }> = ({ month, kind }) => (
     <button
       onClick={() => void download(month, kind)}
       disabled={busy !== null}
@@ -211,7 +211,7 @@ const Statements: React.FC<StatementsProps> = ({
                   </p>
                 </div>
                 <IconButton month={month} kind="pdf" />
-                <IconButton month={month} kind="csv" />
+                <IconButton month={month} kind="sheet" />
               </div>
             ))}
           </div>
@@ -224,7 +224,7 @@ const Statements: React.FC<StatementsProps> = ({
           </span>
           <span className="flex items-center gap-1.5">
             <span className="material-symbols-rounded text-primary text-[15px]">table_view</span>
-            CSV records
+            Excel records
           </span>
         </div>
 

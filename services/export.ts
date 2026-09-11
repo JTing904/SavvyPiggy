@@ -1,24 +1,20 @@
 import type { Activity, Holding, PiggyBank, Trade } from '../types';
 import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './holdings';
 import { fromCents } from './money';
+import { buildXlsx, type Cell } from './xlsx';
 
 /**
- * A flat statement: one row per transaction, one column per goal holding the
- * signed amount that reached it, carrying everything needed to rebuild the
- * ledger later.
+ * The monthly statement as a spreadsheet.
  *
- * It is written as UTF-16 with tabs, which is not what "CSV" suggests but is
- * what spreadsheets actually read correctly. Goal names are often Chinese, and
- * a file that is a few thousand ASCII digits around a dozen Chinese characters
- * gets guessed at: UTF-8 with a byte-order mark was still read as Windows-1252
- * and turned every name into mojibake. UTF-16's mark cannot be mistaken for
- * anything else, so nothing has to guess — and once a file is UTF-16, readers
- * look for tabs rather than commas, so the separator follows. This is the same
- * pairing Excel itself writes as "Unicode text".
+ * It used to be a CSV, and a CSV has no way of saying what encoding it is in
+ * that every reader honours. Chinese goal names came out as mojibake: the
+ * byte-order mark was ignored and Windows-1252 assumed, and moving to UTF-16
+ * changed nothing except which wrong characters appeared. An .xlsx states its
+ * encoding inside the file, so nothing has to guess.
+ *
+ * Amounts go in as numbers rather than text, which is the other half of being
+ * a real spreadsheet: the columns can be summed.
  */
-
-/** Tab, for the reason above. Everything here honours it. */
-const SEP = '\t';
 
 const TYPE_LABEL: Record<Activity['type'], string> = {
   'auto-save': 'Scheduled deposit',
@@ -27,42 +23,31 @@ const TYPE_LABEL: Record<Activity['type'], string> = {
   borrow: 'Borrowed',
 };
 
-/** Quotes a cell only when it holds something the format treats specially. */
-const cell = (value: string | number) => {
-  const s = String(value);
-  return s.includes('"') || s.includes(SEP) || /[\r\n]/.test(s)
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
+const TRADE_LABEL: Record<Trade['kind'], string> = {
+  buy: 'Buy',
+  sell: 'Sell',
+  dividend: 'Dividend',
 };
 
-/**
- * UTF-16 little-endian. The text already opens with U+FEFF, which in this
- * encoding is the byte-order mark itself, so nothing needs prepending.
- */
-const toUtf16le = (text: string) => {
-  const out = new Uint8Array(text.length * 2);
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    out[i * 2] = code & 0xff;
-    out[i * 2 + 1] = code >> 8;
-  }
-  return out;
-};
-
-const money = (n: number) => n.toFixed(2);
+/** Rounded to the sen the ledger stores, so no float tail reaches the sheet. */
+const money = (n: number) => Math.round(n * 100) / 100;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const localTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-export const buildCsv = (activities: Activity[], banks: PiggyBank[]): string => {
+/**
+ * One row per transaction, one column per goal holding the signed amount that
+ * reached it — everything needed to rebuild the ledger later.
+ */
+export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][] => {
   // Distributions pointing at a goal that has since been deleted still hold
   // money that moved, so they get a column of their own.
   const orphaned = activities.some((a) =>
     a.distributions.some((d) => !banks.some((b) => b.id === d.bankId))
   );
 
-  const header = [
+  const header: Cell[] = [
     'Date',
     'Time',
     'Type',
@@ -75,11 +60,11 @@ export const buildCsv = (activities: Activity[], banks: PiggyBank[]): string => 
 
   const rows = [...activities]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((a) => {
+    .map((a): Cell[] => {
       const d = new Date(a.date);
       const perBank = banks.map((b) => {
         const sum = a.distributions.filter((x) => x.bankId === b.id).reduce((s, x) => s + x.amount, 0);
-        return sum === 0 ? '' : money(sum);
+        return sum === 0 ? null : money(sum);
       });
       const other = a.distributions
         .filter((x) => !banks.some((b) => b.id === x.bankId))
@@ -90,32 +75,17 @@ export const buildCsv = (activities: Activity[], banks: PiggyBank[]): string => 
         localTime(d),
         TYPE_LABEL[a.type] ?? a.type,
         money(a.amount),
-        a.repaid ? money(a.repaid) : '',
-        a.note ?? '',
+        a.repaid ? money(a.repaid) : null,
+        a.note ?? null,
         ...perBank,
-        ...(orphaned ? [other === 0 ? '' : money(other)] : []),
+        ...(orphaned ? [other === 0 ? null : money(other)] : []),
       ];
     });
 
-  return [header, ...rows].map((r) => r.map(cell).join(SEP)).join('\r\n');
+  return [header, ...rows];
 };
 
-/** "SavvyPiggy_2026-09-05_Month.csv" — safe on every filesystem. */
-export const exportFileName = (label: string, ext: string, now: Date = new Date()) =>
-  `SavvyPiggy_${localDate(now)}_${label.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')}.${ext}`;
-
-
-/* ------------------------------------------------------------- statements */
-
-const TRADE_LABEL: Record<Trade['kind'], string> = {
-  buy: 'Buy',
-  sell: 'Sell',
-  dividend: 'Dividend',
-};
-
-const lines = (rows: (string | number)[][]) => rows.map((r) => r.map(cell).join(SEP));
-
-export interface MonthCsvInput {
+export interface MonthSheetInput {
   label: string;
   activities: Activity[];
   banks: PiggyBank[];
@@ -126,83 +96,68 @@ export interface MonthCsvInput {
 }
 
 /**
- * One month, both halves, in a single file.
+ * One month, both halves, on one sheet.
  *
  * Saving and investing do not share a shape — a deposit is split across goals,
  * a trade is units at a price — so forcing them into one table would leave
- * most of every row empty. They go in as blocks instead, each with its own
- * heading, which a spreadsheet shows as tables one above the other.
+ * most of every row empty. They go in as blocks instead, each under its own
+ * heading, with a blank row between.
  *
  * They are never added together: the shares are not part of the savings
  * balance. The one place the two meet is a dividend, which appears in both
  * because it really is income from a holding and money that reached the goals.
  */
-export const buildMonthCsv = ({ label, activities, banks, trades, holdings, quotes }: MonthCsvInput): Uint8Array => {
-  const out: string[] = [];
+export const monthRows = ({ label, activities, banks, trades, holdings, quotes }: MonthSheetInput): Cell[][] => {
+  const rows: Cell[][] = [['SavvyPiggy statement', label], [], ['SAVINGS']];
 
-  out.push(...lines([['SavvyPiggy statement', label]]));
-  out.push('');
-  out.push(...lines([['SAVINGS']]));
+  if (activities.length === 0) rows.push(['No records this month']);
+  else rows.push(...savingsRows(activities, banks));
 
-  if (activities.length === 0) {
-    out.push(...lines([['No records this month']]));
-  } else {
-    // The savings block is the ordinary export, reused whole so the two can
-    // never drift apart.
-    out.push(...buildCsv(activities, banks).split('\r\n'));
-  }
-
-  out.push('');
-  out.push(...lines([['INVESTMENTS']]));
+  rows.push([], ['INVESTMENTS']);
   if (trades.length === 0) {
-    out.push(...lines([['No trades this month']]));
+    rows.push(['No trades this month']);
   } else {
-    out.push(
-      ...lines([
-        ['Date', 'Action', 'Counter', 'Name', 'Units', 'Per unit', 'Amount'],
-        ...[...trades]
-          .sort((a, b) => a.tradedAt - b.tradedAt)
-          .map((t) => [
-            localDate(new Date(t.tradedAt)),
-            TRADE_LABEL[t.kind],
-            t.symbol,
-            t.name,
-            t.units,
-            money(fromCents(t.kind === 'dividend' ? (t.perUnitPoints ?? 0) / 100 : t.priceCents)),
-            money(fromCents(tradeCents(t))),
-          ]),
-      ])
-    );
+    rows.push(['Date', 'Action', 'Counter', 'Name', 'Units', 'Per unit', 'Amount']);
+    for (const t of [...trades].sort((a, b) => a.tradedAt - b.tradedAt)) {
+      rows.push([
+        localDate(new Date(t.tradedAt)),
+        TRADE_LABEL[t.kind],
+        t.symbol,
+        t.name,
+        t.units,
+        // A dividend is quoted per unit in ten-thousandths of a ringgit.
+        money(fromCents(t.kind === 'dividend' ? (t.perUnitPoints ?? 0) / 100 : t.priceCents)),
+        money(fromCents(tradeCents(t))),
+      ]);
+    }
   }
 
-  out.push('');
-  out.push(...lines([['POSITIONS AT MONTH END']]));
+  rows.push([], ['POSITIONS AT MONTH END']);
   if (holdings.length === 0) {
-    out.push(...lines([['Nothing held']]));
+    rows.push(['Nothing held']);
   } else {
-    out.push(
-      ...lines([
-        ['Counter', 'Name', 'Units', 'Average cost', 'Total cost', 'Market value', 'Gain'],
-        ...holdings.map((h) => {
-          const price = quotes[h.symbol]?.priceCents ?? Math.round(averageCostCents(h));
-          const value = marketValueCents(h, price);
-          return [
-            h.symbol,
-            h.name,
-            h.units,
-            money(fromCents(Math.round(averageCostCents(h)))),
-            money(fromCents(h.costCents)),
-            money(fromCents(value)),
-            money(fromCents(value - h.costCents)),
-          ];
-        }),
-      ])
-    );
+    rows.push(['Counter', 'Name', 'Units', 'Average cost', 'Total cost', 'Market value', 'Gain']);
+    for (const h of holdings) {
+      const price = quotes[h.symbol]?.priceCents ?? Math.round(averageCostCents(h));
+      const value = marketValueCents(h, price);
+      rows.push([
+        h.symbol,
+        h.name,
+        h.units,
+        money(fromCents(Math.round(averageCostCents(h)))),
+        money(fromCents(h.costCents)),
+        money(fromCents(value)),
+        money(fromCents(value - h.costCents)),
+      ]);
+    }
   }
 
-  return toUtf16le('\uFEFF' + out.join('\r\n') + '\r\n');
+  return rows;
 };
 
-/** "SavvyPiggy-August-2026.csv" — the month is what people look for. */
+export const buildMonthWorkbook = (input: MonthSheetInput, now: Date = new Date()) =>
+  buildXlsx(monthRows(input), input.label, now);
+
+/** "SavvyPiggy-August-2026.xlsx" — the month is what people look for. */
 export const monthFileName = (label: string, ext: string) =>
   `SavvyPiggy-${label.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')}.${ext}`;

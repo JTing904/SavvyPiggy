@@ -372,7 +372,7 @@ const Profile: React.FC<ProfileProps> = ({
             <Row
               icon="description"
               title="Statements & exports"
-              subtitle="Download your ledger as CSV or PDF"
+              subtitle="A statement every month, as a PDF or a spreadsheet"
               onClick={onOpenReport}
             />
             <Row
