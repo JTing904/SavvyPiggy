@@ -4,9 +4,21 @@ import { fromCents } from './money';
 
 /**
  * A flat statement: one row per transaction, one column per goal holding the
- * signed amount that reached it. Opens cleanly in Excel / Sheets and carries
- * everything needed to rebuild the ledger later.
+ * signed amount that reached it, carrying everything needed to rebuild the
+ * ledger later.
+ *
+ * It is written as UTF-16 with tabs, which is not what "CSV" suggests but is
+ * what spreadsheets actually read correctly. Goal names are often Chinese, and
+ * a file that is a few thousand ASCII digits around a dozen Chinese characters
+ * gets guessed at: UTF-8 with a byte-order mark was still read as Windows-1252
+ * and turned every name into mojibake. UTF-16's mark cannot be mistaken for
+ * anything else, so nothing has to guess — and once a file is UTF-16, readers
+ * look for tabs rather than commas, so the separator follows. This is the same
+ * pairing Excel itself writes as "Unicode text".
  */
+
+/** Tab, for the reason above. Everything here honours it. */
+const SEP = '\t';
 
 const TYPE_LABEL: Record<Activity['type'], string> = {
   'auto-save': 'Scheduled deposit',
@@ -15,10 +27,26 @@ const TYPE_LABEL: Record<Activity['type'], string> = {
   borrow: 'Borrowed',
 };
 
-/** Quotes a cell when it holds anything CSV treats specially. */
+/** Quotes a cell only when it holds something the format treats specially. */
 const cell = (value: string | number) => {
   const s = String(value);
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  return s.includes('"') || s.includes(SEP) || /[\r\n]/.test(s)
+    ? `"${s.replace(/"/g, '""')}"`
+    : s;
+};
+
+/**
+ * UTF-16 little-endian. The text already opens with U+FEFF, which in this
+ * encoding is the byte-order mark itself, so nothing needs prepending.
+ */
+const toUtf16le = (text: string) => {
+  const out = new Uint8Array(text.length * 2);
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    out[i * 2] = code & 0xff;
+    out[i * 2 + 1] = code >> 8;
+  }
+  return out;
 };
 
 const money = (n: number) => n.toFixed(2);
@@ -69,8 +97,7 @@ export const buildCsv = (activities: Activity[], banks: PiggyBank[]): string => 
       ];
     });
 
-  // The BOM makes Excel read the file as UTF-8, so non-Latin goal names survive.
-  return '﻿' + [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+  return [header, ...rows].map((r) => r.map(cell).join(SEP)).join('\r\n');
 };
 
 /** "SavvyPiggy_2026-09-05_Month.csv" — safe on every filesystem. */
@@ -86,7 +113,7 @@ const TRADE_LABEL: Record<Trade['kind'], string> = {
   dividend: 'Dividend',
 };
 
-const lines = (rows: (string | number)[][]) => rows.map((r) => r.map(cell).join(','));
+const lines = (rows: (string | number)[][]) => rows.map((r) => r.map(cell).join(SEP));
 
 export interface MonthCsvInput {
   label: string;
@@ -110,7 +137,7 @@ export interface MonthCsvInput {
  * balance. The one place the two meet is a dividend, which appears in both
  * because it really is income from a holding and money that reached the goals.
  */
-export const buildMonthCsv = ({ label, activities, banks, trades, holdings, quotes }: MonthCsvInput): string => {
+export const buildMonthCsv = ({ label, activities, banks, trades, holdings, quotes }: MonthCsvInput): Uint8Array => {
   const out: string[] = [];
 
   out.push(...lines([['SavvyPiggy statement', label]]));
@@ -121,8 +148,8 @@ export const buildMonthCsv = ({ label, activities, banks, trades, holdings, quot
     out.push(...lines([['No records this month']]));
   } else {
     // The savings block is the ordinary export, reused whole so the two can
-    // never drift apart. Its byte-order mark belongs to the file, not here.
-    out.push(...buildCsv(activities, banks).replace(/^\uFEFF/, '').trimEnd().split('\r\n'));
+    // never drift apart.
+    out.push(...buildCsv(activities, banks).split('\r\n'));
   }
 
   out.push('');
@@ -173,7 +200,7 @@ export const buildMonthCsv = ({ label, activities, banks, trades, holdings, quot
     );
   }
 
-  return '\uFEFF' + out.join('\r\n') + '\r\n';
+  return toUtf16le('\uFEFF' + out.join('\r\n') + '\r\n');
 };
 
 /** "SavvyPiggy-August-2026.csv" — the month is what people look for. */

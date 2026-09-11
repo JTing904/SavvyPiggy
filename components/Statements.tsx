@@ -99,7 +99,7 @@ const Statements: React.FC<StatementsProps> = ({
       if (kind === 'csv') {
         await saveFile(
           monthFileName(month.label, 'csv'),
-          'text/csv;charset=utf-8',
+          'text/csv;charset=utf-16le',
           buildMonthCsv({ label: month.label, banks, holdings, quotes, ...slice })
         );
       } else {

@@ -1,4 +1,4 @@
-import { buildCsv, exportFileName } from '../services/export';
+import { buildCsv, buildMonthCsv, exportFileName } from '../services/export';
 import { buildImagePdf } from '../services/pdf';
 import type { Activity, PiggyBank } from '../types';
 import { eq, report } from './harness';
@@ -43,12 +43,36 @@ const ACTS: Activity[] = [
 const csv = buildCsv(ACTS, BANKS);
 const lines = csv.split('\r\n');
 
-eq('starts with a BOM', csv.charCodeAt(0), 0xfeff);
-eq('header quotes tricky goal names', lines[0].slice(1), 'Date,Time,Type,Amount,Repaid debt,Note,Car,"股票, ""stocks""",Deleted goals');
-eq('rows are oldest first', lines[1], '2026-09-04,18:30,Deposit,100.00,,,60.00,35.00,5.00');
-eq('multi-line note is quoted', lines[2], '2026-09-05,09:07,Withdrawal,5.00,,"coffee\nand cake",-5.00,,');
-eq('ends with a newline', csv.endsWith('\r\n'), true);
-eq('no deleted-goal column when none needed', buildCsv([ACTS[0]], BANKS).split('\r\n')[0].endsWith('"股票, ""stocks"""'), true);
+// Tabs, not commas: the file is written as UTF-16 so Chinese goal names
+// survive, and a spreadsheet reading a two-byte encoding looks for tabs.
+eq('columns are separated by tabs', lines[0].includes('\t'), true);
+eq('a goal name with a comma needs no quoting now', lines[0].split('\t')[6], 'Car');
+eq('but one with a quote still does',
+  lines[0].split('\t').slice(7).join('\t'), '"\u80a1\u7968, ""stocks"""\tDeleted goals');
+eq('rows are oldest first', lines[1], '2026-09-04\t18:30\tDeposit\t100.00\t\t\t60.00\t35.00\t5.00');
+eq('multi-line note is quoted', lines[2], '2026-09-05\t09:07\tWithdrawal\t5.00\t\t"coffee\nand cake"\t-5.00\t\t');
+eq('the block carries no mark of its own', csv.charCodeAt(0) === 0xfeff, false);
+eq('and no trailing blank line', csv.endsWith('\r\n'), false);
+eq('no deleted-goal column when none needed',
+  buildCsv([ACTS[0]], BANKS).split('\r\n')[0].endsWith('"\u80a1\u7968, ""stocks"""'), true);
+
+// --- the month file, as bytes
+{
+  const bytes = buildMonthCsv({
+    label: 'September 2026', activities: ACTS, banks: BANKS, trades: [], holdings: [], quotes: {},
+  });
+  eq('it opens with the UTF-16 byte-order mark', [bytes[0], bytes[1]], [0xff, 0xfe]);
+  // A decoder consumes the mark, which is how it should be: the bytes carry it
+  // for the reader, and the text itself starts at the first real character.
+  const text = new TextDecoder('utf-16le').decode(bytes);
+  const rows = text.split('\r\n');
+  eq('the month is named at the top', rows[0], 'SavvyPiggy statement\tSeptember 2026');
+  eq('both halves are present',
+    [rows[2], rows.includes('INVESTMENTS'), rows.includes('POSITIONS AT MONTH END')],
+    ['SAVINGS', true, true]);
+  // A Chinese name surviving the round trip is the whole point of the change.
+  eq('Chinese goal names come back intact', text.includes('\u80a1\u7968'), true);
+}
 
 eq('file name is filesystem-safe', exportFileName('Sep 1 – Sep 30, 2026', 'csv', new Date(2026, 8, 5)), 'SavvyPiggy_2026-09-05_Sep-1-Sep-30-2026.csv');
 
