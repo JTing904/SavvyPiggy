@@ -12,13 +12,14 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import { portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
 import type { Mode as NavMode } from './Navigation';
+import { CATEGORIES, UNCATEGORISED } from '../services/categories';
 
 type Mode = 'deposit' | 'withdraw';
 
 const ACTIVITY_STYLES: Record<ActivityType, { label: string; icon: string; tint: string; outgoing: boolean }> = {
   'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary', outgoing: false },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
-  withdraw: { label: 'Withdrawal', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
+  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
   borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
 };
 
@@ -29,7 +30,7 @@ interface DashboardProps {
   activities: Activity[];
   loans: Loan[];
   onDeposit: (amount: number, targetBankId: string | null) => void;
-  onWithdraw: (amount: number, sourceBankId: string, note: string) => void;
+  onWithdraw: (amount: number, sourceBankId: string, note: string, category: string) => void;
   onBorrow: (amount: number, note: string) => void;
   onViewAll: () => void;
   onSelectGoal: (id: string) => void;
@@ -99,6 +100,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [mode, setMode] = useState<Mode | null>(null);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [category, setCategory] = useState<string>(UNCATEGORISED);
   // In deposit mode null means "split by strategy"; in withdraw mode it means
   // "borrowed from outside", which touches no goal at all.
   const [target, setTarget] = useState<string | null>(null);
@@ -149,7 +151,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const value = fromCents(cents);
     if (mode === 'deposit') onDeposit(value, target);
     else if (isBorrow) onBorrow(value, note);
-    else onWithdraw(value, target!, note);
+    else onWithdraw(value, target!, note, category);
     closeModal();
   };
 
@@ -176,7 +178,7 @@ const Dashboard: React.FC<DashboardProps> = ({
    * back button leaving the investing half.
    */
   const syncing = useRef(false);
-  const release = useRef<number>();
+  const release = useRef<number | undefined>(undefined);
 
   /**
    * Set when the rail itself caused the mode to change. The thumb is already
@@ -684,6 +686,32 @@ const Dashboard: React.FC<DashboardProps> = ({
                     placeholder={isBorrow ? 'e.g. Borrowed from mum' : 'e.g. Groceries'}
                     className="w-full h-14 px-5 rounded-2xl bg-white/5 border border-white/10 text-base font-bold text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
                   />
+
+                  {/* Borrowing is not spending, so it gets no heading. */}
+                  {!isBorrow && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {CATEGORIES.map((c) => {
+                        const on = category === c.key;
+                        return (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => setCategory(c.key)}
+                            className={`flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-2xl text-[11px] font-black border transition-colors ${
+                              on
+                                ? 'bg-primary text-black border-primary'
+                                : 'bg-white/5 border-white/10 text-slate-400'
+                            }`}
+                          >
+                            <span className={`material-symbols-rounded text-base ${on ? '' : c.tint}`}>
+                              {c.icon}
+                            </span>
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

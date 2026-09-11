@@ -26,6 +26,12 @@ export const usePiggyData = (uid: string | undefined) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
+  /**
+   * True when the ledger on screen came from the phone rather than the
+   * server. An empty cache used to render as RM0.00 and no goals with
+   * nothing to say it was not the truth.
+   */
+  const [offline, setOffline] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // onSnapshot tears the listener down on error, so recovering means resubscribing.
   const [attempt, setAttempt] = useState(0);
@@ -187,6 +193,7 @@ export const usePiggyData = (uid: string | undefined) => {
     trades,
     holdings,
     loading: loading || !activitiesReady,
+    offline,
     error,
     retry,
   };

@@ -1,5 +1,5 @@
 import type { Dividend, Trade } from '../types';
-import { dayStart, unitsOnExDate } from './holdings';
+import { dayStart, replay, tradeCents, unitsOnExDate } from './holdings';
 
 /**
  * Dividends: reading the announcements, and deciding what is owed.
@@ -177,6 +177,33 @@ export const dueDividends = (
     .sort((a, b) => a.dividend.payDate - b.dividend.payDate);
 };
 
+/**
+ * What a counter has actually paid, against what it cost.
+ *
+ * Worked out from the trade log, never stored: the dividends are the ones
+ * credited in the last twelve months, and the cost is what the position is
+ * held at now. It is a yield on cost — what this holding returns to the
+ * person who owns it — not the market yield a quote screen shows, which
+ * moves with the share price and says nothing about what anyone paid.
+ *
+ * Null when there is nothing to divide by, or nothing has been paid yet;
+ * a zero would read as "this pays nothing", which is a different claim.
+ */
+export const yieldOnCost = (trades: Trade[], symbol: string, now = Date.now()) => {
+  const mine = trades.filter((t) => t.symbol === symbol);
+  const costCents = replay(mine).costCents;
+  if (costCents <= 0) return null;
+
+  const since = new Date(now);
+  since.setFullYear(since.getFullYear() - 1);
+
+  const paid = mine
+    .filter((t) => t.kind === 'dividend' && t.tradedAt >= since.getTime())
+    .reduce((sum, t) => sum + tradeCents(t), 0);
+  if (paid <= 0) return null;
+
+  return { paidCents: paid, costCents, percent: Math.round((paid / costCents) * 1000) / 10 };
+};
 /**
  * Dividends still to come, for the screen that lists them. Includes today's,
  * since a pay date arrives before the money does.

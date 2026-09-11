@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { Dividend, Trade } from '../types';
-import { upcomingDividends } from '../services/dividends';
+import { upcomingDividends, yieldOnCost } from '../services/dividends';
 import { isDividendApiConfigured } from '../services/dividendApi';
 import { tradeCents, unitsOnExDate } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
@@ -49,6 +49,16 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefres
 
   const paidTotal = paid.reduce((sum, t) => sum + tradeCents(t), 0);
 
+  /** One row per counter that has actually paid something in the last year. */
+  const yields = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const t of trades) seen.set(t.symbol, t.name);
+    return [...seen.entries()]
+      .map(([symbol, name]) => ({ symbol, name, y: yieldOnCost(trades, symbol) }))
+      .filter((row): row is { symbol: string; name: string; y: NonNullable<typeof row.y> } => row.y !== null)
+      .sort((a, b) => b.y.percent - a.y.percent);
+  }, [trades]);
+
   return (
     <div className="flex flex-col h-full bg-bg-dark safe-pt">
       <div className="flex items-center px-6 py-4 gap-4 sticky top-0 bg-bg-dark/95 z-20">
@@ -81,6 +91,31 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefres
           </div>
         )}
 
+        {yields.length > 0 && (
+          <>
+            <p className="text-slate-500 text-[10px] font-black tracking-widest mt-7 mb-3">
+              YIELD ON WHAT YOU PAID
+            </p>
+            <div className="space-y-2.5">
+              {yields.map(({ symbol, name, y }) => (
+                <div key={symbol} className="flex items-center gap-3 p-4 rounded-3xl glass">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-black text-[13px] truncate">{name}</p>
+                    <p className="text-slate-500 text-[11px] font-bold mt-0.5">
+                      {money(y.paidCents)} paid on {money(y.costCents)} of cost, last 12 months
+                    </p>
+                  </div>
+                  <p className="text-accent text-lg font-black shrink-0">{y.percent}%</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-slate-600 text-[11px] font-bold mt-3 leading-relaxed px-1">
+              This is what the holding returns against what you actually paid for it — not the yield a
+              quote screen shows, which moves with the share price and says nothing about your cost.
+            </p>
+          </>
+        )}
+
         {paid.length > 0 && (
           <div className="rounded-3xl bg-accent/10 border border-accent/25 p-5 mt-5">
             <p className="text-accent/70 text-[10px] font-black uppercase tracking-widest">Received so far</p>
@@ -103,10 +138,13 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefres
           <div className="space-y-3">
             {upcoming.map(({ dividend, units, amountCents }) => (
               <div key={`${dividend.symbol}_${dividend.exDate}`} className="rounded-3xl glass p-5">
-                <div className="flex items-center gap-2">
-                  <p className="text-white font-black text-[15px] truncate">{dividend.symbol}</p>
-                  <div className="flex-1" />
-                  <span className="text-slate-500 text-[10px] font-black">{dividend.subject}</span>
+                <div className="flex items-baseline gap-3">
+                  {/* The counter code never truncates: a "1155" shortened to
+                      "115" names a different company. The subject gives way. */}
+                  <p className="text-white font-black text-[15px] shrink-0">{dividend.symbol}</p>
+                  <span className="text-slate-500 text-[10px] font-black text-right flex-1 min-w-0 truncate">
+                    {dividend.subject}
+                  </span>
                 </div>
                 <div className="mt-4 space-y-2.5">
                   <Row label="Ex-date" value={day(dividend.exDate)} />

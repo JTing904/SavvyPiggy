@@ -1,6 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, connectAuthEmulator } from 'firebase/auth';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import {
+  connectFirestoreEmulator,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 
 const env = {
@@ -38,7 +43,23 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+/**
+ * Firestore with a cache that survives the app being closed.
+ *
+ * Without it the ledger lived in memory only: a cold start was blank until
+ * the network answered, a deposit made offline was queued in RAM and lost the
+ * moment the app was killed, and every open re-read every kept record from
+ * the server. That last one matters most — a free project allows fifty
+ * thousand reads a day, and the whole retention system exists to protect it.
+ * With a disk cache the listeners start from what is already on the phone and
+ * the server only sends what changed.
+ *
+ * The tab manager is for the browser build; on the phone there is only ever
+ * one, and it costs nothing to be right about both.
+ */
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 

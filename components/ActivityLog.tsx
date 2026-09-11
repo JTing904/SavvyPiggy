@@ -3,11 +3,12 @@ import { Activity, ActivityType, PiggyBank } from '../types';
 import { formatMoney, fromCents, toCents } from '../services/money';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { SLICE_COLORS } from './DonutChart';
+import { CATEGORIES, categoryOf } from '../services/categories';
 
 const STYLES: Record<ActivityType, { label: string; icon: string; tint: string; outgoing: boolean }> = {
   'auto-save': { label: 'Scheduled deposit', icon: 'cycle', tint: 'bg-primary/10 text-primary', outgoing: false },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
-  withdraw: { label: 'Withdrawal', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
+  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
   borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
 };
 
@@ -16,6 +17,8 @@ interface ActivityLogProps {
   banks: PiggyBank[];
   onDeleteActivity: (id: string) => void;
   onEditActivity: (id: string, newAmount: number) => void;
+  /** Re-labelling what a withdrawal was for. Moves no money. */
+  onSetCategory: (id: string, category: string) => void;
 }
 
 /** Callers put the sign on themselves, so this only ever renders the size. */
@@ -50,16 +53,25 @@ interface Day {
   repaid: number;
 }
 
-const ActivityLog: React.FC<ActivityLogProps> = ({ activities, banks, onDeleteActivity, onEditActivity }) => {
+const ActivityLog: React.FC<ActivityLogProps> = ({
+  activities,
+  banks,
+  onDeleteActivity,
+  onEditActivity,
+  onSetCategory,
+}) => {
   const now = new Date();
   const [month, setMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [openEntry, setOpenEntry] = useState<string | null>(null);
   const [pickMonth, setPickMonth] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Which entry is having its category changed, if any. */
+  const [pickingFor, setPickingFor] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
   useBackHandler(pickMonth, () => setPickMonth(false));
+  useBackHandler(pickingFor !== null, () => setPickingFor(null));
 
   const colorOf = (bankId: string) =>
     SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === bankId)) % SLICE_COLORS.length];
@@ -182,7 +194,22 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, banks, onDeleteAc
           <span className={`size-8 shrink-0 rounded-xl flex items-center justify-center ${style.tint}`}>
             <span className="material-symbols-rounded text-base">{style.icon}</span>
           </span>
-          <p className="text-slate-300 text-xs font-bold truncate flex-1">{activity.note || style.label}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-slate-300 text-xs font-bold truncate">{activity.note || style.label}</p>
+            {activity.type === 'withdraw' && (
+              <button
+                onClick={() => setPickingFor(activity.id)}
+                className="flex items-center gap-1 mt-0.5 active:opacity-60"
+              >
+                <span className={`material-symbols-rounded text-[13px] ${categoryOf(activity.category).tint}`}>
+                  {categoryOf(activity.category).icon}
+                </span>
+                <span className="text-slate-500 text-[10px] font-bold">
+                  {categoryOf(activity.category).label}
+                </span>
+              </button>
+            )}
+          </div>
           <span className={`text-sm font-black shrink-0 ${style.outgoing ? 'text-slate-400' : 'text-white'}`}>
             {style.outgoing ? '-' : '+'}
             {money(activity.amount)}
@@ -392,6 +419,53 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, banks, onDeleteAc
           </div>
         )}
       </div>
+
+      {/* Re-labelling what a withdrawal was for. It moves no money, which is
+          why it needs no confirmation and no reversal. */}
+      {pickingFor && (() => {
+        const current = activities.find((a) => a.id === pickingFor);
+        return (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          onClick={() => setPickingFor(null)}
+        >
+          <div
+            className="w-full max-w-md bg-surface rounded-t-[2.5rem] p-6 safe-pb"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
+            <h3 className="text-white text-xl font-black">What was this for?</h3>
+            <p className="text-slate-500 text-[11px] font-bold mt-1">
+              Changes the label only — the money stays exactly where it is.
+            </p>
+            <div className="flex flex-wrap gap-2 mt-5">
+              {CATEGORIES.map((c) => {
+                const on = categoryOf(current?.category).key === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    onClick={() => {
+                      onSetCategory(pickingFor, c.key);
+                      setPickingFor(null);
+                    }}
+                    className={`flex items-center gap-1.5 pl-2 pr-3 py-2.5 rounded-2xl text-[11px] font-black border active:scale-95 transition-transform ${
+                      on
+                        ? 'bg-primary text-black border-primary'
+                        : 'bg-white/5 border-white/10 text-slate-300'
+                    }`}
+                  >
+                    <span className={`material-symbols-rounded text-base ${on ? '' : c.tint}`}>
+                      {c.icon}
+                    </span>
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* Month picker */}
       {pickMonth && (

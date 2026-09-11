@@ -9,10 +9,18 @@ const VALID_CODE = /^[A-Z0-9_-]{4,64}$/;
 
 const memberRef = (uid: string) => doc(db, 'members', uid);
 
-/** Live membership flag. `null` while the first read is still in flight. */
+/**
+ * Live membership.
+ *
+ * `null` means "not known yet", and it stays null when the answer could only
+ * have come from an empty cache. That distinction is the whole point: a
+ * member opening the app offline used to be told their account was
+ * invite-only and asked for a code they had already burned, because a
+ * cache miss and a real refusal looked identical here.
+ */
 export const subscribeToMembership = (
   uid: string,
-  onChange: (isMember: boolean) => void
+  onChange: (isMember: boolean | null) => void
 ): Unsubscribe =>
   onSnapshot(
     memberRef(uid),
@@ -21,9 +29,16 @@ export const subscribeToMembership = (
       // A just-redeemed invite appears in the local cache before the server has
       // committed it. Unlocking on that optimistic echo would race the security
       // rules — every read fired in between is rejected — so wait for the ack.
-      onChange(snap.exists() && !snap.metadata.hasPendingWrites);
+      const { fromCache, hasPendingWrites } = snap.metadata;
+      if (snap.exists()) {
+        onChange(!hasPendingWrites);
+        return;
+      }
+      // Absent from the server is a real answer. Absent from a cache that has
+      // never spoken to the server is not an answer at all.
+      onChange(fromCache ? null : false);
     },
-    // A rules rejection here means "not a member" as far as the UI cares.
+    // A rules rejection means the server has answered, and the answer is no.
     () => onChange(false)
   );
 

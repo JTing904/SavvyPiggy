@@ -1,6 +1,7 @@
 import {
   applyBuy,
   buildHoldings,
+  costByMonth,
   dayStart,
   performance,
   tradeCents,
@@ -263,5 +264,20 @@ eq('nothing traded is nothing to report', performance([], {}), {
   costCents: 0, valueCents: 0, unrealisedCents: 0, realisedCents: 0,
   dividendCents: 0, totalCents: 0, investedCents: 0, returnPercent: 0,
 });
+
+/* ------------------------------------------------------------ over time */
+
+// The honest half of the growth chart: what a position cost at each month end
+// can always be replayed, however long ago. What it was worth cannot.
+{
+  const log = [
+    trade({ kind: 'buy', units: 100, priceCents: 1000, tradedAt: on(1) }),
+    trade({ kind: 'buy', units: 100, priceCents: 1200, tradedAt: dayStart(new Date(2026, 4, 10).getTime()) }),
+  ];
+  const months = costByMonth(log, new Date(2026, 4, 20));
+  eq('one entry per month from the first trade', months.map((m) => m.key), ['2026-03', '2026-04', '2026-05']);
+  eq('cost is what had been bought by each month end', months.map((m) => m.costCents), [100000, 100000, 220000]);
+  eq('no trades, no line', costByMonth([], new Date(2026, 4, 20)), []);
+}
 
 report();

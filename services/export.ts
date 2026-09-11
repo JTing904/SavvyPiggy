@@ -2,6 +2,7 @@ import type { Activity, Holding, PiggyBank, Trade } from '../types';
 import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './holdings';
 import { fromCents } from './money';
 import { buildXlsx, type Cell } from './xlsx';
+import { categoryOf } from './categories';
 
 /**
  * The monthly statement as a spreadsheet.
@@ -54,6 +55,9 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
     'Amount',
     'Repaid debt',
     'Note',
+    // Only spending has one; a deposit's cell stays empty rather than
+    // claiming a category it was never given.
+    'Category',
     ...banks.map((b) => b.name),
     ...(orphaned ? ['Deleted goals'] : []),
   ];
@@ -77,6 +81,7 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
         money(a.amount),
         a.repaid ? money(a.repaid) : null,
         a.note ?? null,
+        a.type === 'withdraw' ? categoryOf(a.category).label : null,
         ...perBank,
         ...(orphaned ? [other === 0 ? null : money(other)] : []),
       ];

@@ -20,8 +20,9 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Trade, AlertKind } from '../types';
+import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
+import { UNCATEGORISED } from './categories';
 import { dayStart } from './holdings';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
@@ -49,6 +50,8 @@ const tradeRef = (uid: string, id: string) => doc(db, 'users', uid, 'trades', id
  * the check on it meant deleting it made the dividend due all over again
  * while the money stayed in the goals.
  */
+const snapshotsCol = (uid: string) => collection(db, 'users', uid, 'snapshots');
+const snapshotRef = (uid: string, id: string) => doc(db, 'users', uid, 'snapshots', id);
 const creditedCol = (uid: string) => collection(db, 'users', uid, 'dividendsPaid');
 const creditedRef = (uid: string, id: string) => doc(db, 'users', uid, 'dividendsPaid', id);
 /** Only still read, to move anyone who has one onto the trade log. */
@@ -121,7 +124,7 @@ export const subscribeToBanks = (
 export const subscribeToActivities = (
   uid: string,
   retentionMonths: number | null,
-  onChange: (activities: Activity[]) => void,
+  onChange: (activities: Activity[], fromCache: boolean) => void,
   onError: (e: FirestoreError) => void
 ): Unsubscribe => {
   const from = retentionCutoff(new Date(), retentionMonths).toISOString();
@@ -129,7 +132,14 @@ export const subscribeToActivities = (
     retentionMonths === null
       ? query(activitiesCol(uid), orderBy('date', 'desc'))
       : query(activitiesCol(uid), where('date', '>=', from), orderBy('date', 'desc')),
-    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Activity)),
+    { includeMetadataChanges: true },
+    // Whether this came from the phone or the server is part of the answer:
+    // an empty cache and an empty account look the same without it.
+    (snap) =>
+      onChange(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Activity),
+        snap.metadata.fromCache
+      ),
     onError
   );
 };
@@ -174,6 +184,32 @@ export const subscribeToCreditedDividends = (
   onError: (e: FirestoreError) => void
 ): Unsubscribe =>
   onSnapshot(creditedCol(uid), (snap) => onChange(snap.docs.map((d) => d.id)), onError);
+
+export const subscribeToSnapshots = (
+  uid: string,
+  onChange: (snapshots: Snapshot[]) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe =>
+  onSnapshot(
+    query(snapshotsCol(uid), orderBy('at', 'asc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Snapshot)),
+    onError
+  );
+
+/**
+ * Records what the portfolio was worth at the end of a month, once.
+ *
+ * `setDoc` on a month-keyed id rather than a new document each time: running
+ * twice writes the same row, and a month already recorded is never rewritten
+ * with today's prices, which would quietly turn history into a guess.
+ */
+export const writeSnapshot = async (uid: string, snapshot: Omit<Snapshot, 'id'> & { id: string }) => {
+  const { id, ...rest } = snapshot;
+  const ref = snapshotRef(uid, id);
+  if ((await getDoc(ref)).exists()) return false;
+  await setDoc(ref, rest);
+  return true;
+};
 
 export const subscribeToTrades = (
   uid: string,
@@ -341,7 +377,13 @@ export const deposit = async (
  * Spending from one goal. Going past the balance is allowed on purpose: the
  * goal runs negative and simply climbs back as future splits feed it.
  */
-export const withdraw = async (uid: string, amount: number, sourceBankId: string, note = '') => {
+export const withdraw = async (
+  uid: string,
+  amount: number,
+  sourceBankId: string,
+  note = '',
+  category: string = UNCATEGORISED
+) => {
   const movements = planWithdrawal(toCents(amount), sourceBankId);
   if (movements.length === 0) throw new Error('Enter an amount to withdraw.');
 
@@ -352,6 +394,7 @@ export const withdraw = async (uid: string, amount: number, sourceBankId: string
     amount: fromCents(toCents(amount)),
     distributions: toDistributions(movements),
     note,
+    category,
   });
   movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
@@ -387,6 +430,10 @@ export const borrow = async (uid: string, amount: number, note = '') => {
 };
 
 export const deleteLoan = (uid: string, id: string) => deleteDoc(loanRef(uid, id));
+
+/** Re-labelling a past entry. Touches no balance, so it needs no transaction. */
+export const setActivityCategory = (uid: string, id: string, category: string) =>
+  updateDoc(activityRef(uid, id), { category });
 
 /** Removes an activity and reverses its movements, never below zero. */
 export const deleteActivity = (uid: string, activity: Activity) =>

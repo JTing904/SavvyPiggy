@@ -380,6 +380,16 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
               </div>
               <Switch on={prefs.digest} onChange={(on) => void enableSystem({ digest: on })} />
             </div>
+            <div className="p-5 flex items-center gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-white font-bold text-sm">Ex-dividend days</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">
+                  Two days before a counter you hold goes ex-dividend — the day that decides whether the
+                  payment is yours.
+                </p>
+              </div>
+              <Switch on={prefs.exDates} onChange={(on) => void enableSystem({ exDates: on })} />
+            </div>
           </Card>
           <p className="text-slate-600 text-[11px] font-medium leading-relaxed px-1 mt-3">
             Reminders are set on this phone and fire even when the app is closed. Auto deposits themselves are only posted when

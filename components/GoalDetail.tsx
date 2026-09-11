@@ -10,7 +10,7 @@ import { formatMoney } from '../services/money';
 const STYLES: Record<ActivityType, { label: string; icon: string; tint: string }> = {
   'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary' },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400' },
-  withdraw: { label: 'Withdrawal', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
+  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
   borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
 };
 

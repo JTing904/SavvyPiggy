@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank } from '../types';
-import { PERIODS, summarize, type Period } from '../services/analytics';
+import { PERIODS, spendingByCategory, summarize, type Period } from '../services/analytics';
+import { categoryOf } from '../services/categories';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
 import Avatar from './Avatar';
-import { formatMoney } from '../services/money';
+import { formatMoney, fromCents } from '../services/money';
 
 interface ReportProps {
   banks: PiggyBank[];
@@ -37,6 +38,11 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
 
   const now = new Date();
   const summary = useMemo(() => summarize(activities, banks, period, now), [activities, banks, period]); // eslint-disable-line react-hooks/exhaustive-deps
+  const spending = useMemo(
+    () => spendingByCategory(activities, summary.range, now),
+    [activities, summary.range] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const spentTotal = spending.reduce((sum, row) => sum + row.cents, 0);
 
   const colorOf = (bankId: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === bankId)) % SLICE_COLORS.length];
 
@@ -217,6 +223,69 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
           </div>
         </Card>
       </div>
+
+      {/* Where it went. Only spending appears here: a deposit has no heading,
+          and borrowing is money moved forward rather than money spent. */}
+      {spending.length > 0 && (
+        <div className="px-6 mt-4">
+          <Card className="p-6">
+            <h3 className="text-white text-lg font-black">Where it went</h3>
+            <p className="text-slate-500 text-xs font-medium mt-1">
+              {formatMoney(fromCents(spentTotal))} spent in this period.
+            </p>
+
+            <div className="flex items-center gap-6 mt-5">
+              <DonutChart
+                slices={spending.map((row, i) => ({
+                  id: row.key,
+                  value: row.share,
+                  color: SLICE_COLORS[i % SLICE_COLORS.length],
+                }))}
+                total={100}
+                size={128}
+                center={
+                  <p className="text-white text-lg font-black tabular-nums leading-none">
+                    {formatMoney(fromCents(spentTotal), { decimals: 0 })}
+                  </p>
+                }
+              />
+              <div className="flex-1 min-w-0 space-y-2.5">
+                {spending.slice(0, 4).map((row, i) => (
+                  <div key={row.key} className="flex items-center gap-2.5">
+                    <span
+                      className="size-2.5 rounded-full shrink-0"
+                      style={{ background: SLICE_COLORS[i % SLICE_COLORS.length] }}
+                    />
+                    <span className="text-slate-300 text-xs font-bold truncate flex-1">
+                      {categoryOf(row.key).label}
+                    </span>
+                    <span className="text-white text-xs font-black shrink-0">{row.share}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              {spending.map((row) => (
+                <div key={row.key} className="flex items-center gap-3">
+                  <span className={`material-symbols-rounded text-lg ${categoryOf(row.key).tint}`}>
+                    {categoryOf(row.key).icon}
+                  </span>
+                  <span className="text-slate-300 text-xs font-bold truncate flex-1">
+                    {categoryOf(row.key).label}
+                  </span>
+                  <span className="text-slate-600 text-[10px] font-bold shrink-0">
+                    {row.entries} {row.entries === 1 ? "time" : "times"}
+                  </span>
+                  <span className="text-white text-sm font-black shrink-0 w-24 text-right">
+                    {formatMoney(fromCents(row.cents))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Cadence */}
       <div className="px-6 mt-4">

@@ -1,4 +1,5 @@
 import type { Activity, PiggyBank, Trade } from '../types';
+import { categoryOf } from './categories';
 import { fromCents, toCents } from './money';
 
 /**
@@ -348,6 +349,61 @@ export const summarize = (
     maxDay: fromCents(Math.max(0, ...byDay.values())),
     forecast,
   };
+};
+
+/* ------------------------------------------------------------- categories */
+
+export interface CategorySpend {
+  key: string;
+  /** Positive: what left the goals under this heading. */
+  cents: number;
+  entries: number;
+  /** Whole percent of the period's spending, largest first. */
+  share: number;
+}
+
+/**
+ * Where the month's money went.
+ *
+ * Only withdrawals count. A deposit has no category and borrowing is not
+ * spending — it is money moved forward, and counting it here would say it was
+ * spent twice, once when borrowed and again when the debt was cleared.
+ *
+ * Entries from before categories existed have none, and read as Other rather
+ * than being dropped: a total that quietly omits some spending is worse than
+ * one with a large Other in it.
+ */
+export const spendingByCategory = (
+  activities: Activity[],
+  range: DateRange,
+  now: Date = new Date()
+): CategorySpend[] => {
+  const totals = new Map<string, { cents: number; entries: number }>();
+
+  for (const a of activities) {
+    if (a.type !== 'withdraw') continue;
+    const at = new Date(a.date);
+    if (at < range.start || at >= range.end || at > now) continue;
+
+    const cents = a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
+    if (cents === 0) continue;
+
+    const key = categoryOf(a.category).key;
+    const row = totals.get(key) ?? { cents: 0, entries: 0 };
+    row.cents += cents;
+    row.entries += 1;
+    totals.set(key, row);
+  }
+
+  const spent = [...totals.values()].reduce((sum, r) => sum + r.cents, 0);
+  return [...totals.entries()]
+    .map(([key, r]) => ({
+      key,
+      cents: r.cents,
+      entries: r.entries,
+      share: spent > 0 ? Math.round((r.cents / spent) * 100) : 0,
+    }))
+    .sort((a, b) => b.cents - a.cents);
 };
 
 /* ---------------------------------------------------------------- archive */

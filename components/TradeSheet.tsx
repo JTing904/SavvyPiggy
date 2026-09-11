@@ -69,7 +69,7 @@ const Field: React.FC<{
 
 const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, onDone }) => {
   const editing = draft.mode === 'edit' ? draft.trade : null;
-  const kind: Trade['kind'] = editing ? editing.kind : draft.kind;
+  const kind: Trade['kind'] = draft.mode === 'edit' ? draft.trade.kind : draft.kind;
 
   const [symbol, setSymbol] = useState(editing?.symbol ?? (draft.mode === 'new' ? draft.symbol ?? '' : ''));
   const [name, setName] = useState(editing?.name ?? (draft.mode === 'new' ? draft.name ?? '' : ''));

@@ -26,6 +26,7 @@ import { useMembership } from './hooks/useMembership';
 import { useBackHandler } from './hooks/useBackHandler';
 import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
+import { useSnapshots } from './hooks/useSnapshots';
 import { useQuotes } from './hooks/useQuotes';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
@@ -60,7 +61,7 @@ const App: React.FC = () => {
   const [quickAction, setQuickAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
 
-  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, loading: dataLoading, error, retry } =
+  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -74,6 +75,7 @@ const App: React.FC = () => {
   } = useDividends({ uid, trades, banks, loans, prefs, savings, ready: !dataLoading });
 
   useLedgerPruning(uid, savings, !dataLoading);
+  const snapshots = useSnapshots(uid, trades, quotes, !dataLoading);
 
   // Archived goals keep their money and their history, so every screen that
   // looks backwards still gets the full list — only the working lists hide them.
@@ -130,12 +132,12 @@ const App: React.FC = () => {
     if (!uid || dataLoading) return;
 
     const sync = () => {
-      if (document.visibilityState === 'visible') void syncNotifications(prefs, schedules).catch(() => {});
+      if (document.visibilityState === 'visible') void syncNotifications(prefs, schedules, dividends, trades).catch(() => {});
     };
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => document.removeEventListener('visibilitychange', sync);
-  }, [uid, dataLoading, prefs, schedules]);
+  }, [uid, dataLoading, prefs, schedules, dividends, trades]);
 
   // Android's back gesture: close whatever is open, step back to Home, and
   // only then leave the app. Sheets inside a screen take it first — they push
@@ -207,8 +209,8 @@ const App: React.FC = () => {
     if (uid) run(() => api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings }));
   };
 
-  const handleWithdraw = (amount: number, sourceBankId: string, note: string) => {
-    if (uid) run(() => api.withdraw(uid, amount, sourceBankId, note));
+  const handleWithdraw = (amount: number, sourceBankId: string, note: string, category: string) => {
+    if (uid) run(() => api.withdraw(uid, amount, sourceBankId, note, category));
   };
 
   const handleBorrow = (amount: number, note: string) => {
@@ -347,7 +349,12 @@ const App: React.FC = () => {
           onBack={() => setShowProfile(false)}
           onToggleOverflow={(overflow) => handleSaveSavings({ overflow })}
           onUnarchive={(id) => uid && run(() => api.unarchiveBank(uid, id))}
-          onOpenAutoDeposits={() => setShowAutoDeposits(true)}
+          onOpenAutoDeposits={() => {
+            // Profile is rendered above AutoDeposits, so leaving it open kept
+            // the rules screen behind it and the row looked dead.
+            setShowProfile(false);
+            setShowAutoDeposits(true);
+          }}
           onOpenStrategy={() => {
             setShowProfile(false);
             setActiveTab(Tab.BANKS);
@@ -377,6 +384,7 @@ const App: React.FC = () => {
           banks={activeBanks}
           onCancel={() => setShowAutoDeposits(false)}
           onCreate={handleCreateSchedule}
+          onUpdate={(id, patch) => uid && run(() => api.updateSchedule(uid, id, patch))}
           onToggle={(id, enabled) => uid && run(() => api.updateSchedule(uid, id, { enabled }))}
           onDelete={(id) => uid && run(() => api.deleteSchedule(uid, id))}
         />
@@ -442,6 +450,7 @@ const App: React.FC = () => {
             banks={banks}
             onDeleteActivity={handleDeleteActivity}
             onEditActivity={handleEditActivity}
+            onSetCategory={(id, category) => uid && run(() => api.setActivityCategory(uid, id, category))}
           />
         );
       case Tab.TRADES:
@@ -457,7 +466,14 @@ const App: React.FC = () => {
           />
         );
       case Tab.GROWTH:
-        return <Growth trades={trades} quotes={quotes} onBack={() => setActiveTab(Tab.HOME)} />;
+        return (
+          <Growth
+            trades={trades}
+            quotes={quotes}
+            snapshots={snapshots}
+            onBack={() => setActiveTab(Tab.HOME)}
+          />
+        );
       default:
         return <div className="flex items-center justify-center h-full text-white/50">Feature coming soon</div>;
     }
@@ -466,6 +482,19 @@ const App: React.FC = () => {
   const shell = (children: React.ReactNode, withNav = false) => (
     <div className="h-screen w-full flex flex-col bg-bg-dark overflow-hidden">
       <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
+
+      {/* Showing yesterday's numbers is fine; showing them as if they were
+          today's is not. */}
+      {offline && !failure && (
+        <div className="fixed inset-x-0 top-0 z-[55] px-4 pt-3 safe-pt pointer-events-none">
+          <div className="max-w-md mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
+            <span className="material-symbols-rounded text-amber-300 text-lg shrink-0">cloud_off</span>
+            <p className="text-amber-200 text-[11px] font-black">
+              Offline — showing what was last synced to this phone
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* A write that did not happen has to say so. It sits above everything,
           including the sheet that has already congratulated the user. */}
