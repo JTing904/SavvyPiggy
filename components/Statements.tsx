@@ -234,7 +234,7 @@ const Statements: React.FC<StatementsProps> = ({
         <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
           Every time the app opens it reads the whole ledger, and a free Firebase project allows 50,000
           reads a day. Space is not the problem — a few thousand records is. Old months are cleared
-          automatically so that day never arrives.
+          automatically so that day never arrives, which is why there is no “keep everything” here.
         </p>
 
         <div className="rounded-3xl bg-amber-500/8 border border-amber-500/25 p-5 mt-4">
@@ -249,18 +249,14 @@ const Statements: React.FC<StatementsProps> = ({
             </>
           ) : (
             <>
-              <p className="text-amber-300 font-black text-sm">
-                {savings.retentionMonths === null ? 'Keeping everything' : 'Nothing due to be cleared'}
-              </p>
+              <p className="text-amber-300 font-black text-sm">Nothing due to be cleared</p>
               <p className="text-amber-200/70 text-[11.5px] font-bold mt-2 leading-relaxed">
-                {savings.retentionMonths === null
-                  ? 'Nothing is ever removed. Opening the app will get slower as the ledger grows, and the daily read allowance can run out.'
-                  : 'Every month on record is inside the window you keep.'}
+                Every month on record is inside the window you keep.
               </p>
             </>
           )}
 
-          <div className="grid grid-cols-4 gap-2 mt-4">
+          <div className="grid grid-cols-2 gap-3 mt-4">
             {RETENTION_CHOICES.map((choice) => {
               const on = savings.retentionMonths === choice.months;
               return (
@@ -275,7 +271,7 @@ const Statements: React.FC<StatementsProps> = ({
                       : 'bg-white/5 border border-white/10 text-slate-400'
                   }`}
                 >
-                  {choice.months === null ? 'Keep all' : `${choice.months}m`}
+                  {choice.label}
                 </button>
               );
             })}

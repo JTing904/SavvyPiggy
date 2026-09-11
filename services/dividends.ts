@@ -145,16 +145,22 @@ export interface DueDividend {
  * The dividends that should have landed by now and have not been recorded.
  *
  * A dividend qualifies once its pay date has arrived, on the units the log
- * says were held on its ex-date. Anything already in the log is skipped by id,
- * which is what keeps opening the app twice from paying twice.
+ * says were held on its ex-date.
+ *
+ * What counts as "already paid" is the `credited` list, not the trade log.
+ * They used to be the same thing, and deleting the dividend's row from the
+ * log — which reads like tidying away a record — made the dividend fall due
+ * again while its money was still sitting in the goals. The record is the
+ * user's to edit; whether the money moved is not.
  */
 export const dueDividends = (
   dividends: Dividend[],
   trades: Trade[],
+  credited: Iterable<string> = [],
   now = Date.now()
 ): DueDividend[] => {
   const today = dayStart(now);
-  const recorded = new Set(trades.filter((t) => t.kind === 'dividend').map((t) => t.id));
+  const recorded = new Set(credited);
 
   return dividends
     .filter((d) => d.payDate <= today)

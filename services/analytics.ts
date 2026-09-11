@@ -354,13 +354,24 @@ export const summarize = (
 
 export const RETENTION_MONTHS = 12;
 
-/** Whole months of ledger to keep. `null` keeps everything. */
-export const RETENTION_CHOICES: { months: number | null; label: string }[] = [
+/**
+ * How long the ledger is kept. Only two choices, and neither of them is
+ * "forever": the app re-reads every kept record each time it opens, and a free
+ * project allows fifty thousand reads a day. Keeping everything does not cost
+ * space — it eventually costs the ability to open the app at all.
+ */
+export const RETENTION_CHOICES: { months: number; label: string }[] = [
   { months: 6, label: '6 months' },
   { months: 12, label: '12 months' },
-  { months: 24, label: '24 months' },
-  { months: null, label: 'Keep all' },
 ];
+
+/**
+ * A stored setting made safe. A value from before the choices narrowed — or
+ * anything else unexpected — comes back as the twelve-month default rather
+ * than as "keep everything".
+ */
+export const allowedRetention = (months: number | null | undefined) =>
+  RETENTION_CHOICES.some((c) => c.months === months) ? (months as number) : RETENTION_MONTHS;
 
 /**
  * The first day still kept. Retention works in whole months so a statement is

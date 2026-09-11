@@ -103,19 +103,19 @@ eq('and rounds down to the sen', dividendCents(333, 125), 416);
 
 {
   const log = [trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) })];
-  const due = dueDividends([declared], log, on(2025, 9, 26));
+  const due = dueDividends([declared], log, [], on(2025, 9, 26));
   eq('it falls due on the pay date', due.length, 1);
   eq('on the units held before the ex-date', due[0].units, 500);
   eq('for the amount that follows from them', due[0].amountCents, 15000);
 }
 {
   const log = [trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) })];
-  eq('nothing is due the day before it pays', dueDividends([declared], log, on(2025, 9, 25)), []);
+  eq('nothing is due the day before it pays', dueDividends([declared], log, [], on(2025, 9, 25)), []);
 }
 {
   // Bought after the ex-date: this one belongs to whoever sold.
   const log = [trade({ kind: 'buy', units: 500, tradedAt: on(2025, 9, 12) })];
-  eq('a position opened after the ex-date is owed nothing', dueDividends([declared], log, on(2025, 9, 26)), []);
+  eq('a position opened after the ex-date is owed nothing', dueDividends([declared], log, [], on(2025, 9, 26)), []);
 }
 {
   // Sold after the ex-date: still owed, even though nothing is held now.
@@ -123,7 +123,7 @@ eq('and rounds down to the sen', dividendCents(333, 125), 416);
     trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) }),
     trade({ kind: 'sell', units: 500, tradedAt: on(2025, 9, 15) }),
   ];
-  const due = dueDividends([declared], log, on(2025, 9, 26));
+  const due = dueDividends([declared], log, [], on(2025, 9, 26));
   eq('a position closed after the ex-date is still paid', due[0].amountCents, 15000);
 }
 {
@@ -132,23 +132,34 @@ eq('and rounds down to the sen', dividendCents(333, 125), 416);
     trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) }),
     trade({ kind: 'buy', units: 500, tradedAt: on(2025, 9, 20) }),
   ];
-  eq('a later top-up does not join it', dueDividends([declared], log, on(2025, 9, 26))[0].units, 500);
+  eq('a later top-up does not join it', dueDividends([declared], log, [], on(2025, 9, 26))[0].units, 500);
 }
 {
+  const paid = dividendTradeId('1155.KL', declared.exDate);
   const log = [
     trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) }),
     {
       ...trade({ kind: 'dividend', units: 500, tradedAt: on(2025, 9, 26) }),
-      id: dividendTradeId('1155.KL', declared.exDate),
+      id: paid,
       exDate: declared.exDate,
       perUnitPoints: 3000,
     },
   ];
-  eq('one already in the log is not paid twice', dueDividends([declared], log, on(2025, 9, 26)), []);
+  eq('one already paid in is not paid twice', dueDividends([declared], log, [paid], on(2025, 9, 26)), []);
+
+  // The bug this guards: the row in the log used to be the proof of payment,
+  // so deleting it — which looks like tidying away a record — paid the
+  // dividend a second time while the first lot of money sat in the goals.
+  eq('deleting its row does not make it due again',
+    dueDividends([declared], log.slice(0, 1), [paid], on(2025, 9, 26)), []);
+
+  // And the mirror: a row in the log is not on its own proof money moved.
+  eq('a row with no payment behind it is still owed',
+    dueDividends([declared], log, [], on(2025, 9, 26)).length, 1);
 }
 {
   const other = [trade({ symbol: '5258.KL', name: 'BIMB', kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) })];
-  eq('a dividend for a counter you do not hold is skipped', dueDividends([declared], other, on(2025, 9, 26)), []);
+  eq('a dividend for a counter you do not hold is skipped', dueDividends([declared], other, [], on(2025, 9, 26)), []);
 }
 eq('an id is one per counter per ex-date',
   dividendTradeId('1155.KL', on(2026, 3, 12)), `div_1155.KL_${on(2026, 3, 12)}`);

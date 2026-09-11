@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Trade } from '../types';
-import { averageCostCents, buildHoldings, dayStart, normalizeSymbol, replay } from '../services/holdings';
+import { averageCostCents, buildHoldings, dayStart, normalizeSymbol, replay, tradeCents } from '../services/holdings';
 import { searchSymbols, type SymbolHit } from '../services/quotes';
 import { createTrade, deleteTrade, updateTrade } from '../services/firestore';
 import { formatMoney, fromCents, toCents } from '../services/money';
@@ -166,7 +166,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
     }
   };
 
-  const title = editing ? `Edit · ${LABEL[kind]}` : kind === 'buy' ? 'Buy' : 'Sell';
+  // A dividend is not edited here, so it is not titled as if it were.
+  const title =
+    kind === 'dividend' ? 'Dividend' : editing ? `Edit · ${LABEL[kind]}` : kind === 'buy' ? 'Buy' : 'Sell';
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/85" onClick={onClose}>
@@ -181,14 +183,61 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           {name && ` · ${name}`}
         </h3>
         <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
-          {editing
+          {kind === 'dividend'
+            ? 'This is the record of a payment the app made into your goals. The money itself lives in your history — if the amount that reached your account was different, correct it there.'
+            : editing
             ? 'Fixing one trade leaves every other one alone, so how many units you held on a past ex-date is worked out again from scratch — correctly.'
             : kind === 'buy'
               ? 'Recording the day it was done, not the day you typed it in. That date is what a dividend is decided on.'
               : 'Selling after an ex-date still leaves that dividend yours, which is why the date matters here too.'}
         </p>
 
-        {needsCounter && kind === 'sell' ? (
+        {/* A dividend was not typed in by anyone, so there is nothing here to
+            re-type. It is shown as the receipt it is. */}
+        {kind === 'dividend' ? (
+          <div className="mt-5">
+            <div className="rounded-2xl bg-white/5 p-4 space-y-2.5">
+              <div className="flex text-[13px]">
+                <span className="flex-1 text-slate-400 font-bold">Paid on</span>
+                <span className="text-white font-black">
+                  {new Date(tradedAt).toLocaleDateString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </span>
+              </div>
+              <div className="flex text-[13px]">
+                <span className="flex-1 text-slate-400 font-bold">Units on the ex-date</span>
+                <span className="text-white font-black">{unitsIn.toLocaleString('en-US')}</span>
+              </div>
+              <div className="flex text-[13px]">
+                <span className="flex-1 text-slate-400 font-bold">Per unit</span>
+                <span className="text-white font-black">
+                  RM{((editing?.perUnitPoints ?? 0) / 10_000).toFixed(4)}
+                </span>
+              </div>
+              <div className="h-px bg-white/10" />
+              <div className="flex items-center">
+                <span className="flex-1 text-accent font-black text-sm">Paid into your goals</span>
+                <span className="text-accent font-black text-lg">
+                  {money(editing ? tradeCents(editing) : 0)}
+                </span>
+              </div>
+            </div>
+            <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
+              Companies deduct tax and fees, so what reaches your account is often less than what was
+              announced. The money is an ordinary deposit in your history — correct the amount there and
+              every figure follows.
+            </p>
+            <button
+              onClick={onClose}
+              className="w-full h-14 mt-5 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
+            >
+              Close
+            </button>
+          </div>
+        ) : needsCounter && kind === 'sell' ? (
           <div className="mt-5">
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">
               Which counter
@@ -261,12 +310,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
         ) : (
           <>
             <div className="mt-5">
-              <Field label={kind === 'dividend' ? 'Pay date' : 'Trade date'} value={date} onChange={setDate} type="date" />
+              <Field label="Trade date" value={date} onChange={setDate} type="date" />
             </div>
             <div className="flex gap-3 mt-4">
               <Field label="Units" value={units} onChange={setUnits} autoFocus={!editing} />
               <Field
-                label={kind === 'dividend' ? 'Per unit' : 'Price per unit'}
+                label="Price per unit"
                 value={price}
                 onChange={setPrice}
                 prefix="RM"

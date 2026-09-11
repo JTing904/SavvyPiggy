@@ -7,6 +7,8 @@ import {
   monthSummary,
   monthsWithRecords,
   nextToClear,
+  RETENTION_CHOICES,
+  allowedRetention,
   retentionCutoff,
   summarize,
 } from '../services/analytics';
@@ -186,5 +188,13 @@ eq('nothing is archivable when everything is kept', archivable(ACTS, NOW, null).
   const due = nextToClear(monthsWithRecords(ACTS, [], NOW));
   eq('the oldest month on record is the one to warn about', due?.key, '2025-01');
 }
+
+// Only two windows are offered, and neither is "forever": every kept record
+// is re-read on each app open, so keeping everything eventually costs the
+// ability to open the app rather than costing space.
+eq('the choices are six and twelve months', RETENTION_CHOICES.map((c) => c.months), [6, 12]);
+eq('a window from before they narrowed comes back in range', allowedRetention(24), 12);
+eq('and so does "keep everything"', allowedRetention(null), 12);
+eq('a valid one is left alone', allowedRetention(6), 6);
 
 report();

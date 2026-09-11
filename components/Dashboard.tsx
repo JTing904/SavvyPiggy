@@ -1,6 +1,6 @@
 
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade } from '../types';
+import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
 import { formatMoney, fromCents, toCents } from '../services/money';
@@ -44,6 +44,8 @@ interface DashboardProps {
   trades: Trade[];
   /** Prices are fetched once for the whole app and handed down. */
   quotes: Quotes;
+  /** Needed for the split preview to match what the deposit will really do. */
+  savings: SavingsSettings;
   unreadAlerts: number;
   /** Set from the nav's round button; cleared once the sheet is open. */
   quickAction: 'deposit' | 'withdraw' | null;
@@ -88,6 +90,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   holdings,
   trades,
   quotes,
+  savings,
   unreadAlerts,
   quickAction,
   onQuickActionHandled,
@@ -111,7 +114,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const cents = toCents(parseFloat(amount) || 0);
   const isBorrow = mode === 'withdraw' && target === null;
-  const preview = mode === 'deposit' ? planDeposit(cents, banks, openLoans, target) : null;
+  // The same overflow rule the write uses. Planning without it here meant a
+  // user with overflow on was shown a split that is not the one that happens.
+  const preview =
+    mode === 'deposit' ? planDeposit(cents, banks, openLoans, target, savings.overflow) : null;
 
   const blockedReason = () => {
     if (cents <= 0) return null;

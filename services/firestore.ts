@@ -21,11 +21,11 @@ import {
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Trade, AlertKind } from '../types';
-import { retentionCutoff } from './analytics';
+import { allowedRetention, retentionCutoff } from './analytics';
 import { dayStart } from './holdings';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
-import { fromCents, toCents } from './money';
+import { fromCents, splitByPercentage, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planWithdrawal, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 
@@ -43,6 +43,14 @@ const loanRef = (uid: string, id: string) => doc(db, 'users', uid, 'loans', id);
 const alertRef = (uid: string, id: string) => doc(db, 'users', uid, 'alerts', id);
 const tradesCol = (uid: string) => collection(db, 'users', uid, 'trades');
 const tradeRef = (uid: string, id: string) => doc(db, 'users', uid, 'trades', id);
+/**
+ * Proof that a dividend has already been paid in. It is deliberately not
+ * the trade row: that row is a record the user can tidy away, and keying
+ * the check on it meant deleting it made the dividend due all over again
+ * while the money stayed in the goals.
+ */
+const creditedCol = (uid: string) => collection(db, 'users', uid, 'dividendsPaid');
+const creditedRef = (uid: string, id: string) => doc(db, 'users', uid, 'dividendsPaid', id);
 /** Only still read, to move anyone who has one onto the trade log. */
 const legacyHoldingsCol = (uid: string) => collection(db, 'users', uid, 'holdings');
 const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notifications');
@@ -159,6 +167,14 @@ export const subscribeToAlerts = (
     onError
   );
 
+/** The ids of every dividend already paid in — one small read per open. */
+export const subscribeToCreditedDividends = (
+  uid: string,
+  onChange: (ids: string[]) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe =>
+  onSnapshot(creditedCol(uid), (snap) => onChange(snap.docs.map((d) => d.id)), onError);
+
 export const subscribeToTrades = (
   uid: string,
   onChange: (trades: Trade[]) => void,
@@ -188,7 +204,16 @@ export const subscribeToSavings = (
   onChange: (savings: SavingsSettings) => void,
   onError: (e: FirestoreError) => void
 ): Unsubscribe =>
-  onSnapshot(savingsRef(uid), (snap) => onChange({ ...DEFAULT_SAVINGS, ...(snap.data() ?? {}) }), onError);
+  onSnapshot(
+    savingsRef(uid),
+    (snap) => {
+      const saved = { ...DEFAULT_SAVINGS, ...(snap.data() ?? {}) } as SavingsSettings;
+      // A window the app no longer offers is brought back into range here,
+      // so nothing downstream ever has to cope with "keep everything".
+      onChange({ ...saved, retentionMonths: allowedRetention(saved.retentionMonths) });
+    },
+    onError
+  );
 
 export const saveSavings = (uid: string, patch: Partial<SavingsSettings>) =>
   setDoc(savingsRef(uid), patch, { merge: true });
@@ -387,17 +412,42 @@ export const deleteActivity = (uid: string, activity: Activity) =>
   });
 
 /** Rewrites a plain deposit's amount and applies the delta to each goal. */
+/**
+ * Correcting the amount of a past deposit.
+ *
+ * The shares are re-split with the same rule the original deposit used, so
+ * the parts still add up to the whole: splitting each one on its own and
+ * flooring shed the odd cent, leaving the entry's total larger than the sum
+ * of what it says reached the goals.
+ *
+ * Anything this cannot honestly rewrite is refused rather than half-applied.
+ * A missing goal used to be skipped silently while the total was rewritten
+ * anyway, which left the ledger and the balances disagreeing with no trace.
+ */
 export const editActivity = (uid: string, activity: Activity, newAmount: number) =>
   runTransaction(db, async (tx) => {
+    if (activity.repaid || (activity.repayments?.length ?? 0) > 0) {
+      throw new Error('This one repaid a debt. Delete it and record it again instead.');
+    }
+
+    const shares = splitByPercentage(
+      toCents(newAmount),
+      activity.distributions.map((d) => ({ item: d, percentage: d.percentage }))
+    );
     const distributions = activity.distributions.map((d) => ({
       ...d,
-      amount: fromCents(Math.floor((toCents(newAmount) * d.percentage) / 100)),
+      amount: fromCents(shares.find((s) => s.item === d)?.cents ?? 0),
     }));
+
     const refs = distributions.map((d) => bankRef(uid, d.bankId));
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
 
+    const missing = snaps.findIndex((snap) => !snap.exists());
+    if (missing >= 0) {
+      throw new Error('One of the goals this went into has been deleted, so it cannot be corrected.');
+    }
+
     snaps.forEach((snap, i) => {
-      if (!snap.exists()) return;
       const delta = toCents(distributions[i].amount) - toCents(activity.distributions[i].amount);
       const next = toCents(snap.data().currentAmount ?? 0) + delta;
       tx.update(refs[i], { currentAmount: fromCents(next) });
@@ -561,7 +611,7 @@ export const creditDividend = async (
 
   return runTransaction(db, async (tx) => {
     // The read is what makes this safe to run from anywhere, at any time.
-    if ((await tx.get(tradeRef(uid, id))).exists()) return null;
+    if ((await tx.get(creditedRef(uid, id))).exists()) return null;
 
     tx.set(tradeRef(uid, id), {
       symbol: dividend.symbol,

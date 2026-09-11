@@ -155,4 +155,24 @@ eq('headline figures can drop the cents', formatMoney(1240.5, { decimals: 0 }), 
 eq('csv wants a bare number', formatMoney(1240.5, { symbol: false }), '1,240.50');
 eq('zero is not signed', formatMoney(0), 'RM0.00');
 
+// The rule editActivity leans on when a past deposit is corrected: however a
+// total is re-split, the parts must still add up to the whole. Splitting each
+// share on its own and flooring shed the odd cent, which left an entry's
+// stated total larger than the sum of what it says reached the goals.
+{
+  const split = (total: number, percentages: number[]) =>
+    splitByPercentage(total, percentages.map((percentage, i) => ({ item: i, percentage })));
+
+  for (const [total, pcts] of [
+    [10000, [40, 30, 20, 10]],
+    [3333, [33, 33, 34]],
+    [1, [50, 50]],
+    [777, [15, 15, 15, 15, 40]],
+  ] as [number, number[]][]) {
+    const parts = split(total, pcts);
+    eq(`${total} split ${pcts.join('/')} loses nothing`,
+      parts.reduce((sum, s) => sum + s.cents, 0), total);
+  }
+}
+
 report();

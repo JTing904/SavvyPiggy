@@ -81,7 +81,7 @@ const App: React.FC = () => {
 
   // Deferred from sign-in, because the rules block users/{uid} until membership.
   useEffect(() => {
-    if (user && isMember) void api.ensureUserProfile(user);
+    if (user && isMember) run(() => api.ensureUserProfile(user));
   }, [user, isMember]);
 
   // No server fires recurring deposits on the free plan, so any occurrence
@@ -110,7 +110,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!uid || dataLoading || !prefs.milestones) return;
     const draft = streakAlert(activities, alerts, new Date());
-    if (draft) void api.addAlert(uid, draft);
+    if (draft) run(() => api.addAlert(uid, draft));
   }, [uid, dataLoading, activities, alerts, prefs.milestones]);
 
   // Alerts are disposable: anything older than the retention window goes,
@@ -120,7 +120,7 @@ const App: React.FC = () => {
     if (!uid || dataLoading || swept.current) return;
     swept.current = true;
     const stale = staleAlerts(alerts, new Date());
-    if (stale.length > 0) void api.pruneAlerts(uid, stale.map((a) => a.id));
+    if (stale.length > 0) run(() => api.pruneAlerts(uid, stale.map((a) => a.id)));
   }, [uid, dataLoading, alerts]);
 
   // The phone's alarms are rebuilt from the settings whenever they change, and
@@ -185,16 +185,34 @@ const App: React.FC = () => {
       .reduce((sum, d) => sum + d.amount, 0);
   }, [activities]);
 
+  /**
+   * Every write goes through here.
+   *
+   * They used to be fired with `void` and no catch, so a refused batch — an
+   * offline write, a goal deleted on another device, a deposit with nowhere to
+   * go — vanished into an unhandled rejection while the sheet had already
+   * closed and the user believed the money had moved. This does not retry;
+   * it only makes a failure impossible to miss.
+   */
+  const [failure, setFailure] = useState<string | null>(null);
+  const run = (job: () => Promise<unknown>) => {
+    void job().catch((e: unknown) => {
+      const text = e instanceof Error ? e.message : String(e);
+      setFailure(text);
+      setTimeout(() => setFailure((current) => (current === text ? null : current)), 6000);
+    });
+  };
+
   const handleDeposit = (amount: number, targetBankId: string | null) => {
-    if (uid) void api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings });
+    if (uid) run(() => api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings }));
   };
 
   const handleWithdraw = (amount: number, sourceBankId: string, note: string) => {
-    if (uid) void api.withdraw(uid, amount, sourceBankId, note);
+    if (uid) run(() => api.withdraw(uid, amount, sourceBankId, note));
   };
 
   const handleBorrow = (amount: number, note: string) => {
-    if (uid) void api.borrow(uid, amount, note);
+    if (uid) run(() => api.borrow(uid, amount, note));
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
@@ -208,37 +226,37 @@ const App: React.FC = () => {
   };
 
   const handleSaveSavings = (patch: Partial<SavingsSettings>) => {
-    if (uid) void api.saveSavings(uid, patch);
+    if (uid) run(() => api.saveSavings(uid, patch));
   };
 
   const handleArchiveBank = (id: string) => {
-    if (uid) void api.archiveBank(uid, banks, id);
+    if (uid) run(() => api.archiveBank(uid, banks, id));
   };
 
   const handleSavePrefs = (patch: Partial<NotificationPrefs>) => {
-    if (uid) void api.savePrefs(uid, patch);
+    if (uid) run(() => api.savePrefs(uid, patch));
   };
 
   const handleMarkRead = (ids: string[]) => {
-    if (uid) void api.markAlertsRead(uid, ids);
+    if (uid) run(() => api.markAlertsRead(uid, ids));
   };
 
   const handleSaveStrategy = (updated: PiggyBank[]) => {
-    if (uid) void api.saveStrategy(uid, updated);
+    if (uid) run(() => api.saveStrategy(uid, updated));
   };
 
   const handleDeleteBank = (id: string) => {
-    if (uid) void api.deleteBank(uid, id);
+    if (uid) run(() => api.deleteBank(uid, id));
   };
 
   const handleDeleteActivity = (id: string) => {
     const activity = activities.find((a) => a.id === id);
-    if (uid && activity) void api.deleteActivity(uid, activity);
+    if (uid && activity) run(() => api.deleteActivity(uid, activity));
   };
 
   const handleEditActivity = (id: string, newAmount: number) => {
     const activity = activities.find((a) => a.id === id);
-    if (uid && activity) void api.editActivity(uid, activity, newAmount);
+    if (uid && activity) run(() => api.editActivity(uid, activity, newAmount));
   };
 
   const renderContent = () => {
@@ -278,7 +296,7 @@ const App: React.FC = () => {
             handleArchiveBank(selectedGoal.id);
             setSelectedGoalId(null);
           }}
-          onUnarchive={() => uid && void api.unarchiveBank(uid, selectedGoal.id)}
+          onUnarchive={() => uid && run(() => api.unarchiveBank(uid, selectedGoal.id))}
           onEditStrategy={() => {
             setSelectedGoalId(null);
             setActiveTab(Tab.BANKS);
@@ -328,7 +346,7 @@ const App: React.FC = () => {
           unreadAlerts={unread}
           onBack={() => setShowProfile(false)}
           onToggleOverflow={(overflow) => handleSaveSavings({ overflow })}
-          onUnarchive={(id) => uid && void api.unarchiveBank(uid, id)}
+          onUnarchive={(id) => uid && run(() => api.unarchiveBank(uid, id))}
           onOpenAutoDeposits={() => setShowAutoDeposits(true)}
           onOpenStrategy={() => {
             setShowProfile(false);
@@ -359,8 +377,8 @@ const App: React.FC = () => {
           banks={activeBanks}
           onCancel={() => setShowAutoDeposits(false)}
           onCreate={handleCreateSchedule}
-          onToggle={(id, enabled) => uid && void api.updateSchedule(uid, id, { enabled })}
-          onDelete={(id) => uid && void api.deleteSchedule(uid, id)}
+          onToggle={(id, enabled) => uid && run(() => api.updateSchedule(uid, id, { enabled }))}
+          onDelete={(id) => uid && run(() => api.deleteSchedule(uid, id))}
         />
       );
     }
@@ -390,6 +408,7 @@ const App: React.FC = () => {
             holdings={holdings}
             trades={trades}
             quotes={quotes}
+            savings={savings}
             unreadAlerts={unread}
             quickAction={quickAction}
             onQuickActionHandled={() => setQuickAction(null)}
@@ -447,6 +466,23 @@ const App: React.FC = () => {
   const shell = (children: React.ReactNode, withNav = false) => (
     <div className="h-screen w-full flex flex-col bg-bg-dark overflow-hidden">
       <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
+
+      {/* A write that did not happen has to say so. It sits above everything,
+          including the sheet that has already congratulated the user. */}
+      {failure && (
+        <div className="fixed inset-x-0 top-0 z-[60] px-4 pt-3 safe-pt pointer-events-none">
+          <div
+            role="alert"
+            className="max-w-md mx-auto rounded-2xl bg-red-500/15 border border-red-500/40 backdrop-blur px-4 py-3 flex items-start gap-3"
+          >
+            <span className="material-symbols-rounded text-red-400 text-xl shrink-0">error</span>
+            <div className="min-w-0">
+              <p className="text-red-300 text-xs font-black">That did not save</p>
+              <p className="text-red-200/80 text-[11px] font-bold mt-0.5 leading-relaxed">{failure}</p>
+            </div>
+          </div>
+        </div>
+      )}
       {withNav && (
         <Navigation
           mode={mode}
