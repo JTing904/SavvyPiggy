@@ -63,9 +63,24 @@ export const db = initializeFirestore(app, {
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Opt-in local emulators: set VITE_USE_FIREBASE_EMULATOR=true in .env.local
+/**
+ * Opt-in local emulators: set VITE_USE_FIREBASE_EMULATOR=true in .env.local.
+ *
+ * The ports are overridable because 8080 is one of the most commonly occupied
+ * ports on a development machine — anything from a local Tomcat to an Oracle
+ * listener will already be sitting on it, and the emulator then refuses to
+ * start at all. `firebase.test.json` already moves Firestore to 8567 for the
+ * same reason. The defaults are what firebase.json declares.
+ */
+const emulatorPort = (name: string, fallback: number) => {
+  const raw = import.meta.env[`VITE_EMULATOR_${name}_PORT`];
+  const port = Number(raw);
+  return Number.isFinite(port) && port > 0 ? port : fallback;
+};
+
 if (isFirebaseConfigured && import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
-  connectFirestoreEmulator(db, '127.0.0.1', 8080);
-  connectStorageEmulator(storage, '127.0.0.1', 9199);
+  const host = import.meta.env.VITE_EMULATOR_HOST || '127.0.0.1';
+  connectAuthEmulator(auth, `http://${host}:${emulatorPort('AUTH', 9099)}`, { disableWarnings: true });
+  connectFirestoreEmulator(db, host, emulatorPort('FIRESTORE', 8080));
+  connectStorageEmulator(storage, host, emulatorPort('STORAGE', 9199));
 }

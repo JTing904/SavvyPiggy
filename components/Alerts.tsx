@@ -10,6 +10,7 @@ import {
   type Permission,
 } from '../services/notifications';
 import { formatMoney } from '../services/money';
+import TimeField from './TimeField';
 
 interface AlertsProps {
   alerts: Alert[];
@@ -460,15 +461,12 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
                 <p className="text-white font-bold text-sm">Daily reminder</p>
                 <p className="text-slate-500 text-xs font-medium mt-0.5">A system notification every evening.</p>
                 {prefs.reminder && (
-                  <label className="mt-3 inline-flex items-center gap-2 h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm font-bold">
-                    <span className="material-symbols-rounded text-primary text-base">schedule</span>
-                    <input
-                      type="time"
-                      value={prefs.reminderTime}
-                      onChange={(e) => e.target.value && onSavePrefs({ reminderTime: e.target.value })}
-                      className="bg-transparent outline-none text-white font-bold [color-scheme:dark]"
-                    />
-                  </label>
+                  <TimeField
+                    value={prefs.reminderTime}
+                    onChange={(reminderTime) => onSavePrefs({ reminderTime })}
+                    title="Remind me at"
+                    hint="Pick an hour you are usually free to put something aside."
+                  />
                 )}
               </div>
               <Switch on={prefs.reminder} onChange={(on) => void enableSystem({ reminder: on })} />
