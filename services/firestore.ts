@@ -20,12 +20,13 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Trade, AlertKind } from '../types';
-import { retentionCutoff } from './analytics';
+import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, AlertKind } from '../types';
+import { allowedRetention, retentionCutoff } from './analytics';
+import { UNCATEGORISED } from './categories';
 import { dayStart } from './holdings';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
-import { fromCents, toCents } from './money';
+import { fromCents, splitByPercentage, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planWithdrawal, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 
@@ -43,6 +44,16 @@ const loanRef = (uid: string, id: string) => doc(db, 'users', uid, 'loans', id);
 const alertRef = (uid: string, id: string) => doc(db, 'users', uid, 'alerts', id);
 const tradesCol = (uid: string) => collection(db, 'users', uid, 'trades');
 const tradeRef = (uid: string, id: string) => doc(db, 'users', uid, 'trades', id);
+/**
+ * Proof that a dividend has already been paid in. It is deliberately not
+ * the trade row: that row is a record the user can tidy away, and keying
+ * the check on it meant deleting it made the dividend due all over again
+ * while the money stayed in the goals.
+ */
+const snapshotsCol = (uid: string) => collection(db, 'users', uid, 'snapshots');
+const snapshotRef = (uid: string, id: string) => doc(db, 'users', uid, 'snapshots', id);
+const creditedCol = (uid: string) => collection(db, 'users', uid, 'dividendsPaid');
+const creditedRef = (uid: string, id: string) => doc(db, 'users', uid, 'dividendsPaid', id);
 /** Only still read, to move anyone who has one onto the trade log. */
 const legacyHoldingsCol = (uid: string) => collection(db, 'users', uid, 'holdings');
 const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notifications');
@@ -113,7 +124,7 @@ export const subscribeToBanks = (
 export const subscribeToActivities = (
   uid: string,
   retentionMonths: number | null,
-  onChange: (activities: Activity[]) => void,
+  onChange: (activities: Activity[], fromCache: boolean) => void,
   onError: (e: FirestoreError) => void
 ): Unsubscribe => {
   const from = retentionCutoff(new Date(), retentionMonths).toISOString();
@@ -121,7 +132,14 @@ export const subscribeToActivities = (
     retentionMonths === null
       ? query(activitiesCol(uid), orderBy('date', 'desc'))
       : query(activitiesCol(uid), where('date', '>=', from), orderBy('date', 'desc')),
-    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Activity)),
+    { includeMetadataChanges: true },
+    // Whether this came from the phone or the server is part of the answer:
+    // an empty cache and an empty account look the same without it.
+    (snap) =>
+      onChange(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Activity),
+        snap.metadata.fromCache
+      ),
     onError
   );
 };
@@ -159,6 +177,40 @@ export const subscribeToAlerts = (
     onError
   );
 
+/** The ids of every dividend already paid in — one small read per open. */
+export const subscribeToCreditedDividends = (
+  uid: string,
+  onChange: (ids: string[]) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe =>
+  onSnapshot(creditedCol(uid), (snap) => onChange(snap.docs.map((d) => d.id)), onError);
+
+export const subscribeToSnapshots = (
+  uid: string,
+  onChange: (snapshots: Snapshot[]) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe =>
+  onSnapshot(
+    query(snapshotsCol(uid), orderBy('at', 'asc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Snapshot)),
+    onError
+  );
+
+/**
+ * Records what the portfolio was worth at the end of a month, once.
+ *
+ * `setDoc` on a month-keyed id rather than a new document each time: running
+ * twice writes the same row, and a month already recorded is never rewritten
+ * with today's prices, which would quietly turn history into a guess.
+ */
+export const writeSnapshot = async (uid: string, snapshot: Omit<Snapshot, 'id'> & { id: string }) => {
+  const { id, ...rest } = snapshot;
+  const ref = snapshotRef(uid, id);
+  if ((await getDoc(ref)).exists()) return false;
+  await setDoc(ref, rest);
+  return true;
+};
+
 export const subscribeToTrades = (
   uid: string,
   onChange: (trades: Trade[]) => void,
@@ -188,7 +240,16 @@ export const subscribeToSavings = (
   onChange: (savings: SavingsSettings) => void,
   onError: (e: FirestoreError) => void
 ): Unsubscribe =>
-  onSnapshot(savingsRef(uid), (snap) => onChange({ ...DEFAULT_SAVINGS, ...(snap.data() ?? {}) }), onError);
+  onSnapshot(
+    savingsRef(uid),
+    (snap) => {
+      const saved = { ...DEFAULT_SAVINGS, ...(snap.data() ?? {}) } as SavingsSettings;
+      // A window the app no longer offers is brought back into range here,
+      // so nothing downstream ever has to cope with "keep everything".
+      onChange({ ...saved, retentionMonths: allowedRetention(saved.retentionMonths) });
+    },
+    onError
+  );
 
 export const saveSavings = (uid: string, patch: Partial<SavingsSettings>) =>
   setDoc(savingsRef(uid), patch, { merge: true });
@@ -297,10 +358,21 @@ export const deposit = async (
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
 
+    /*
+      Relative, not absolute.
+
+      This used to write `outstanding` as a figure worked out from a loan read
+      off React state before the write began. Two writers planning against the
+      same snapshot then overwrote each other: a RM60 repayment and a RM50 one
+      against a RM100 debt left it at RM50, so RM110 of income went to clearing
+      a debt that only fell by RM50. Goal balances already used increments and
+      were never affected; loans were the one place still doing arithmetic on
+      a stale value.
+    */
   plan.repayments.forEach((r) => {
     const left = outstandingCents(r.loan) - r.cents;
     batch.update(loanRef(uid, r.loan.id), {
-      outstanding: fromCents(left),
+      outstanding: increment(-fromCents(r.cents)),
       settledAt: left === 0 ? now.toISOString() : null,
     });
   });
@@ -316,7 +388,13 @@ export const deposit = async (
  * Spending from one goal. Going past the balance is allowed on purpose: the
  * goal runs negative and simply climbs back as future splits feed it.
  */
-export const withdraw = async (uid: string, amount: number, sourceBankId: string, note = '') => {
+export const withdraw = async (
+  uid: string,
+  amount: number,
+  sourceBankId: string,
+  note = '',
+  category: string = UNCATEGORISED
+) => {
   const movements = planWithdrawal(toCents(amount), sourceBankId);
   if (movements.length === 0) throw new Error('Enter an amount to withdraw.');
 
@@ -327,6 +405,7 @@ export const withdraw = async (uid: string, amount: number, sourceBankId: string
     amount: fromCents(toCents(amount)),
     distributions: toDistributions(movements),
     note,
+    category,
   });
   movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
@@ -340,7 +419,7 @@ export const withdraw = async (uid: string, amount: number, sourceBankId: string
  */
 export const borrow = async (uid: string, amount: number, note = '') => {
   const cents = toCents(amount);
-  if (cents <= 0) throw new Error('Enter an amount to borrow.');
+  if (cents <= 0) throw new Error('Enter an amount to spend.');
 
   const loan = await addDoc(loansCol(uid), {
     amount: fromCents(cents),
@@ -363,10 +442,40 @@ export const borrow = async (uid: string, amount: number, note = '') => {
 
 export const deleteLoan = (uid: string, id: string) => deleteDoc(loanRef(uid, id));
 
+/** Re-labelling a past entry. Touches no balance, so it needs no transaction. */
+export const setActivityCategory = (uid: string, id: string, category: string) =>
+  updateDoc(activityRef(uid, id), { category });
+
 /** Removes an activity and reverses its movements, never below zero. */
-export const deleteActivity = (uid: string, activity: Activity) =>
+/**
+ * Removing one entry from the ledger, and everything it did.
+ *
+ * The hard case is spending that has since been covered. Spend RM5 without
+ * picking a goal and the app records a debt; the next deposit clears it, so
+ * RM5 of that deposit never reaches the goals. Deleting the spending then has
+ * to answer for that RM5 — and it used to just drop the debt and walk away,
+ * leaving the goals short by exactly the amount already covered while the
+ * confirmation promised the money was going back.
+ *
+ * It goes back by correcting the deposit that covered it, not by inventing a
+ * second entry. Only one deposit ever happened, so the ledger should go on
+ * showing one: the same RM5, now landing in the goals instead of paying off a
+ * debt that no longer exists. Adding a separate "returned" row alongside the
+ * original made the day read as RM10 of income.
+ *
+ * `covering` is the deposits that repaid this entry's debt, found in the
+ * loaded ledger by the caller.
+ */
+export const deleteActivity = (
+  uid: string,
+  activity: Activity,
+  banks: PiggyBank[] = [],
+  savings: SavingsSettings = DEFAULT_SAVINGS,
+  covering: Activity[] = []
+) =>
   runTransaction(db, async (tx) => {
     const refs = activity.distributions.map((d) => bankRef(uid, d.bankId));
+    // Every read has to happen before the first write.
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
 
     snaps.forEach((snap, i) => {
@@ -377,27 +486,77 @@ export const deleteActivity = (uid: string, activity: Activity) =>
       tx.update(refs[i], { currentAmount: fromCents(next) });
     });
 
-    // Undoing a repayment puts the debt back; undoing a borrow drops it.
+    // Undoing a repayment puts the debt back.
     activity.repayments?.forEach((r) =>
       tx.update(loanRef(uid, r.loanId), { outstanding: increment(r.amount), settledAt: null })
     );
-    if (activity.loanId) tx.delete(loanRef(uid, activity.loanId));
+
+    if (activity.loanId) {
+      for (const paid of covering) {
+        const line = paid.repayments?.find((r) => r.loanId === activity.loanId);
+        const back = toCents(line?.amount ?? 0);
+        if (back <= 0) continue;
+
+        // Where that money should have gone. No loans passed: this is the
+        // debt disappearing, not a new deposit arriving to pay one off.
+        const plan = planDeposit(back, banks, [], null, savings.overflow);
+        const merged = paid.distributions.map((d) => ({ ...d }));
+        for (const m of plan.movements) {
+          tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) });
+          const existing = merged.find((d) => d.bankId === m.bankId);
+          if (existing) existing.amount = fromCents(toCents(existing.amount) + m.cents);
+          else merged.push({ bankId: m.bankId, amount: fromCents(m.cents), percentage: m.percentage });
+        }
+
+        tx.update(activityRef(uid, paid.id), {
+          distributions: merged,
+          repaid: fromCents(Math.max(0, toCents(paid.repaid ?? 0) - back)),
+          repayments: (paid.repayments ?? []).filter((r) => r.loanId !== activity.loanId),
+        });
+      }
+      tx.delete(loanRef(uid, activity.loanId));
+    }
 
     tx.delete(activityRef(uid, activity.id));
   });
 
 /** Rewrites a plain deposit's amount and applies the delta to each goal. */
+/**
+ * Correcting the amount of a past deposit.
+ *
+ * The shares are re-split with the same rule the original deposit used, so
+ * the parts still add up to the whole: splitting each one on its own and
+ * flooring shed the odd cent, leaving the entry's total larger than the sum
+ * of what it says reached the goals.
+ *
+ * Anything this cannot honestly rewrite is refused rather than half-applied.
+ * A missing goal used to be skipped silently while the total was rewritten
+ * anyway, which left the ledger and the balances disagreeing with no trace.
+ */
 export const editActivity = (uid: string, activity: Activity, newAmount: number) =>
   runTransaction(db, async (tx) => {
+    if (activity.repaid || (activity.repayments?.length ?? 0) > 0) {
+      throw new Error('This one repaid a debt. Delete it and record it again instead.');
+    }
+
+    const shares = splitByPercentage(
+      toCents(newAmount),
+      activity.distributions.map((d) => ({ item: d, percentage: d.percentage }))
+    );
     const distributions = activity.distributions.map((d) => ({
       ...d,
-      amount: fromCents(Math.floor((toCents(newAmount) * d.percentage) / 100)),
+      amount: fromCents(shares.find((s) => s.item === d)?.cents ?? 0),
     }));
+
     const refs = distributions.map((d) => bankRef(uid, d.bankId));
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
 
+    const missing = snaps.findIndex((snap) => !snap.exists());
+    if (missing >= 0) {
+      throw new Error('One of the goals this went into has been deleted, so it cannot be corrected.');
+    }
+
     snaps.forEach((snap, i) => {
-      if (!snap.exists()) return;
       const delta = toCents(distributions[i].amount) - toCents(activity.distributions[i].amount);
       const next = toCents(snap.data().currentAmount ?? 0) + delta;
       tx.update(refs[i], { currentAmount: fromCents(next) });
@@ -561,7 +720,7 @@ export const creditDividend = async (
 
   return runTransaction(db, async (tx) => {
     // The read is what makes this safe to run from anywhere, at any time.
-    if ((await tx.get(tradeRef(uid, id))).exists()) return null;
+    if ((await tx.get(creditedRef(uid, id))).exists()) return null;
 
     tx.set(tradeRef(uid, id), {
       symbol: dividend.symbol,
@@ -592,9 +751,32 @@ export const creditDividend = async (
     plan.repayments.forEach((r) => {
       const left = outstandingCents(r.loan) - r.cents;
       tx.update(loanRef(uid, r.loan.id), {
-        outstanding: fromCents(left),
+        outstanding: increment(-fromCents(r.cents)),
         settledAt: left === 0 ? now.toISOString() : null,
       });
+    });
+
+    /*
+      The marker the guard above reads, written in the same transaction as the
+      money it describes.
+
+      It was missing. The guard read a document nothing ever wrote, so the set
+      of credited dividends stayed empty forever: `dueDividends` kept reporting
+      this one as unpaid and the guard never short-circuited. The trade row
+      survived that, because its id is derived from the counter and ex-date and
+      a repeat just overwrote it — but the money did not. Every app open added
+      another activity, incremented the goals again, and re-applied the loan
+      repayments. A dividend was being paid in over and over.
+
+      Same transaction is the whole point: either the money moved and this says
+      so, or neither happened.
+    */
+    tx.set(creditedRef(uid, id), {
+      creditedAt: now.toISOString(),
+      symbol: dividend.symbol,
+      exDate: dividend.exDate,
+      units,
+      amountCents,
     });
 
     // This one the user did not type in, so it is worth telling them about
@@ -615,7 +797,13 @@ export const creditDividend = async (
       }
     }
 
-    return { amountCents, units };
+    // The caller may have more than one dividend to credit in a pass, and
+    // each one changes the debt the next is planned against.
+    return {
+      amountCents,
+      units,
+      repaid: plan.repayments.map((r) => ({ loanId: r.loan.id, cents: r.cents })),
+    };
   });
 };
 
@@ -632,8 +820,31 @@ export const createSchedule = (
     createdAt: Date.now(),
   });
 
-export const updateSchedule = (uid: string, id: string, patch: Partial<Schedule>) =>
-  updateDoc(scheduleRef(uid, id), patch);
+/**
+ * Changing a rule. Anything that alters *when* it fires restarts its clock.
+ *
+ * A paused rule never advances `lastRunAt`, because the catch-up skips it —
+ * so switching one back on used to hand `dueOccurrences` every day since the
+ * pause and post them all as real deposits. Pause a daily RM10 rule for three
+ * months, turn it on, and the next app open credited sixty deposits of money
+ * that was never saved. Changing the frequency did the same thing sideways: a
+ * monthly rule switched to daily backfilled every day since its last monthly
+ * run.
+ *
+ * The screen already promises the change "applies from the next occurrence
+ * and never backwards". This is what makes that true. Editing only the amount
+ * leaves the clock alone, so correcting a figure still does not repost.
+ */
+const RESCHEDULES: (keyof Schedule)[] = ['frequency', 'weekday', 'dayOfMonth', 'month'];
+
+export const updateSchedule = (uid: string, id: string, patch: Partial<Schedule>) => {
+  const restarts =
+    patch.enabled === true || RESCHEDULES.some((key) => patch[key] !== undefined);
+  return updateDoc(scheduleRef(uid, id), {
+    ...patch,
+    ...(restarts ? { lastRunAt: new Date().toISOString() } : {}),
+  });
+};
 
 export const deleteSchedule = (uid: string, id: string) => deleteDoc(scheduleRef(uid, id));
 
@@ -680,7 +891,7 @@ export const runDueSchedules = async (
       plan.repayments.forEach((r) => {
         const left = outstandingCents(r.loan) - r.cents;
         batch.update(loanRef(uid, r.loan.id), {
-          outstanding: fromCents(left),
+          outstanding: increment(-fromCents(r.cents)),
           settledAt: left === 0 ? when.toISOString() : null,
         });
       });

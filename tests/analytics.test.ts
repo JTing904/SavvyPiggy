@@ -7,7 +7,10 @@ import {
   monthSummary,
   monthsWithRecords,
   nextToClear,
+  RETENTION_CHOICES,
+  allowedRetention,
   retentionCutoff,
+  spendingByCategory,
   summarize,
 } from '../services/analytics';
 import type { Activity, Trade, PiggyBank } from '../types';
@@ -185,6 +188,50 @@ eq('nothing is archivable when everything is kept', archivable(ACTS, NOW, null).
 
   const due = nextToClear(monthsWithRecords(ACTS, [], NOW));
   eq('the oldest month on record is the one to warn about', due?.key, '2025-01');
+}
+
+// Only two windows are offered, and neither is "forever": every kept record
+// is re-read on each app open, so keeping everything eventually costs the
+// ability to open the app rather than costing space.
+eq('the choices are six and twelve months', RETENTION_CHOICES.map((c) => c.months), [6, 12]);
+eq('a window from before they narrowed comes back in range', allowedRetention(24), 12);
+eq('and so does "keep everything"', allowedRetention(null), 12);
+eq('a valid one is left alone', allowedRetention(6), 6);
+
+// --- where the money went
+{
+  const spend = (date: string, amount: number, category?: string): Activity => ({
+    id: `s${date}${amount}`,
+    type: 'withdraw',
+    date,
+    amount,
+    distributions: [{ bankId: 'car', amount: -amount, percentage: 100 }],
+    ...(category ? { category } : {}),
+  });
+
+  const month = { start: new Date(2026, 8, 1), end: new Date(2026, 9, 1) };
+  const rows = spendingByCategory(
+    [
+      spend(at(2026, 9, 2), 30, 'food'),
+      spend(at(2026, 9, 3), 10, 'food'),
+      spend(at(2026, 9, 4), 60, 'transport'),
+      spend(at(2026, 9, 4), 20), // before categories existed
+      spend(at(2026, 8, 30), 999, 'food'), // another month
+      deposit(at(2026, 9, 2), { car: 500 }), // not spending
+    ],
+    month,
+    NOW
+  );
+
+  eq('largest first', rows.map((r) => r.key), ['transport', 'food', 'other']);
+  eq('amounts are summed per category', rows.map((r) => r.cents), [6000, 4000, 2000]);
+  eq('two entries under food', rows[1].entries, 2);
+  eq('shares are whole percents of the period', rows.map((r) => r.share), [50, 33, 17]);
+  // An entry from before categories existed must still be counted somewhere;
+  // a total that quietly omits spending is worse than a large Other.
+  eq('an uncategorised entry lands in Other', rows[2].cents, 2000);
+  eq('another month is not counted', rows.reduce((s, r) => s + r.cents, 0), 12000);
+  eq('nothing spent, nothing to show', spendingByCategory([], month, NOW), []);
 }
 
 report();

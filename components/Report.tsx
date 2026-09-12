@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank } from '../types';
-import { PERIODS, summarize, type Period } from '../services/analytics';
+import { PERIODS, spendingByCategory, summarize, type Period } from '../services/analytics';
+import { categoryOf } from '../services/categories';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
 import Avatar from './Avatar';
-import { formatMoney } from '../services/money';
+import { formatMoney, fromCents } from '../services/money';
 
 interface ReportProps {
   banks: PiggyBank[];
@@ -29,6 +30,41 @@ const Metric: React.FC<{ label: string; icon: string; children: React.ReactNode 
   </Card>
 );
 
+/**
+ * One line of the money-flow card: what happened, and how much.
+ *
+ * Amounts are signed by the caller, so a line that takes money away reads as
+ * one — the minus is the point, not decoration. `rule` draws the line above a
+ * subtotal, which is where the arithmetic actually lands.
+ */
+const Line: React.FC<{
+  label: string;
+  value: number;
+  rule?: boolean;
+  strong?: boolean;
+  muted?: boolean;
+  small?: boolean;
+}> = ({ label, value, rule, strong, muted, small }) => (
+  <div className={rule ? 'pt-3 border-t border-white/10' : ''}>
+    <div className="flex items-baseline justify-between gap-3">
+      <p
+        className={`min-w-0 truncate ${
+          small ? 'text-[11px]' : 'text-[13px]'
+        } ${strong ? 'text-white font-black' : muted ? 'text-slate-500 font-bold' : 'text-slate-300 font-bold'}`}
+      >
+        {label}
+      </p>
+      <p
+        className={`shrink-0 tabular-nums ${
+          small ? 'text-[11px]' : strong ? 'text-[15px]' : 'text-[13px]'
+        } font-black ${strong ? 'text-white' : value < 0 ? 'text-slate-400' : 'text-slate-300'}`}
+      >
+        {formatMoney(value)}
+      </p>
+    </div>
+  </div>
+);
+
 const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOpenProfile, onOpenStatements }) => {
   const [period, setPeriod] = useState<Period>('month');
   const [message, setMessage] = useState<string | null>(null);
@@ -37,6 +73,18 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
 
   const now = new Date();
   const summary = useMemo(() => summarize(activities, banks, period, now), [activities, banks, period]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // What actually arrived: whatever reached a goal, plus whatever went
+  // straight back out to clear a debt on the way.
+  const arrived = summary.distributed + summary.repaid;
+  // Spending is both kinds — out of a goal, and on credit against future
+  // deposits. Splitting them is the point; hiding either is not.
+  const outgoings = summary.spent + summary.borrowed;
+  const spending = useMemo(
+    () => spendingByCategory(activities, summary.range, now),
+    [activities, summary.range] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const spentTotal = spending.reduce((sum, row) => sum + row.cents, 0);
 
   const colorOf = (bankId: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === bankId)) % SLICE_COLORS.length];
 
@@ -135,6 +183,54 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
         </Metric>
       </div>
 
+      {/*
+        Where the money went.
+
+        `summarize` has always worked all four of these out, and only the first
+        ever reached a screen. Without the other three "Saved RM103.88" is an
+        answer with its working hidden: it is already net of clearing debt, so
+        it does not match what arrived, and it says nothing about what was
+        spent. Deposits arriving, debt cleared, goals funded, goals drawn down —
+        every line here is a number the ledger already holds.
+      */}
+      <div className="px-6 mt-4">
+        <Card className="p-6">
+          <h3 className="text-white text-lg font-black">In and out</h3>
+          <p className="text-slate-500 text-xs font-medium mt-0.5">
+            Everything that moved this period, and what was left.
+          </p>
+
+          <div className="mt-5 space-y-3">
+            <Line label="Put in" value={arrived} />
+            {summary.repaid > 0 && (
+              <Line label="Covered earlier spending" value={-summary.repaid} muted />
+            )}
+            <Line label="Reached your goals" value={summary.distributed} rule strong />
+
+            {outgoings > 0 && (
+              <>
+                <Line label="Spent" value={-outgoings} />
+                {summary.spent > 0 && summary.borrowed > 0 && (
+                  <div className="pl-4 space-y-2">
+                    <Line label="Out of a goal" value={-summary.spent} muted small />
+                    <Line label="Spent ahead" value={-summary.borrowed} muted small />
+                  </div>
+                )}
+              </>
+            )}
+
+            <Line label="Your goals grew by" value={summary.distributed - summary.spent} rule strong />
+          </div>
+
+          {summary.borrowed > 0 && (
+            <p className="text-slate-500 text-[11px] font-medium mt-4 leading-relaxed">
+              Borrowing never touches a goal. Your next deposits clear it before anything reaches them,
+              which is why what you put in and what your goals grew by are different numbers.
+            </p>
+          )}
+        </Card>
+      </div>
+
       {/* Allocation */}
       <div className="px-6 mt-4">
         <Card className="p-6">
@@ -217,6 +313,69 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
           </div>
         </Card>
       </div>
+
+      {/* Where it went. Only spending appears here: a deposit has no heading,
+          and borrowing is money moved forward rather than money spent. */}
+      {spending.length > 0 && (
+        <div className="px-6 mt-4">
+          <Card className="p-6">
+            <h3 className="text-white text-lg font-black">Where it went</h3>
+            <p className="text-slate-500 text-xs font-medium mt-1">
+              {formatMoney(fromCents(spentTotal))} spent in this period.
+            </p>
+
+            <div className="flex items-center gap-6 mt-5">
+              <DonutChart
+                slices={spending.map((row, i) => ({
+                  id: row.key,
+                  value: row.share,
+                  color: SLICE_COLORS[i % SLICE_COLORS.length],
+                }))}
+                total={100}
+                size={128}
+                center={
+                  <p className="text-white text-lg font-black tabular-nums leading-none">
+                    {formatMoney(fromCents(spentTotal), { decimals: 0 })}
+                  </p>
+                }
+              />
+              <div className="flex-1 min-w-0 space-y-2.5">
+                {spending.slice(0, 4).map((row, i) => (
+                  <div key={row.key} className="flex items-center gap-2.5">
+                    <span
+                      className="size-2.5 rounded-full shrink-0"
+                      style={{ background: SLICE_COLORS[i % SLICE_COLORS.length] }}
+                    />
+                    <span className="text-slate-300 text-xs font-bold truncate flex-1">
+                      {categoryOf(row.key).label}
+                    </span>
+                    <span className="text-white text-xs font-black shrink-0">{row.share}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              {spending.map((row) => (
+                <div key={row.key} className="flex items-center gap-3">
+                  <span className={`material-symbols-rounded text-lg ${categoryOf(row.key).tint}`}>
+                    {categoryOf(row.key).icon}
+                  </span>
+                  <span className="text-slate-300 text-xs font-bold truncate flex-1">
+                    {categoryOf(row.key).label}
+                  </span>
+                  <span className="text-slate-600 text-[10px] font-bold shrink-0">
+                    {row.entries} {row.entries === 1 ? "time" : "times"}
+                  </span>
+                  <span className="text-white text-sm font-black shrink-0 w-24 text-right">
+                    {formatMoney(fromCents(row.cents))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Cadence */}
       <div className="px-6 mt-4">

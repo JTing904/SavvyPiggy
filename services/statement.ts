@@ -1,5 +1,6 @@
 import type { Activity, Holding, PiggyBank, Trade } from '../types';
 import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './holdings';
+import { categoryOf } from './categories';
 import { fromCents } from './money';
 import type { Summary } from './analytics';
 import { A4, buildImagePdf, type PdfPage } from './pdf';
@@ -29,7 +30,7 @@ const TYPE_LABEL: Record<Activity['type'], string> = {
   'auto-save': 'Scheduled deposit',
   manual: 'Deposit',
   withdraw: 'Withdrawal',
-  borrow: 'Borrowed',
+  borrow: 'Spent ahead',
 };
 
 const TRADE_LABEL: Record<Trade['kind'], string> = {
@@ -250,7 +251,7 @@ export const renderStatement = ({
     { label: 'Saved into goals', value: money(summary.distributed), color: GREEN },
     { label: 'Spent from goals', value: money(summary.spent), color: INK },
     { label: 'Debt repaid', value: money(summary.repaid), color: INK },
-    { label: 'Borrowed', value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
+    { label: 'Spent ahead', value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
   ];
   const gap = 8 * SCALE;
   const panelWidth = (contentWidth - gap * (panels.length - 1)) / panels.length;
@@ -320,8 +321,9 @@ export const renderStatement = ({
         { title: 'Date', width: 95 * SCALE },
         { title: 'Type', width: 90 * SCALE },
         { title: 'Amount', width: 90 * SCALE, align: 'right' },
-        { title: 'Goals', width: Math.round(flexible * 0.6) },
-        { title: 'Note', width: flexible - Math.round(flexible * 0.6) },
+        { title: 'Goals', width: Math.round(flexible * 0.5) },
+        { title: 'Category', width: Math.round(flexible * 0.22) },
+        { title: 'Note', width: flexible - Math.round(flexible * 0.5) - Math.round(flexible * 0.22) },
       ],
       inPeriod.map((a) => {
         const parts = a.distributions.map((d) => `${nameOf(d.bankId)} ${signed(d.amount)}`);
@@ -332,6 +334,7 @@ export const renderStatement = ({
           TYPE_LABEL[a.type] ?? a.type,
           { text: signed(outgoing ? -a.amount : a.amount), color: outgoing ? RED : GREEN },
           parts.join(', ') || '—',
+          a.type === 'withdraw' ? categoryOf(a.category).label : '',
           a.note ?? '',
         ];
       })

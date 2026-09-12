@@ -1,4 +1,12 @@
-import { formatTime, milestoneAlerts, parseTime, receiptAlert, staleAlerts, streakAlert } from '../services/alerts';
+import {
+  formatTime,
+  milestoneAlerts,
+  milestoneStep,
+  parseTime,
+  receiptAlert,
+  staleAlerts,
+  streakAlert,
+} from '../services/alerts';
 import { plannedNotifications } from '../services/notifications';
 import { nextOccurrence } from '../services/schedules';
 import type { Activity, Alert, PiggyBank, Schedule } from '../types';
@@ -37,18 +45,46 @@ const BANKS = [
   bank('idle', { name: 'Idle', targetAmount: 100, currentAmount: 99, splitPercentage: 0 }),
 ];
 
+// The step scales with what is already saved, so the cadence stays sane from
+// a first RM50 to a house deposit.
+eq('the step is a tenth, rounded down the 1-2-5 ladder', [
+  milestoneStep(8_000),        // RM80 -> RM50
+  milestoneStep(146_100),      // RM1,461 -> RM100
+  milestoneStep(1_200_000),    // RM12,000 -> RM1,000
+  milestoneStep(20_000_000),   // RM200,000 -> RM10,000
+], [5_000, 10_000, 100_000, 1_000_000]);
+eq('never finer than the first rung', [milestoneStep(0), milestoneStep(1), milestoneStep(49_900)], [5_000, 5_000, 5_000]);
+
+// Car: RM240 of RM1,000. A RM10 deposit lands on RM250, and at that balance
+// the step is RM50 — so RM250 is the line it passes.
 const cross = milestoneAlerts(BANKS, [{ bankId: 'car', cents: 1000, percentage: 50 }], NOW);
-eq('crossing 25% earns one card', cross.map((a) => [a.id, a.kind, a.percent, a.amount]), [['milestone_car_25', 'milestone', 25, 750]]);
+eq('passing a round amount earns one card',
+  cross.map((a) => [a.id, a.kind, a.reachedAmount]),
+  [['milestone_car_25000', 'milestone', 250]]);
 eq('card names the goal', cross[0].bankName, 'Car');
+eq('a goal with a target still says how far it has to go', [cross[0].percent, cross[0].amount], [25, 750]);
 
-eq('just under the line earns nothing', milestoneAlerts(BANKS, [{ bankId: 'car', cents: 999, percentage: 50 }], NOW).length, 0);
-eq('reaching the line counts', milestoneAlerts(BANKS, [{ bankId: 'car', cents: 1001, percentage: 50 }], NOW).length, 1);
+eq('stopping short of the line earns nothing',
+  milestoneAlerts(BANKS, [{ bankId: 'car', cents: 999, percentage: 50 }], NOW).length, 0);
+eq('landing exactly on it counts',
+  milestoneAlerts(BANKS, [{ bankId: 'car', cents: 1000, percentage: 50 }], NOW).length, 1);
 
-const jump = milestoneAlerts(BANKS, [{ bankId: 'car', cents: 40000, percentage: 50 }], NOW);
-eq('a big jump reports only the highest line', jump.map((a) => a.percent), [50]);
+// RM240 -> RM740 crosses RM250, RM300 ... RM700 at the RM50 step.
+const jump = milestoneAlerts(BANKS, [{ bankId: 'car', cents: 50000, percentage: 50 }], NOW);
+eq('a big deposit reports only the highest line', jump.map((a) => a.reachedAmount), [700]);
 
+// The whole point of the change: a goal with no finish line now gets cards.
+const open = milestoneAlerts(BANKS, [{ bankId: 'fun', cents: 100000, percentage: 50 }], NOW);
+eq('an open-ended goal passes round amounts too',
+  open.map((a) => [a.kind, a.reachedAmount]), [['milestone', 1000]]);
+eq('and has no percentage or distance, because it has no target',
+  [open[0].percent, open[0].amount], [undefined, undefined]);
+
+// PC: RM480 of RM500.
 const reached = milestoneAlerts(BANKS, [{ bankId: 'pc', cents: 2000, percentage: 20 }], NOW);
-eq('100% is a "reached" card carrying the share it still takes', reached.map((a) => [a.id, a.kind, a.percent, a.amount]), [['reached_pc', 'reached', 20, 500]]);
+eq('reaching the target is a "reached" card carrying the share it still takes',
+  reached.map((a) => [a.id, a.kind, a.percent, a.amount]), [['reached_pc', 'reached', 20, 500]]);
+eq('and it outranks any step crossed by the same deposit', reached.length, 1);
 
 const overflowed = milestoneAlerts(BANKS, [{ bankId: 'pc', cents: 2000, percentage: 20 }], NOW, true);
 eq('with overflow on there is nothing to reallocate by hand', [overflowed[0].percent, overflowed[0].overflow], [0, true]);
@@ -56,7 +92,6 @@ eq('with overflow on there is nothing to reallocate by hand', [overflowed[0].per
 const idle = milestoneAlerts(BANKS, [{ bankId: 'idle', cents: 100, percentage: 100 }], NOW);
 eq('a goal outside the split has nothing to reallocate', idle[0].percent, 0);
 
-eq('open-ended goals have no milestones', milestoneAlerts(BANKS, [{ bankId: 'fun', cents: 100000, percentage: 50 }], NOW), []);
 eq('spending never earns a milestone', milestoneAlerts(BANKS, [{ bankId: 'car', cents: -1000, percentage: 100 }], NOW), []);
 eq('unknown goals are skipped', milestoneAlerts(BANKS, [{ bankId: 'gone', cents: 1000, percentage: 100 }], NOW), []);
 
@@ -109,17 +144,67 @@ eq('next weekly (Monday) occurrence', nextOccurrence(rule({ frequency: 'weekly' 
 eq('today is skipped even if unposted', nextOccurrence(rule({ lastRunAt: at(2026, 9, 1) }), NOW)?.getDate(), 6);
 eq('a dormant rule still looks forward from today', nextOccurrence(rule({ frequency: 'monthly', dayOfMonth: 3, lastRunAt: at(2026, 1, 3) }), NOW)?.toDateString(), 'Sat Oct 03 2026');
 
-const plan = plannedNotifications(
-  { receipts: true, milestones: true, reminder: true, reminderTime: '21:15', digest: true },
-  [rule({}), rule({ id: 'off', enabled: false }), rule({ id: 'monthly', frequency: 'monthly', dayOfMonth: 20 })],
-  NOW
-);
-eq('one alarm per feature plus per live rule', plan.map((n) => n.id), [1, 2, 100, 102]);
+const PREFS = { receipts: true, milestones: true, reminder: true, reminderTime: '21:15', digest: true, exDates: true };
+const RULES = [
+  rule({}),
+  rule({ id: 'off', enabled: false }),
+  rule({ id: 'monthly', frequency: 'monthly', dayOfMonth: 20 }),
+];
+const plan = plannedNotifications(PREFS, RULES, [], [], NOW);
+
+eq('one alarm per feature plus per live rule', plan.length, 4);
 eq('reminder repeats daily at the chosen time', plan[0].schedule, { on: { hour: 21, minute: 15 } });
 eq('digest repeats monthly on the 1st', plan[1].schedule, { on: { day: 1, hour: 9, minute: 0 } });
 eq('rule nudge is a one-off on the next due morning', (plan[3].schedule?.at as Date).toString().slice(0, 21), 'Sun Sep 20 2026 09:00');
 eq('rule nudge names the amount', plan[2].title, 'Auto deposit of RM50.00 due today');
 
-eq('everything off plans nothing', plannedNotifications({ receipts: true, milestones: true, reminder: false, reminderTime: '20:00', digest: false }, [], NOW), []);
+// An alarm id used to be the rule's position in the list, so deleting one
+// re-pointed a live alarm at a different rule.
+{
+  const ids = (rules: typeof RULES) =>
+    plannedNotifications(PREFS, rules, [], [], NOW).map((n) => n.id);
+  eq('every alarm has its own id', new Set(plan.map((n) => n.id)).size, plan.length);
+
+  // The id of the *first* rule is what matters: with positional ids, dropping
+  // the rule ahead of it moved it onto a different slot.
+  const monthlyId = ids(RULES)[3];
+  eq('a rule keeps its id when another is removed before it',
+    ids([RULES[2]])[2], monthlyId);
+  eq('and when the list is reordered',
+    ids([RULES[2], RULES[1], RULES[0]])[2], monthlyId);
+}
+
+// --- ex-dates
+{
+  const declared = {
+    symbol: '1155.KL', subject: 'Interim', exDate: new Date(2026, 8, 20).getTime(),
+    payDate: new Date(2026, 9, 5).getTime(), perUnitPoints: 3300, announcedAt: 0,
+  };
+  const held = [{
+    id: 't1', symbol: '1155.KL', name: 'MAYBANK', kind: 'buy' as const,
+    units: 500, priceCents: 1000, tradedAt: new Date(2026, 7, 1).getTime(), createdAt: 0,
+  }];
+  const withEx = plannedNotifications(PREFS, [], [declared], held, NOW);
+  eq('a warning two days before the ex-date',
+    (withEx[2].schedule?.at as Date).toString().slice(0, 21), 'Fri Sep 18 2026 09:00');
+  eq('it says how many units are held', withEx[2].body?.includes('You hold 500'), true);
+
+  const none = plannedNotifications(PREFS, [], [declared], [], NOW);
+  eq('holding nothing still gets the nudge, worded to buy',
+    none[2].body?.includes('Buy before the ex-date'), true);
+
+  // An ex-date that has already been and gone is not worth an alarm.
+  const past = { ...declared, exDate: new Date(2026, 7, 1).getTime() };
+  eq('a past ex-date plans nothing', plannedNotifications(PREFS, [], [past], held, NOW).length, 2);
+  eq('and neither does the setting turned off',
+    plannedNotifications({ ...PREFS, exDates: false }, [], [declared], held, NOW).length, 2);
+}
+
+eq('everything off plans nothing',
+  plannedNotifications(
+    { receipts: true, milestones: true, reminder: false, reminderTime: '20:00', digest: false, exDates: false },
+    [], [], [], NOW
+  ),
+  []);
 
 report();

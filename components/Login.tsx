@@ -15,6 +15,14 @@ const friendlyError = (e: unknown) => {
       return 'Password needs at least 6 characters.';
     case 'auth/invalid-email':
       return 'That email address looks wrong.';
+    // The likeliest collision: an account made with Google, then signed into
+    // with a password. Without this it surfaced as a raw Firebase string.
+    case 'auth/account-exists-with-different-credential':
+      return 'That email already signs in with Google. Use “Continue with Google”.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a few minutes and try again.';
+    case 'auth/network-request-failed':
+      return 'No connection. This one needs the internet.';
     case 'auth/popup-closed-by-user':
       return 'Sign-in window was closed.';
     case 'auth/operation-not-allowed':
@@ -29,13 +37,14 @@ const friendlyError = (e: unknown) => {
 };
 
 const Login: React.FC = () => {
-  const { signInWithGoogle, signIn, signUp } = useAuth();
+  const { signInWithGoogle, signIn, signUp, resetPassword } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -51,6 +60,26 @@ const Login: React.FC = () => {
 
   const isSignUp = mode === 'signup';
   const canSubmit = email.length > 0 && password.length > 0 && (!isSignUp || name.length > 0);
+
+  /**
+   * The only way back into an account. An invite code is one-time and tied to
+   * one uid, so a forgotten password with no reset is not an inconvenience —
+   * it is the balances gone for good.
+   *
+   * It reports success even for an address with no account: telling a stranger
+   * which emails are registered here is not ours to give away.
+   */
+  const handleReset = () => {
+    if (busy) return;
+    if (!email.trim()) {
+      setError('Type your email address first, then tap this again.');
+      return;
+    }
+    void run(async () => {
+      await resetPassword(email.trim());
+      setSent(true);
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,8 +131,31 @@ const Login: React.FC = () => {
             autoComplete={isSignUp ? 'new-password' : 'current-password'}
           />
 
+          {!isSignUp && (
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={busy}
+              className="w-full text-right text-slate-400 text-xs font-bold active:opacity-60 disabled:opacity-40"
+            >
+              Forgot your password?
+            </button>
+          )}
+
+          {sent && (
+            <div className="flex items-start gap-3 rounded-2xl bg-primary/10 border border-primary/25 px-5 py-4">
+              <span className="material-symbols-rounded text-primary text-lg">mark_email_read</span>
+              <p className="text-primary/90 text-xs font-bold leading-relaxed">
+                If that address has an account, a reset link is on its way. Check your spam folder too.
+              </p>
+            </div>
+          )}
+
           {error && (
-            <div className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4">
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4"
+            >
               <span className="material-symbols-rounded text-red-400 text-lg">error</span>
               <p className="text-red-300 text-xs font-bold leading-relaxed">{error}</p>
             </div>

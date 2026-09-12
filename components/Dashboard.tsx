@@ -1,6 +1,6 @@
 
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade } from '../types';
+import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
 import { formatMoney, fromCents, toCents } from '../services/money';
@@ -12,14 +12,15 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import { portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
 import type { Mode as NavMode } from './Navigation';
+import { CATEGORIES, UNCATEGORISED } from '../services/categories';
 
 type Mode = 'deposit' | 'withdraw';
 
 const ACTIVITY_STYLES: Record<ActivityType, { label: string; icon: string; tint: string; outgoing: boolean }> = {
   'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary', outgoing: false },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
-  withdraw: { label: 'Withdrawal', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
-  borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
+  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
 };
 
 interface DashboardProps {
@@ -29,7 +30,7 @@ interface DashboardProps {
   activities: Activity[];
   loans: Loan[];
   onDeposit: (amount: number, targetBankId: string | null) => void;
-  onWithdraw: (amount: number, sourceBankId: string, note: string) => void;
+  onWithdraw: (amount: number, sourceBankId: string, note: string, category: string) => void;
   onBorrow: (amount: number, note: string) => void;
   onViewAll: () => void;
   onSelectGoal: (id: string) => void;
@@ -44,6 +45,8 @@ interface DashboardProps {
   trades: Trade[];
   /** Prices are fetched once for the whole app and handed down. */
   quotes: Quotes;
+  /** Needed for the split preview to match what the deposit will really do. */
+  savings: SavingsSettings;
   unreadAlerts: number;
   /** Set from the nav's round button; cleared once the sheet is open. */
   quickAction: 'deposit' | 'withdraw' | null;
@@ -88,6 +91,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   holdings,
   trades,
   quotes,
+  savings,
   unreadAlerts,
   quickAction,
   onQuickActionHandled,
@@ -96,6 +100,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [mode, setMode] = useState<Mode | null>(null);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [category, setCategory] = useState<string>(UNCATEGORISED);
   // In deposit mode null means "split by strategy"; in withdraw mode it means
   // "borrowed from outside", which touches no goal at all.
   const [target, setTarget] = useState<string | null>(null);
@@ -111,7 +116,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const cents = toCents(parseFloat(amount) || 0);
   const isBorrow = mode === 'withdraw' && target === null;
-  const preview = mode === 'deposit' ? planDeposit(cents, banks, openLoans, target) : null;
+  // The same overflow rule the write uses. Planning without it here meant a
+  // user with overflow on was shown a split that is not the one that happens.
+  const preview =
+    mode === 'deposit' ? planDeposit(cents, banks, openLoans, target, savings.overflow) : null;
 
   const blockedReason = () => {
     if (cents <= 0) return null;
@@ -143,7 +151,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const value = fromCents(cents);
     if (mode === 'deposit') onDeposit(value, target);
     else if (isBorrow) onBorrow(value, note);
-    else onWithdraw(value, target!, note);
+    else onWithdraw(value, target!, note, category);
     closeModal();
   };
 
@@ -170,7 +178,7 @@ const Dashboard: React.FC<DashboardProps> = ({
    * back button leaving the investing half.
    */
   const syncing = useRef(false);
-  const release = useRef<number>();
+  const release = useRef<number | undefined>(undefined);
 
   /**
    * Set when the rail itself caused the mode to change. The thumb is already
@@ -240,7 +248,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => window.clearTimeout(release.current);
   }, [navMode]);
 
-  const confirmLabel = mode === 'deposit' ? 'Confirm Deposit' : isBorrow ? 'Record Borrowing' : 'Withdraw';
+  const confirmLabel = mode === 'deposit' ? 'Confirm Deposit' : isBorrow ? 'Record Spending' : 'Withdraw';
 
   return (
     <div className="flex flex-col min-h-full pb-40 safe-pt relative">
@@ -271,7 +279,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         onScroll={onRailScroll}
         className="flex items-stretch gap-3 px-6 py-2 overflow-x-auto no-scrollbar snap-x snap-mandatory"
       >
-        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-accent p-7 shadow-2xl shadow-primary/20 shrink-0 h-[11.5rem] w-[calc(100vw-3rem)] max-w-[22rem] snap-center">
+        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-accent p-7 shadow-2xl shadow-primary/20 shrink-0 h-[11.5rem] w-full snap-center">
           {/* The same glow, painted as a gradient rather than blurred circles.
               A 64px blur filter has to be redone every frame the card moves,
               which was most of the cost of swiping between the two cards. */}
@@ -316,7 +324,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
         <button
           onClick={() => (navMode === 'invest' ? onOpenTrades() : onModeChange('invest'))}
-          className="relative overflow-hidden rounded-[2rem] bg-surface border border-accent/30 p-7 shadow-2xl shrink-0 h-[11.5rem] w-[calc(100vw-3rem)] max-w-[22rem] snap-center text-left active:scale-[0.99] transition-transform flex flex-col justify-between"
+          className="relative overflow-hidden rounded-[2rem] bg-surface border border-accent/30 p-7 shadow-2xl shrink-0 h-[11.5rem] w-full snap-center text-left active:scale-[0.99] transition-transform flex flex-col justify-between"
         >
           <p className="text-accent text-xs font-bold uppercase tracking-widest mb-1">Investments</p>
           {holdings.length === 0 ? (
@@ -373,7 +381,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-6 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-amber-400/70 text-xs font-bold uppercase tracking-widest mb-1">Borrowed</p>
+                  <p className="text-amber-400/70 text-xs font-bold uppercase tracking-widest mb-1">Spent ahead</p>
                   <h2 className="text-amber-300 text-3xl font-extrabold tracking-tight">
                     {formatMoney(fromCents(debtCents))}
                   </h2>
@@ -387,9 +395,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {openLoans.map((loan) => (
                   <div key={loan.id} className="flex items-center justify-between gap-3 bg-black/20 rounded-2xl px-4 py-3">
                     <div className="min-w-0">
-                      <p className="text-white text-sm font-bold truncate">{loan.note || 'Borrowed'}</p>
+                      <p className="text-white text-sm font-bold truncate">{loan.note || 'Spent ahead'}</p>
                       <p className="text-slate-500 text-[10px] font-medium">
-                        borrowed {formatMoney(loan.amount)}
+                        spent {formatMoney(loan.amount)} ahead
                       </p>
                     </div>
                     <p className="shrink-0 text-amber-300 text-lg font-black tabular-nums">
@@ -586,11 +594,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           the close button can never be pushed off the top of the screen. */}
       {mode && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={closeModal}
         >
           <div
-            className="w-full max-w-md max-h-[88vh] flex flex-col bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300"
+            className="w-full max-w-md max-h-[88vh] flex flex-col bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 px-7 pt-7 pb-4 flex items-center justify-between gap-3">
@@ -645,7 +653,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     {mode === 'withdraw' && (
                       <span className="material-symbols-rounded text-base">account_balance</span>
                     )}
-                    {mode === 'deposit' ? 'Auto split' : 'Borrow'}
+                    {mode === 'deposit' ? 'Auto split' : 'Not from a goal'}
                   </button>
                   {banks.map((b) => (
                     <button
@@ -663,7 +671,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {mode === 'withdraw' && (
                   <p className="text-slate-500 text-[10px] text-center pt-1 font-medium leading-relaxed">
                     {isBorrow
-                      ? 'Money from outside. No goal is touched — it just records what you owe.'
+                      ? 'Money you had not set aside yet. No goal is touched — your next deposits cover it first.'
                       : `${formatMoney(fromCents(balanceCents(banks, target)))} in this goal. Spending more takes it negative.`}
                   </p>
                 )}
@@ -675,9 +683,35 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder={isBorrow ? 'e.g. Borrowed from mum' : 'e.g. Groceries'}
+                    placeholder={isBorrow ? 'e.g. Lunch' : 'e.g. Groceries'}
                     className="w-full h-14 px-5 rounded-2xl bg-white/5 border border-white/10 text-base font-bold text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
                   />
+
+                  {/* Borrowing is not spending, so it gets no heading. */}
+                  {!isBorrow && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {CATEGORIES.map((c) => {
+                        const on = category === c.key;
+                        return (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => setCategory(c.key)}
+                            className={`flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-2xl text-[11px] font-black border transition-colors ${
+                              on
+                                ? 'bg-primary text-black border-primary'
+                                : 'bg-white/5 border-white/10 text-slate-400'
+                            }`}
+                          >
+                            <span className={`material-symbols-rounded text-base ${on ? '' : c.tint}`}>
+                              {c.icon}
+                            </span>
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -686,7 +720,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="rounded-2xl bg-white/5 border border-white/10 px-5 py-4 space-y-2">
                   {preview!.repaidCents > 0 && (
                     <p className="text-amber-300 text-xs font-bold">
-                      {formatMoney(fromCents(preview!.repaidCents))} clears your borrowing first
+                      {formatMoney(fromCents(preview!.repaidCents))} covers earlier spending first
                     </p>
                   )}
                   {preview!.splitMovements.map((m) => {

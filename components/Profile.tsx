@@ -131,10 +131,16 @@ const Profile: React.FC<ProfileProps> = ({
     .filter((d): d is Date => d !== null)
     .sort((a, b) => a.getTime() - b.getTime())[0];
 
+  const [seedError, setSeedError] = useState<string | null>(null);
   const handleSeed = async () => {
     setBusy(true);
+    setSeedError(null);
     try {
       await seedSampleBanks(user.uid);
+    } catch (e) {
+      // The button only shows on an account with no goals, so failing in
+      // silence here is a dead end on the one screen offering a way forward.
+      setSeedError(e instanceof Error ? e.message : 'Could not add them. Try again.');
     } finally {
       setBusy(false);
     }
@@ -393,6 +399,10 @@ const Profile: React.FC<ProfileProps> = ({
             <span className="material-symbols-rounded text-primary">auto_awesome</span>
             {busy ? 'Adding…' : 'Add three sample goals'}
           </button>
+        )}
+
+        {seedError && (
+          <p className="text-red-400 text-xs font-bold text-center -mt-3">{seedError}</p>
         )}
 
         <div>

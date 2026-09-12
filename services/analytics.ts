@@ -1,4 +1,5 @@
 import type { Activity, PiggyBank, Trade } from '../types';
+import { categoryOf } from './categories';
 import { fromCents, toCents } from './money';
 
 /**
@@ -350,17 +351,83 @@ export const summarize = (
   };
 };
 
+/* ------------------------------------------------------------- categories */
+
+export interface CategorySpend {
+  key: string;
+  /** Positive: what left the goals under this heading. */
+  cents: number;
+  entries: number;
+  /** Whole percent of the period's spending, largest first. */
+  share: number;
+}
+
+/**
+ * Where the month's money went.
+ *
+ * Only withdrawals count. A deposit has no category and borrowing is not
+ * spending — it is money moved forward, and counting it here would say it was
+ * spent twice, once when borrowed and again when the debt was cleared.
+ *
+ * Entries from before categories existed have none, and read as Other rather
+ * than being dropped: a total that quietly omits some spending is worse than
+ * one with a large Other in it.
+ */
+export const spendingByCategory = (
+  activities: Activity[],
+  range: DateRange,
+  now: Date = new Date()
+): CategorySpend[] => {
+  const totals = new Map<string, { cents: number; entries: number }>();
+
+  for (const a of activities) {
+    if (a.type !== 'withdraw') continue;
+    const at = new Date(a.date);
+    if (at < range.start || at >= range.end || at > now) continue;
+
+    const cents = a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
+    if (cents === 0) continue;
+
+    const key = categoryOf(a.category).key;
+    const row = totals.get(key) ?? { cents: 0, entries: 0 };
+    row.cents += cents;
+    row.entries += 1;
+    totals.set(key, row);
+  }
+
+  const spent = [...totals.values()].reduce((sum, r) => sum + r.cents, 0);
+  return [...totals.entries()]
+    .map(([key, r]) => ({
+      key,
+      cents: r.cents,
+      entries: r.entries,
+      share: spent > 0 ? Math.round((r.cents / spent) * 100) : 0,
+    }))
+    .sort((a, b) => b.cents - a.cents);
+};
+
 /* ---------------------------------------------------------------- archive */
 
 export const RETENTION_MONTHS = 12;
 
-/** Whole months of ledger to keep. `null` keeps everything. */
-export const RETENTION_CHOICES: { months: number | null; label: string }[] = [
+/**
+ * How long the ledger is kept. Only two choices, and neither of them is
+ * "forever": the app re-reads every kept record each time it opens, and a free
+ * project allows fifty thousand reads a day. Keeping everything does not cost
+ * space — it eventually costs the ability to open the app at all.
+ */
+export const RETENTION_CHOICES: { months: number; label: string }[] = [
   { months: 6, label: '6 months' },
   { months: 12, label: '12 months' },
-  { months: 24, label: '24 months' },
-  { months: null, label: 'Keep all' },
 ];
+
+/**
+ * A stored setting made safe. A value from before the choices narrowed — or
+ * anything else unexpected — comes back as the twelve-month default rather
+ * than as "keep everything".
+ */
+export const allowedRetention = (months: number | null | undefined) =>
+  RETENTION_CHOICES.some((c) => c.months === months) ? (months as number) : RETENTION_MONTHS;
 
 /**
  * The first day still kept. Retention works in whole months so a statement is

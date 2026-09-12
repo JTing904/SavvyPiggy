@@ -43,15 +43,23 @@ export interface Share<T> {
   cents: number;
 }
 
-/** Hands each leftover cent to the heaviest share; ties go to the first one. */
+/**
+ * Settles the odd cent on the heaviest share; ties go to the first one.
+ *
+ * It works in both directions. Flooring every part usually leaves a cent
+ * over, but percentages that add to a hair past 100 — which is what shares
+ * handed on from a full goal produce — place one too many, and the parts have
+ * to come back to the total either way. Whoever takes the biggest share
+ * carries the difference.
+ */
 const distributeRemainder = <T>(shares: Share<T>[], remainder: number) => {
-  if (remainder <= 0 || shares.length === 0) return shares;
+  if (remainder === 0 || shares.length === 0) return shares;
 
   let best = 0;
   for (let i = 1; i < shares.length; i++) {
     if (shares[i].weight > shares[best].weight) best = i;
   }
-  shares[best].cents += remainder;
+  shares[best].cents = Math.max(0, shares[best].cents + remainder);
   return shares;
 };
 
@@ -67,7 +75,18 @@ export const splitByPercentage = <T>(
   const live = items.filter((i) => i.percentage > 0);
   if (totalCents <= 0 || live.length === 0) return [];
 
-  const totalPercentage = live.reduce((sum, i) => sum + i.percentage, 0);
+  /*
+    Percentages are meant to total 100, and the intent is what counts.
+
+    When a full goal's share is handed on, the division that shares it out
+    does not terminate — 5% and 10% splitting a freed 85% become 33.33…% and
+    66.66…%, which sum to 99.99999999999999. Taken literally that shaved a cent
+    off the amount to be placed, so every deposit under overflow put RM9.99 of
+    an RM10.00 into the goals while the ledger recorded RM10.00. Rounding the
+    total to the precision a percentage is actually stored at reads the intent
+    instead of the floating-point residue.
+  */
+  const totalPercentage = Math.round(live.reduce((sum, i) => sum + i.percentage, 0) * 100) / 100;
   const allocatable = Math.floor((totalCents * Math.min(100, totalPercentage)) / 100);
 
   const shares = live.map((i) => ({

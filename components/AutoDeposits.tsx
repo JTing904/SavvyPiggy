@@ -9,6 +9,12 @@ interface AutoDepositsProps {
   banks: PiggyBank[];
   onCancel: () => void;
   onCreate: (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => Promise<void> | void;
+  /**
+   * Changing a rule that already exists. `lastRunAt` is deliberately not part
+   * of this: editing a rule must never backfill, so raising the amount today
+   * does not post the difference for every occurrence since it was made.
+   */
+  onUpdate: (id: string, patch: Partial<Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>>) => Promise<void> | void;
   onToggle: (id: string, enabled: boolean) => void;
   onDelete: (id: string) => void;
 }
@@ -20,11 +26,14 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
   banks,
   onCancel,
   onCreate,
+  onUpdate,
   onToggle,
   onDelete,
 }) => {
   const [adding, setAdding] = useState(false);
-  useBackHandler(adding, () => setAdding(false));
+  /** The rule being changed, if this is an edit rather than a new one. */
+  const [editing, setEditing] = useState<Schedule | null>(null);
+  useBackHandler(adding, () => reset());
   const [amount, setAmount] = useState('');
   const [frequency, setFrequency] = useState<Frequency>('monthly');
   const [weekday, setWeekday] = useState(1);
@@ -35,10 +44,26 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
   const reset = () => {
     setAdding(false);
+    setEditing(null);
     setAmount('');
     setFrequency('monthly');
+    setWeekday(1);
+    setDayOfMonth(1);
+    setMonth(1);
     setTargetBankId(null);
     setBusy(false);
+  };
+
+  /** Opens the same form on an existing rule, filled in as it stands. */
+  const startEdit = (s: Schedule) => {
+    setEditing(s);
+    setAmount(String(s.amount));
+    setFrequency(s.frequency);
+    setWeekday(s.weekday ?? 1);
+    setDayOfMonth(s.dayOfMonth ?? 1);
+    setMonth(s.month ?? 1);
+    setTargetBankId(s.targetBankId);
+    setAdding(true);
   };
 
   const handleCreate = async () => {
@@ -46,15 +71,13 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
     if (!(value > 0) || busy) return;
     setBusy(true);
     try {
-      await onCreate({
-        amount: value,
-        frequency,
-        weekday,
-        dayOfMonth,
-        month,
-        targetBankId,
-        enabled: true,
-      });
+      const shape = { amount: value, frequency, weekday, dayOfMonth, month, targetBankId };
+      // An edit keeps the rule's own enabled state. Changing when it fires
+      // restarts its clock in updateSchedule, so the change applies from the
+      // next occurrence and never backwards; changing only the amount does
+      // not, so correcting a figure never reposts.
+      if (editing) await onUpdate(editing.id, shape);
+      else await onCreate({ ...shape, enabled: true });
       reset();
     } catch {
       setBusy(false);
@@ -106,13 +129,18 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                 <div className="min-w-0">
                   <p className="text-white text-2xl font-black">{formatMoney(s.amount)}</p>
                   <p className="text-primary text-xs font-bold mt-0.5">{describe(s)}</p>
-                  <p className="text-slate-500 text-xs font-medium mt-1 truncate">
-                    → {targetName(s.targetBankId)}
-                  </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
+                    onClick={() => startEdit(s)}
+                    aria-label="Edit this rule"
+                    className="size-10 rounded-full flex items-center justify-center bg-white/5 text-slate-400 active:scale-90 transition-transform"
+                  >
+                    <span className="material-symbols-rounded text-xl">edit</span>
+                  </button>
+                  <button
                     onClick={() => onDelete(s.id)}
+                    aria-label="Delete this rule"
                     className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 active:scale-90 transition-transform"
                   >
                     <span className="material-symbols-rounded text-xl">delete</span>
@@ -131,6 +159,9 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                   </button>
                 </div>
               </div>
+              <p className="text-slate-500 text-xs font-medium mt-1 truncate">
+                → {targetName(s.targetBankId)}
+              </p>
             </div>
           ))}
 
@@ -259,7 +290,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                       : 'bg-white/5 text-slate-700 cursor-not-allowed'
                   }`}
                 >
-                  {busy ? 'Saving...' : 'Add'}
+                  {busy ? 'Saving…' : editing ? 'Save changes' : 'Add'}
                 </button>
               </div>
             </div>

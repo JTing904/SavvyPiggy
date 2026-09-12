@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SORT_OPTIONS, dirLabel, type SortOrder } from '../services/sorting';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 interface SortMenuProps {
   order: SortOrder;
@@ -15,6 +16,9 @@ interface SortMenuProps {
 const SortMenu: React.FC<SortMenuProps> = ({ order, onChange, compact = false }) => {
   const [open, setOpen] = useState(false);
   const active = SORT_OPTIONS.find((o) => o.key === order.key) ?? SORT_OPTIONS[0];
+
+  // This was the one sheet the back button could not close.
+  useBackHandler(open, () => setOpen(false));
 
   const pick = (key: SortOrder['key']) => {
     if (key === order.key) {
@@ -43,11 +47,11 @@ const SortMenu: React.FC<SortMenuProps> = ({ order, onChange, compact = false })
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-7 pt-7 pb-3 flex items-center justify-between gap-3">

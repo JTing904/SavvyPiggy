@@ -43,14 +43,27 @@ const ACTS: Activity[] = [
 
 // --- the savings table
 const rows = savingsRows(ACTS, BANKS);
-eq('a goal name goes in as it was written', rows[0][7], '股票 & "stocks"');
-eq('a deleted goal keeps its own column', rows[0][8], 'Deleted goals');
+eq('a goal name goes in as it was written', rows[0][8], '股票 & "stocks"');
+eq('a deleted goal keeps its own column', rows[0][9], 'Deleted goals');
 eq('rows are oldest first', rows[1][0], '2026-09-04');
 eq('amounts are numbers, not text', rows[1].slice(3, 5), [100, null]);
-eq('what reached each goal', rows[1].slice(6), [60, 35, 5]);
-eq('a goal that got nothing is left empty', rows[2].slice(6), [-5, null, null]);
+eq('what reached each goal', rows[1].slice(7), [60, 35, 5]);
+eq('a goal that got nothing is left empty', rows[2].slice(7), [-5, null, null]);
 eq('a multi-line note survives whole', rows[2][5], 'coffee\nand cake');
-eq('no deleted-goal column when none is needed', savingsRows([ACTS[0]], BANKS)[0].length, 8);
+eq('no deleted-goal column when none is needed', savingsRows([ACTS[0]], BANKS)[0].length, 9);
+
+// The category column: spending carries one, nothing else does, and an
+// entry made before categories existed reads as Other rather than blank --
+// a blank would drop it out of any total built from this sheet.
+eq('the category column is named', rows[0][6], 'Category');
+eq('an uncategorised withdrawal reads as Other', rows[2][6], 'Other');
+eq('a deposit has no category at all', rows[1][6], null);
+{
+  const labelled = savingsRows([{ ...ACTS[0], category: 'food' }], BANKS);
+  eq('a categorised withdrawal carries its label', labelled[1][6], 'Food & drink');
+  const unknown = savingsRows([{ ...ACTS[0], category: 'from-a-later-version' }], BANKS);
+  eq('a key this version does not know still totals as Other', unknown[1][6], 'Other');
+}
 
 // --- the month, both halves
 {

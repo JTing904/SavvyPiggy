@@ -34,6 +34,12 @@ export interface Activity {
   /** Set on a borrow entry, linking it to the debt it created. */
   loanId?: string;
   note?: string;
+  /**
+   * What a withdrawal was for — a key from services/categories.ts, never a
+   * label. Only spending carries one; an entry without it reads as Other,
+   * which is every entry made before categories existed.
+   */
+  category?: string;
 }
 
 /** Money taken out of the goals that future income is expected to put back. */
@@ -159,7 +165,14 @@ export interface Alert {
   /** `milestone` / `reached`: which goal, and where it stands. */
   bankId?: string;
   bankName?: string;
+  /**
+   * `reached`: the share the full goal still takes of every deposit.
+   * `milestone`: how far along it is — absent for a goal with no target,
+   * which has no percentage to be a percentage of.
+   */
   percent?: number;
+  /** `milestone`: the round amount the balance passed. */
+  reachedAmount?: number;
   /** `milestone`: what is still to go. `receipt`: the deposit's total. */
   amount?: number;
   /** `receipt`: what each goal received. */
@@ -191,6 +204,23 @@ export interface Dividend {
   /** Per unit in ten-thousandths of a ringgit: RM0.3300 is 3300. */
   perUnitPoints: number;
   announcedAt: number;
+}
+
+/**
+ * What the portfolio was worth at the end of one month.
+ *
+ * Written once a month and never back-dated, because there is no way to know
+ * honestly what a share was worth on a day the app was not there to look. The
+ * cost side can be replayed from the trade log at any time; this is the other
+ * half, and it only exists from the month the app started recording it.
+ */
+export interface Snapshot {
+  /** "2026-09", and the document id. */
+  id: string;
+  /** Epoch ms of the month end this describes. */
+  at: number;
+  valueCents: number;
+  costCents: number;
 }
 
 export interface SavingsSettings {
@@ -229,6 +259,11 @@ export interface NotificationPrefs {
   reminderTime: string;
   /** System notification on the 1st of each month pointing at the Report. */
   digest: boolean;
+  /**
+   * A nudge two days before a counter goes ex-dividend. That day decides
+   * who the payment belongs to, so it is the one worth interrupting for.
+   */
+  exDates: boolean;
 }
 
 export enum Tab {

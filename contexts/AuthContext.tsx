@@ -6,6 +6,7 @@ import {
   signInWithPopup,
   signInWithCredential,
   GoogleAuthProvider,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -19,6 +20,8 @@ interface AuthValue {
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  /** Sends Firebase's own reset email. The only way back into an account. */
+  resetPassword: (email: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -55,6 +58,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     signIn: async (email, password) => {
       await signInWithEmailAndPassword(auth, email, password);
+    },
+    resetPassword: async (email) => {
+      await sendPasswordResetEmail(auth, email);
     },
     signUp: async (name, email, password) => {
       const cred = await createUserWithEmailAndPassword(auth, email, password);

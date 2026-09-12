@@ -1,12 +1,21 @@
 import React, { useMemo } from 'react';
-import type { Trade } from '../types';
-import { averageCostCents, buildHoldings, marketValueCents, performance, type Quotes } from '../services/holdings';
+import type { Snapshot, Trade } from '../types';
+import {
+  averageCostCents,
+  buildHoldings,
+  costByMonth,
+  marketValueCents,
+  performance,
+  type Quotes,
+} from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import { SLICE_COLORS } from './DonutChart';
 
 interface GrowthProps {
   trades: Trade[];
   quotes: Quotes;
+  /** Month-end values, recorded as the months pass. Never back-dated. */
+  snapshots: Snapshot[];
   onBack: () => void;
 }
 
@@ -26,9 +35,45 @@ const tone = (cents: number) => (cents < 0 ? 'text-red-400' : cents > 0 ? 'text-
  * There is no chart. Drawing one would need a price for every past day, which
  * the app does not have and would have to invent.
  */
-const Growth: React.FC<GrowthProps> = ({ trades, quotes, onBack }) => {
+const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) => {
   const total = useMemo(() => performance(trades, quotes), [trades, quotes]);
   const holdings = useMemo(() => buildHoldings(trades), [trades]);
+
+  /* The chart. Cost is replayed; value only exists where a snapshot does. */
+  const months = useMemo(() => costByMonth(trades), [trades]);
+  const valued = useMemo(
+    () => snapshots.filter((s) => months.some((m) => m.key === s.id)),
+    [snapshots, months]
+  );
+
+  const W = 320;
+  const H = 120;
+  const top = Math.max(
+    1,
+    ...months.map((m) => m.costCents),
+    ...valued.map((s) => s.valueCents)
+  );
+  const x = (i: number) => (months.length < 2 ? 0 : (i / (months.length - 1)) * W);
+  const y = (cents: number) => H - (cents / top) * (H - 8) - 4;
+  const line = (pick: (m: (typeof months)[number]) => number) =>
+    months.map((m, i) => `${x(i)},${y(pick(m))}`).join(' ');
+  const valuedLine = valued
+    .map((s) => `${x(months.findIndex((m) => m.key === s.id))},${y(s.valueCents)}`)
+    .join(' ');
+
+  /**
+   * The month a snapshot describes, from its own id. Not from `at`, which is
+   * the month *end* — an August record carries the first of September, and
+   * naming it "September" would misdate the one thing this chart promises to
+   * get right.
+   */
+  const monthName = (id: string) => {
+    const [year, month] = id.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-GB', {
+      month: 'long',
+      year: 'numeric',
+    });
+  };
 
   const parts = [
     { label: 'On what you still hold', cents: total.unrealisedCents, note: 'Paper gain, moves with the market' },
@@ -108,6 +153,53 @@ const Growth: React.FC<GrowthProps> = ({ trades, quotes, onBack }) => {
                 </p>
               </div>
             </div>
+
+            {months.length > 1 && (
+              <>
+                <p className="text-slate-500 text-[10px] font-black tracking-widest mt-8 mb-3">
+                  OVER TIME
+                </p>
+                <div className="rounded-[2rem] bg-surface border border-white/5 p-5 shadow-xl">
+                  <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Cost and value by month">
+                    <polyline
+                      fill="none"
+                      stroke="#64748B"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                      points={line((m) => m.costCents)}
+                    />
+                    {valued.length > 1 && (
+                      <polyline
+                        fill="none"
+                        stroke="#4ADE80"
+                        strokeWidth="2.5"
+                        strokeLinejoin="round"
+                        points={valuedLine}
+                      />
+                    )}
+                  </svg>
+                  <div className="flex items-center gap-5 mt-3">
+                    <span className="flex items-center gap-2 text-[11px] font-bold text-slate-400">
+                      <span className="w-4 h-0.5 bg-slate-500" /> What it cost
+                    </span>
+                    <span className="flex items-center gap-2 text-[11px] font-bold text-slate-400">
+                      <span className="w-4 h-0.5 bg-primary" /> What it was worth
+                    </span>
+                  </div>
+                  <p className="text-slate-600 text-[11px] font-bold mt-3 leading-relaxed">
+                    Cost is replayed from your trades, so it goes back as far as they do. Value is
+                    different: the app can only record what a month ended at once that month has
+                    ended, so{' '}
+                    {valued.length === 0
+                      ? 'no month has been recorded yet'
+                      : valued.length === 1
+                        ? `only ${monthName(valued[0].id)} has been recorded — the line starts once a second month has`
+                        : `the line starts at ${monthName(valued[0].id)}`}
+                    . Nothing before that is drawn, because nothing before that is known.
+                  </p>
+                </div>
+              </>
+            )}
 
             {holdings.length > 0 && (
               <>

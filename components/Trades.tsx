@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { Trade } from '../types';
-import { ordered } from '../services/holdings';
+import { ordered, tradeCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
 
@@ -12,6 +12,16 @@ interface TradesProps {
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
   formatMoney(fromCents(cents), opts);
+
+/**
+ * What one unit of this trade was worth. A dividend is quoted per unit in
+ * ten-thousandths of a ringgit and leaves `priceCents` at zero, so reading
+ * that field instead showed every dividend ever credited as RM0.00.
+ */
+const rate = (trade: Trade) =>
+  trade.kind === 'dividend'
+    ? `RM${((trade.perUnitPoints ?? 0) / 10_000).toFixed(4)}`
+    : money(trade.priceCents, { decimals: 2 });
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -106,13 +116,13 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
                       <div className="flex-1 min-w-0">
                         <p className="text-white font-black text-[13px] truncate">{trade.name}</p>
                         <p className="text-slate-500 text-[11px] font-bold mt-0.5">
-                          {trade.units.toLocaleString('en-US')} units{' '}
-                          {trade.kind === 'dividend' ? '×' : '@'} {money(trade.priceCents, { decimals: 2 })}
+                          {trade.units.toLocaleString('en-US')} units {trade.kind === 'dividend' ? '×' : '@'}{' '}
+                          {rate(trade)}
                         </p>
                       </div>
                       <p className={`text-[13px] font-black shrink-0 ${tag.amountClass}`}>
                         {trade.kind === 'buy' ? '' : '+'}
-                        {money(trade.units * trade.priceCents)}
+                        {money(tradeCents(trade))}
                       </p>
                     </button>
                   );

@@ -1,8 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Alert, AlertKind, NotificationPrefs } from '../types';
 import { formatTime } from '../services/alerts';
-import { checkPermission, requestPermission, type Permission } from '../services/notifications';
+import {
+  checkPermission,
+  exactAlarmAllowed,
+  requestExactAlarms,
+  requestPermission,
+  type Permission,
+} from '../services/notifications';
 import { formatMoney } from '../services/money';
+import TimeField from './TimeField';
 
 interface AlertsProps {
   alerts: Alert[];
@@ -71,10 +78,21 @@ const ICONS: Record<AlertKind, string> = {
 const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSavePrefs, onOpenStrategy }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [permission, setPermission] = useState<Permission>('unsupported');
+  const [exact, setExact] = useState(true);
   const now = new Date();
 
+  // Checked again every time the screen comes back into view. It used to be
+  // read once on mount, so someone who went to Android's settings to allow
+  // notifications came back to an app still convinced it was blocked.
   useEffect(() => {
-    void checkPermission().then(setPermission);
+    const read = () => {
+      if (document.visibilityState !== 'visible') return;
+      void checkPermission().then(setPermission);
+      void exactAlarmAllowed().then(setExact);
+    };
+    read();
+    document.addEventListener('visibilitychange', read);
+    return () => document.removeEventListener('visibilitychange', read);
   }, []);
 
   const unread = alerts.filter((a) => !a.read);
@@ -95,13 +113,32 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
 
   const countOf = (f: Filter) => alerts.filter((a) => !a.read && FILTERS.find((x) => x.key === f)!.kinds.includes(a.kind)).length;
 
-  /** Turning a system notification on is the moment to ask the phone. */
+  /**
+   * Turning a system notification on is the moment to ask the phone.
+   *
+   * The setting is only saved if the phone will actually deliver it. It used
+   * to be saved either way, so a refused permission left the switch on and the
+   * card cheerfully reading "Every evening at 8:00 PM" while `syncNotifications`
+   * bailed on its first line and nothing was ever scheduled. Turning something
+   * off always saves — that never needs permission.
+   */
   const enableSystem = async (patch: Partial<NotificationPrefs>) => {
-    if (permission === 'prompt') setPermission(await requestPermission());
+    const turningOn = Object.values(patch).some((v) => v === true);
+    if (!turningOn) {
+      onSavePrefs(patch);
+      return;
+    }
+    let state = permission;
+    if (state === 'prompt') {
+      state = await requestPermission();
+      setPermission(state);
+    }
+    if (state === 'denied') return;
     onSavePrefs(patch);
   };
 
-  const blocked = permission === 'denied' && (prefs.reminder || prefs.digest);
+  const blocked = permission === 'denied';
+  const wantsAlarms = prefs.reminder || prefs.digest || prefs.exDates;
 
   const body = (a: Alert) => {
     switch (a.kind) {
@@ -125,15 +162,21 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         return (
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
-              A deposit pushed <span className="text-white font-bold">{a.bankName}</span> past {a.percent}% of its target.{' '}
-              <span className="text-primary font-bold">{formatMoney(a.amount ?? 0)}</span> left to go.
+              A deposit carried <span className="text-white font-bold">{a.bankName}</span> past{' '}
+              <span className="text-primary font-bold">{formatMoney(a.reachedAmount ?? 0)}</span>.
+              {a.amount !== undefined && (
+                <> {formatMoney(a.amount)} left to reach its target.</>
+              )}
             </p>
-            <div className="flex items-center gap-3 mt-3">
-              <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${a.percent}%` }} />
+            {/* Only a goal with a target has a bar to fill. */}
+            {a.percent !== undefined && (
+              <div className="flex items-center gap-3 mt-3">
+                <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${a.percent}%` }} />
+                </div>
+                <span className="text-white text-[11px] font-black">{a.percent}%</span>
               </div>
-              <span className="text-white text-[11px] font-black">{a.percent}%</span>
-            </div>
+            )}
           </>
         );
       case 'reached':
@@ -191,7 +234,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
       case 'receipt':
         return `Auto deposit posted (${formatMoney(a.amount ?? 0)})`;
       case 'milestone':
-        return `Milestone: ${a.bankName}`;
+        return `${a.bankName} passed ${formatMoney(a.reachedAmount ?? 0)}`;
       case 'reached':
         return `Goal reached: ${a.bankName}`;
       case 'streak':
@@ -276,10 +319,42 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
 
         {blocked && (
           <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-5 flex items-start gap-3">
-            <span className="material-symbols-rounded text-amber-400">notifications_off</span>
-            <p className="text-amber-200/80 text-xs font-medium leading-relaxed">
-              Notifications are blocked for SavvyPiggy. Allow them in your phone’s app settings, then reopen the app.
-            </p>
+            <span className="material-symbols-rounded text-amber-400 shrink-0">notifications_off</span>
+            <div className="min-w-0">
+              <p className="text-amber-200 text-sm font-black">Android is blocking these</p>
+              <p className="text-amber-200/70 text-xs font-medium leading-relaxed mt-1">
+                Nothing can be scheduled until you allow them. Open Settings → Apps → SavvyPiggy →
+                Notifications and turn them on, then come back — this screen rechecks itself.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/*
+          An inexact alarm is handed to the system as a suggestion: a dozing
+          phone can sit on it for the best part of an hour, and an aggressive
+          battery saver can drop it entirely. Since Android 13 this is not
+          granted on install, and the app never asked — which is the most
+          likely reason an evening reminder simply never arrived.
+        */}
+        {!blocked && permission === 'granted' && wantsAlarms && !exact && (
+          <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-5">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-rounded text-amber-400 shrink-0">schedule</span>
+              <div className="min-w-0">
+                <p className="text-amber-200 text-sm font-black">Reminders may arrive late</p>
+                <p className="text-amber-200/70 text-xs font-medium leading-relaxed mt-1">
+                  Android is allowed to delay these by up to an hour, or skip them while the phone is
+                  asleep. Allowing exact alarms makes 8:00 PM mean 8:00 PM.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => void requestExactAlarms().then(setExact)}
+              className="w-full h-12 rounded-2xl bg-amber-400 text-black font-black text-sm mt-4 active:scale-95 transition-transform"
+            >
+              Allow exact alarms
+            </button>
           </div>
         )}
 
@@ -351,7 +426,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-white font-bold text-sm">Milestones &amp; streaks</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">At 25, 50, 75 and 100% of a target, and on 7, 30, 100 and 365-day streaks.</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">Each time a goal passes a round amount or reaches its target, and on 7, 30, 100 and 365-day streaks.</p>
               </div>
               <Switch on={prefs.milestones} onChange={(milestones) => onSavePrefs({ milestones })} />
             </div>
@@ -360,15 +435,12 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
                 <p className="text-white font-bold text-sm">Daily reminder</p>
                 <p className="text-slate-500 text-xs font-medium mt-0.5">A system notification every evening.</p>
                 {prefs.reminder && (
-                  <label className="mt-3 inline-flex items-center gap-2 h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm font-bold">
-                    <span className="material-symbols-rounded text-primary text-base">schedule</span>
-                    <input
-                      type="time"
-                      value={prefs.reminderTime}
-                      onChange={(e) => e.target.value && onSavePrefs({ reminderTime: e.target.value })}
-                      className="bg-transparent outline-none text-white font-bold [color-scheme:dark]"
-                    />
-                  </label>
+                  <TimeField
+                    value={prefs.reminderTime}
+                    onChange={(reminderTime) => onSavePrefs({ reminderTime })}
+                    title="Remind me at"
+                    hint="Pick an hour you are usually free to put something aside."
+                  />
                 )}
               </div>
               <Switch on={prefs.reminder} onChange={(on) => void enableSystem({ reminder: on })} />
@@ -379,6 +451,16 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
                 <p className="text-slate-500 text-xs font-medium mt-0.5">On the 1st at 9:00 AM, opening last month’s Report.</p>
               </div>
               <Switch on={prefs.digest} onChange={(on) => void enableSystem({ digest: on })} />
+            </div>
+            <div className="p-5 flex items-center gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-white font-bold text-sm">Ex-dividend days</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">
+                  Two days before a counter you hold goes ex-dividend — the day that decides whether the
+                  payment is yours.
+                </p>
+              </div>
+              <Switch on={prefs.exDates} onChange={(on) => void enableSystem({ exDates: on })} />
             </div>
           </Card>
           <p className="text-slate-600 text-[11px] font-medium leading-relaxed px-1 mt-3">

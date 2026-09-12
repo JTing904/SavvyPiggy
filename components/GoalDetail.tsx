@@ -10,8 +10,8 @@ import { formatMoney } from '../services/money';
 const STYLES: Record<ActivityType, { label: string; icon: string; tint: string }> = {
   'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary' },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400' },
-  withdraw: { label: 'Withdrawal', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
-  borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
+  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
+  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
 };
 
 
@@ -293,11 +293,11 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
 
       {confirmArchive && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={() => setConfirmArchive(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300 p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-white text-2xl font-black">Archive {bank.name}?</h3>

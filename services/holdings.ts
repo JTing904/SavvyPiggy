@@ -210,6 +210,40 @@ export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 
  * pieces that are just as real: what past sales made, and what the dividends
  * paid. Together they are the answer to "am I ahead".
  */
+/**
+ * What every position cost at the end of each month, back to the first trade.
+ *
+ * This half of the picture can be worked out honestly at any time: the trade
+ * log says exactly what had been bought and sold by any date. What it cannot
+ * say is what those shares were *worth* on a past day — the app keeps no
+ * price history — which is why market value comes from snapshots taken as
+ * time passes, and why the two lines start in different places.
+ */
+export const costByMonth = (trades: Trade[], now: Date = new Date()) => {
+  if (trades.length === 0) return [];
+
+  const first = new Date(Math.min(...trades.map((t) => t.tradedAt)));
+  const out: { key: string; end: Date; costCents: number }[] = [];
+
+  for (
+    let month = new Date(first.getFullYear(), first.getMonth(), 1);
+    month <= now;
+    month = new Date(month.getFullYear(), month.getMonth() + 1, 1)
+  ) {
+    const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+    const upTo = trades.filter((t) => t.tradedAt < end.getTime());
+    const costCents = [...new Set(upTo.map((t) => t.symbol))].reduce(
+      (sum, symbol) => sum + replay(upTo.filter((t) => t.symbol === symbol)).costCents,
+      0
+    );
+    out.push({
+      key: `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`,
+      end,
+      costCents,
+    });
+  }
+  return out;
+};
 export interface Performance {
   /** What the open positions cost, and what they are worth now. */
   costCents: number;

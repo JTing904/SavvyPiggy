@@ -5,6 +5,7 @@ import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
@@ -117,6 +118,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 }) => {
   // Unsaved edits only. Everything else reads straight from Firestore, so
   // live updates can never be shadowed by stale local copies.
+  const confirm = useConfirm();
   const [draft, setDraft] = useState<Draft>({});
   const [order, setOrder] = useSortOrder('savvypiggy.sort.strategy');
 
@@ -158,11 +160,23 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
     setDraft({});
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this piggy bank? This will not return funds already saved.')) {
-      onDeleteBank(id);
-      setDraft(({ [id]: _removed, ...rest }) => rest);
-    }
+  const handleDelete = async (id: string) => {
+    const bank = localBanks.find((b) => b.id === id);
+    const ok = await confirm({
+      title: `Delete ${bank?.name ?? 'this goal'}?`,
+      body: 'The money already saved into it is not returned, and its share of future deposits stops.',
+      tone: 'danger',
+      confirmLabel: 'Delete',
+      detail: bank && {
+        icon: bank.icon,
+        label: bank.name,
+        meta: `${bank.splitPercentage}% of each deposit`,
+        amount: formatMoney(bank.currentAmount),
+      },
+    });
+    if (!ok) return;
+    onDeleteBank(id);
+    setDraft(({ [id]: _removed, ...rest }) => rest);
   };
 
   const sorted = sortBanks(localBanks, order);
@@ -240,7 +254,16 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
           <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
             <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">account_balance_wallet</span>
             <p className="text-slate-500 font-bold">No piggy banks yet</p>
-            <p className="text-slate-600 text-xs mt-1">Add one using the + button below</p>
+            <p className="text-slate-600 text-xs mt-1">
+              A goal is where deposits land. Make the first one to start saving.
+            </p>
+            <button
+              onClick={onAddGoal}
+              className="h-12 px-6 rounded-2xl bg-primary text-black font-black text-sm mt-6 flex items-center gap-2 active:scale-95 transition-transform"
+            >
+              <span className="material-symbols-rounded text-xl">add_circle</span>
+              Add your first goal
+            </button>
           </div>
         ) : (
           sorted.map((bank) => {

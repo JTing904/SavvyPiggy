@@ -1,8 +1,9 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
-import type { NotificationPrefs, Schedule } from '../types';
+import type { Dividend, NotificationPrefs, Schedule, Trade } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
+import { unitsOnExDate } from './holdings';
 import { formatMoney } from '../services/money';
 
 /**
@@ -14,11 +15,68 @@ import { formatMoney } from '../services/money';
 
 export const REMINDER_ID = 1;
 export const DIGEST_ID = 2;
-/** One slot per auto-deposit rule, in list order. */
-const DUE_BASE = 100;
+/**
+ * Alarm ids come from the thing they are about, not its place in a list.
+ * They used to be `DUE_BASE + index`: deleting one rule silently re-pointed
+ * a live alarm at a different rule, and the signature check below could call
+ * the plan unchanged while the mapping had shifted underneath it.
+ */
+/*
+  Each family gets a million slots.
+
+  It used to be a hundred, and an id that collides does not queue behind the
+  one already there — it replaces it. Ex-date warnings are built for every
+  declared dividend on every counter ever traded, so a handful of counters
+  across a few quarters is easily thirty alarms into a hundred slots, where a
+  collision is all but certain. The ones that lost went missing silently, and
+  an ex-date is the one notification here with money behind it. A million
+  slots makes that vanishingly unlikely, and Android ids are 32-bit anyway.
+*/
+const SPAN = 1_000_000;
+const DUE_BASE = 1_000_000;
+const EX_BASE = 10_000_000;
+
+/** A small stable number from a string, so an id survives reordering. */
+const slot = (key: string, span: number) => {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return Math.abs(hash) % span;
+};
 
 /** Reminders about a due rule and the monthly digest fire at this hour. */
 const MORNING = 9;
+
+/**
+ * Everything posts to one named channel.
+ *
+ * The plugin creates a generic "Default" channel if none is given, which is
+ * both unfindable in Android's settings and easy to mute by accident — and a
+ * muted channel is invisible to `checkPermissions`, which keeps reporting
+ * `granted` while nothing is ever shown. A channel of our own can be pointed
+ * at, and HIGH importance is what makes a reminder appear on screen instead of
+ * landing silently in the shade.
+ */
+export const CHANNEL_ID = 'savvypiggy-reminders';
+
+let channelReady = false;
+const ensureChannel = async () => {
+  if (!native() || channelReady) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: CHANNEL_ID,
+      name: 'Reminders',
+      description: 'Savings reminders, auto-deposit nudges and ex-dividend dates.',
+      importance: 4,
+      visibility: 1,
+      vibration: true,
+    });
+    channelReady = true;
+  } catch {
+    // Channels only exist on Android 8+; elsewhere the notification posts fine
+    // without one.
+    channelReady = true;
+  }
+};
 
 export type Permission = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
@@ -48,10 +106,33 @@ const exactAllowed = async () => {
   }
 };
 
+export const exactAlarmAllowed = exactAllowed;
+
+/**
+ * Opens Android's "Alarms & reminders" screen.
+ *
+ * From API 33 `SCHEDULE_EXACT_ALARM` is not granted on install, and nothing in
+ * the app ever asked — so every alarm fell back to an inexact one, which a
+ * dozing phone can hold for the best part of an hour, or drop entirely under
+ * an aggressive battery saver. The app can only open the screen; the switch is
+ * the user's to flip.
+ */
+export const requestExactAlarms = async () => {
+  if (!native()) return false;
+  try {
+    await LocalNotifications.changeExactNotificationSetting();
+    return (await exactAllowed());
+  } catch {
+    return false;
+  }
+};
+
 /** What the phone should hold, given the settings and the auto-deposit rules. */
 export const plannedNotifications = (
   prefs: NotificationPrefs,
   schedules: Schedule[],
+  dividends: Dividend[] = [],
+  trades: Trade[] = [],
   now = new Date()
 ): LocalNotificationSchema[] => {
   const out: LocalNotificationSchema[] = [];
@@ -78,19 +159,46 @@ export const plannedNotifications = (
   }
 
   // Rules only post when the app is open, so the useful nudge is "open me".
-  schedules.forEach((s, i) => {
+  schedules.forEach((s) => {
     if (!s.enabled) return;
     const day = nextOccurrence(s, now);
     if (!day) return;
     day.setHours(MORNING, 0, 0, 0);
     out.push({
-      id: DUE_BASE + i,
+      id: DUE_BASE + slot(s.id, SPAN),
       title: `Auto deposit of ${formatMoney(s.amount)} due today`,
       body: 'Open SavvyPiggy to post it to your goals.',
       schedule: { at: day },
       extra: { open: 'home' satisfies OpenTarget },
     });
   });
+
+  /**
+   * The ex-date is the one day that decides a dividend: hold the shares the
+   * day before and it is yours, buy on the day itself and it belongs to the
+   * seller. Two days is enough notice to act on and near enough to still be
+   * about this dividend.
+   */
+  if (prefs.exDates) {
+    for (const d of dividends) {
+      const warn = new Date(d.exDate);
+      warn.setDate(warn.getDate() - 2);
+      warn.setHours(MORNING, 0, 0, 0);
+      if (warn.getTime() <= now.getTime()) continue;
+
+      const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), d.exDate);
+      out.push({
+        id: EX_BASE + slot(`${d.symbol}_${d.exDate}`, SPAN),
+        title: `${d.symbol} goes ex-dividend in 2 days`,
+        body:
+          units > 0
+            ? `RM${(d.perUnitPoints / 10_000).toFixed(4)} a unit. You hold ${units.toLocaleString('en-US')}.`
+            : `RM${(d.perUnitPoints / 10_000).toFixed(4)} a unit. Buy before the ex-date to qualify.`,
+        schedule: { at: warn },
+        extra: { open: 'home' satisfies OpenTarget },
+      });
+    }
+  }
 
   return out;
 };
@@ -100,37 +208,81 @@ export const plannedNotifications = (
  * the rules, so the phone always holds exactly what they say — never a stale
  * reminder for a rule that was deleted or a time that was changed.
  */
-let lastPlan = '';
+/**
+ * The last plan actually written to the phone.
+ *
+ * This used to be a module variable, which reset to '' on every cold start —
+ * so the guard below could never fire on the first sync after launch, and the
+ * app cancelled and re-armed every alarm each time it opened. Re-arming a
+ * daily reminder pushes its next trigger to tomorrow, so anyone who opened the
+ * app in the evening kept moving their own 8pm reminder out of reach, night
+ * after night. Kept on the device so a restart remembers.
+ */
+const PLAN_KEY = 'savvypiggy.notifications.plan';
 
-export const syncNotifications = async (prefs: NotificationPrefs, schedules: Schedule[], now = new Date()) => {
-  if (!native() || (await checkPermission()) !== 'granted') return;
-
-  const planned = plannedNotifications(prefs, schedules, now);
-  // Rebuilding on every app open would wipe an alarm that is due but has not
-  // been delivered yet — this phone can run minutes late — so only touch the
-  // alarms when what they should be has actually changed.
-  const signature = JSON.stringify(planned);
-  const pending = await LocalNotifications.getPending();
-  const held = new Set(pending.notifications.map((n) => n.id));
-  // ...but do rebuild if the phone has lost one, which happens when the app is
-  // reinstalled or the system clears its alarms.
-  if (signature === lastPlan && planned.every((n) => held.has(n.id))) return;
-
-  if (pending.notifications.length > 0) {
-    await LocalNotifications.cancel({ notifications: pending.notifications.map((n) => ({ id: n.id })) });
+const readPlan = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(PLAN_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
   }
+};
+
+const writePlan = (plan: Record<string, string>) => {
+  try {
+    localStorage.setItem(PLAN_KEY, JSON.stringify(plan));
+  } catch {
+    // Storage can be unavailable; the worst case is a rebuild next launch.
+  }
+};
+
+export const syncNotifications = async (
+  prefs: NotificationPrefs,
+  schedules: Schedule[],
+  dividends: Dividend[] = [],
+  trades: Trade[] = [],
+  now = new Date()
+) => {
+  if (!native() || (await checkPermission()) !== 'granted') return;
+  await ensureChannel();
 
   // An inexact alarm can be held back for the best part of an hour while the
   // phone dozes, which is no use for "remind me at 8pm" — so take a real one
   // whenever the phone already allows it, and fall back quietly when it does not.
   const isExactNotification = await exactAllowed();
-  const notifications = planned.map((n) => ({
+  const planned = plannedNotifications(prefs, schedules, dividends, trades, now).map((n) => ({
     ...n,
+    channelId: CHANNEL_ID,
     isExactNotification,
     schedule: { ...n.schedule, allowWhileIdle: true },
   }));
-  if (notifications.length > 0) await LocalNotifications.schedule({ notifications });
-  lastPlan = signature;
+
+  const pending = await LocalNotifications.getPending();
+  const held = new Set(pending.notifications.map((n) => n.id));
+  const before = readPlan();
+  const after: Record<string, string> = {};
+  for (const n of planned) after[n.id] = JSON.stringify(n);
+
+  // Re-arming an alarm is not free: scheduling an id that already exists
+  // replaces it, and replacing a daily reminder pushes its next trigger to
+  // tomorrow. So each alarm is judged on its own — one that the phone is
+  // already holding, unchanged, is left exactly where it is. Rebuilding the
+  // lot on every app open is what kept moving the evening reminder out of
+  // reach for anyone who opened the app in the evening.
+  const changed = planned.filter((n) => !held.has(n.id) || before[n.id] !== after[n.id]);
+
+  // Anything the phone holds that is no longer planned goes, except the test
+  // notification, which is nobody's business but the person who asked for it.
+  const wanted = new Set(planned.map((n) => n.id));
+  const stale = pending.notifications.filter((n) => !wanted.has(n.id));
+
+  if (stale.length === 0 && changed.length === 0) return;
+  if (stale.length > 0) {
+    await LocalNotifications.cancel({ notifications: stale.map((n) => ({ id: n.id })) });
+  }
+  if (changed.length > 0) await LocalNotifications.schedule({ notifications: changed });
+  writePlan(after);
 };
 
 /** Fires when the user taps a notification; returns a way to stop listening. */

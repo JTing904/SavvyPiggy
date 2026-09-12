@@ -26,6 +26,7 @@ import { useMembership } from './hooks/useMembership';
 import { useBackHandler } from './hooks/useBackHandler';
 import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
+import { useSnapshots } from './hooks/useSnapshots';
 import { useQuotes } from './hooks/useQuotes';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
@@ -60,7 +61,7 @@ const App: React.FC = () => {
   const [quickAction, setQuickAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
 
-  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, loading: dataLoading, error, retry } =
+  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -70,10 +71,12 @@ const App: React.FC = () => {
   const {
     dividends,
     busy: dividendsBusy,
+    known: dividendsKnown,
     refresh: refreshDividends,
   } = useDividends({ uid, trades, banks, loans, prefs, savings, ready: !dataLoading });
 
   useLedgerPruning(uid, savings, !dataLoading);
+  const snapshots = useSnapshots(uid, trades, quotes, !dataLoading);
 
   // Archived goals keep their money and their history, so every screen that
   // looks backwards still gets the full list — only the working lists hide them.
@@ -81,7 +84,7 @@ const App: React.FC = () => {
 
   // Deferred from sign-in, because the rules block users/{uid} until membership.
   useEffect(() => {
-    if (user && isMember) void api.ensureUserProfile(user);
+    if (user && isMember) run(() => api.ensureUserProfile(user));
   }, [user, isMember]);
 
   // No server fires recurring deposits on the free plan, so any occurrence
@@ -95,6 +98,12 @@ const App: React.FC = () => {
       catchingUp.current = true;
       try {
         await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings });
+      } catch (e) {
+        // This one posts real deposits and nobody asked it to run, so a
+        // failure has to be visible: a rule pointing at a goal deleted on
+        // another device used to stop posting silently, on every open,
+        // forever, while the screen went on showing it as enabled.
+        fail(e);
       } finally {
         catchingUp.current = false;
       }
@@ -110,7 +119,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!uid || dataLoading || !prefs.milestones) return;
     const draft = streakAlert(activities, alerts, new Date());
-    if (draft) void api.addAlert(uid, draft);
+    if (draft) run(() => api.addAlert(uid, draft));
   }, [uid, dataLoading, activities, alerts, prefs.milestones]);
 
   // Alerts are disposable: anything older than the retention window goes,
@@ -120,7 +129,7 @@ const App: React.FC = () => {
     if (!uid || dataLoading || swept.current) return;
     swept.current = true;
     const stale = staleAlerts(alerts, new Date());
-    if (stale.length > 0) void api.pruneAlerts(uid, stale.map((a) => a.id));
+    if (stale.length > 0) run(() => api.pruneAlerts(uid, stale.map((a) => a.id)));
   }, [uid, dataLoading, alerts]);
 
   // The phone's alarms are rebuilt from the settings whenever they change, and
@@ -130,12 +139,12 @@ const App: React.FC = () => {
     if (!uid || dataLoading) return;
 
     const sync = () => {
-      if (document.visibilityState === 'visible') void syncNotifications(prefs, schedules).catch(() => {});
+      if (document.visibilityState === 'visible') void syncNotifications(prefs, schedules, dividends, trades).catch(() => {});
     };
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => document.removeEventListener('visibilitychange', sync);
-  }, [uid, dataLoading, prefs, schedules]);
+  }, [uid, dataLoading, prefs, schedules, dividends, trades]);
 
   // Android's back gesture: close whatever is open, step back to Home, and
   // only then leave the app. Sheets inside a screen take it first — they push
@@ -185,20 +194,46 @@ const App: React.FC = () => {
       .reduce((sum, d) => sum + d.amount, 0);
   }, [activities]);
 
-  const handleDeposit = (amount: number, targetBankId: string | null) => {
-    if (uid) void api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings });
+  /**
+   * Every write goes through here.
+   *
+   * They used to be fired with `void` and no catch, so a refused batch — an
+   * offline write, a goal deleted on another device, a deposit with nowhere to
+   * go — vanished into an unhandled rejection while the sheet had already
+   * closed and the user believed the money had moved. This does not retry;
+   * it only makes a failure impossible to miss.
+   */
+  const [failure, setFailure] = useState<string | null>(null);
+  const fail = (e: unknown) => {
+    const text = e instanceof Error ? e.message : String(e);
+    setFailure(text);
+    setTimeout(() => setFailure((current) => (current === text ? null : current)), 6000);
+  };
+  const run = (job: () => Promise<unknown>) => {
+    void job().catch(fail);
   };
 
-  const handleWithdraw = (amount: number, sourceBankId: string, note: string) => {
-    if (uid) void api.withdraw(uid, amount, sourceBankId, note);
+  const handleDeposit = (amount: number, targetBankId: string | null) => {
+    if (uid) run(() => api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings }));
+  };
+
+  const handleWithdraw = (amount: number, sourceBankId: string, note: string, category: string) => {
+    if (uid) run(() => api.withdraw(uid, amount, sourceBankId, note, category));
   };
 
   const handleBorrow = (amount: number, note: string) => {
-    if (uid) void api.borrow(uid, amount, note);
+    if (uid) run(() => api.borrow(uid, amount, note));
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
-    if (uid) await api.createSchedule(uid, schedule);
+    if (!uid) return;
+    try {
+      await api.createSchedule(uid, schedule);
+    } catch (e) {
+      // The sheet closes on success, so it cannot report this itself.
+      fail(e);
+      throw e;
+    }
   };
 
   const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
@@ -208,37 +243,43 @@ const App: React.FC = () => {
   };
 
   const handleSaveSavings = (patch: Partial<SavingsSettings>) => {
-    if (uid) void api.saveSavings(uid, patch);
+    if (uid) run(() => api.saveSavings(uid, patch));
   };
 
   const handleArchiveBank = (id: string) => {
-    if (uid) void api.archiveBank(uid, banks, id);
+    if (uid) run(() => api.archiveBank(uid, banks, id));
   };
 
   const handleSavePrefs = (patch: Partial<NotificationPrefs>) => {
-    if (uid) void api.savePrefs(uid, patch);
+    if (uid) run(() => api.savePrefs(uid, patch));
   };
 
   const handleMarkRead = (ids: string[]) => {
-    if (uid) void api.markAlertsRead(uid, ids);
+    if (uid) run(() => api.markAlertsRead(uid, ids));
   };
 
   const handleSaveStrategy = (updated: PiggyBank[]) => {
-    if (uid) void api.saveStrategy(uid, updated);
+    if (uid) run(() => api.saveStrategy(uid, updated));
   };
 
   const handleDeleteBank = (id: string) => {
-    if (uid) void api.deleteBank(uid, id);
+    if (uid) run(() => api.deleteBank(uid, id));
   };
 
   const handleDeleteActivity = (id: string) => {
     const activity = activities.find((a) => a.id === id);
-    if (uid && activity) void api.deleteActivity(uid, activity);
+    // Deleting spending that was already covered puts that money back into
+    // the goals, so the strategy travels with it — and so do the deposits
+    // that covered it, which are the entries that get corrected.
+    const covering = activity?.loanId
+      ? activities.filter((a) => a.repayments?.some((r) => r.loanId === activity.loanId))
+      : [];
+    if (uid && activity) run(() => api.deleteActivity(uid, activity, banks, savings, covering));
   };
 
   const handleEditActivity = (id: string, newAmount: number) => {
     const activity = activities.find((a) => a.id === id);
-    if (uid && activity) void api.editActivity(uid, activity, newAmount);
+    if (uid && activity) run(() => api.editActivity(uid, activity, newAmount));
   };
 
   const renderContent = () => {
@@ -278,7 +319,7 @@ const App: React.FC = () => {
             handleArchiveBank(selectedGoal.id);
             setSelectedGoalId(null);
           }}
-          onUnarchive={() => uid && void api.unarchiveBank(uid, selectedGoal.id)}
+          onUnarchive={() => uid && run(() => api.unarchiveBank(uid, selectedGoal.id))}
           onEditStrategy={() => {
             setSelectedGoalId(null);
             setActiveTab(Tab.BANKS);
@@ -328,8 +369,13 @@ const App: React.FC = () => {
           unreadAlerts={unread}
           onBack={() => setShowProfile(false)}
           onToggleOverflow={(overflow) => handleSaveSavings({ overflow })}
-          onUnarchive={(id) => uid && void api.unarchiveBank(uid, id)}
-          onOpenAutoDeposits={() => setShowAutoDeposits(true)}
+          onUnarchive={(id) => uid && run(() => api.unarchiveBank(uid, id))}
+          onOpenAutoDeposits={() => {
+            // Profile is rendered above AutoDeposits, so leaving it open kept
+            // the rules screen behind it and the row looked dead.
+            setShowProfile(false);
+            setShowAutoDeposits(true);
+          }}
           onOpenStrategy={() => {
             setShowProfile(false);
             setActiveTab(Tab.BANKS);
@@ -359,8 +405,9 @@ const App: React.FC = () => {
           banks={activeBanks}
           onCancel={() => setShowAutoDeposits(false)}
           onCreate={handleCreateSchedule}
-          onToggle={(id, enabled) => uid && void api.updateSchedule(uid, id, { enabled })}
-          onDelete={(id) => uid && void api.deleteSchedule(uid, id)}
+          onUpdate={(id, patch) => uid && run(() => api.updateSchedule(uid, id, patch))}
+          onToggle={(id, enabled) => uid && run(() => api.updateSchedule(uid, id, { enabled }))}
+          onDelete={(id) => uid && run(() => api.deleteSchedule(uid, id))}
         />
       );
     }
@@ -390,6 +437,7 @@ const App: React.FC = () => {
             holdings={holdings}
             trades={trades}
             quotes={quotes}
+            savings={savings}
             unreadAlerts={unread}
             quickAction={quickAction}
             onQuickActionHandled={() => setQuickAction(null)}
@@ -423,6 +471,7 @@ const App: React.FC = () => {
             banks={banks}
             onDeleteActivity={handleDeleteActivity}
             onEditActivity={handleEditActivity}
+            onSetCategory={(id, category) => uid && run(() => api.setActivityCategory(uid, id, category))}
           />
         );
       case Tab.TRADES:
@@ -433,12 +482,20 @@ const App: React.FC = () => {
             dividends={dividends}
             trades={trades}
             busy={dividendsBusy}
+            known={dividendsKnown}
             onRefresh={() => void refreshDividends(true)}
             onBack={() => setActiveTab(Tab.HOME)}
           />
         );
       case Tab.GROWTH:
-        return <Growth trades={trades} quotes={quotes} onBack={() => setActiveTab(Tab.HOME)} />;
+        return (
+          <Growth
+            trades={trades}
+            quotes={quotes}
+            snapshots={snapshots}
+            onBack={() => setActiveTab(Tab.HOME)}
+          />
+        );
       default:
         return <div className="flex items-center justify-center h-full text-white/50">Feature coming soon</div>;
     }
@@ -446,7 +503,49 @@ const App: React.FC = () => {
 
   const shell = (children: React.ReactNode, withNav = false) => (
     <div className="h-screen w-full flex flex-col bg-bg-dark overflow-hidden">
-      <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
+      {/*
+        One column, centred, capped.
+
+        Every screen was laid out for a phone and then allowed to run the full
+        width of whatever it was opened on. The floating nav was already capped
+        at a phone width, so on a tablet a narrow island of navigation sat under
+        content sprawling twice as wide, and the mode rail — two cards that are
+        meant to be swiped between — had room to show both at once, which killed
+        the swipe and the whole idea of looking at one half at a time.
+      */}
+      <main className="flex-1 overflow-y-auto no-scrollbar relative">
+        <div className="mx-auto w-full max-w-md">{children}</div>
+      </main>
+
+      {/* Showing yesterday's numbers is fine; showing them as if they were
+          today's is not. */}
+      {offline && !failure && (
+        <div className="fixed inset-x-0 top-0 z-[55] px-4 pt-3 safe-pt pointer-events-none">
+          <div className="max-w-md mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
+            <span className="material-symbols-rounded text-amber-300 text-lg shrink-0">cloud_off</span>
+            <p className="text-amber-200 text-[11px] font-black">
+              Offline — showing what was last synced to this phone
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* A write that did not happen has to say so. It sits above everything,
+          including the sheet that has already congratulated the user. */}
+      {failure && (
+        <div className="fixed inset-x-0 top-0 z-[60] px-4 pt-3 safe-pt pointer-events-none">
+          <div
+            role="alert"
+            className="max-w-md mx-auto rounded-2xl bg-red-500/15 border border-red-500/40 backdrop-blur px-4 py-3 flex items-start gap-3"
+          >
+            <span className="material-symbols-rounded text-red-400 text-xl shrink-0">error</span>
+            <div className="min-w-0">
+              <p className="text-red-300 text-xs font-black">That did not save</p>
+              <p className="text-red-200/80 text-[11px] font-bold mt-0.5 leading-relaxed">{failure}</p>
+            </div>
+          </div>
+        </div>
+      )}
       {withNav && (
         <Navigation
           mode={mode}
@@ -474,11 +573,11 @@ const App: React.FC = () => {
 
       {showQuickPick && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={() => setShowQuickPick(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300 p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
             onClick={(e) => e.stopPropagation()}
           >
             {/* The same button, two jobs: which one follows the card on Home. */}
@@ -519,7 +618,7 @@ const App: React.FC = () => {
             </div>
             <p className="text-slate-500 text-xs font-medium leading-relaxed mt-5">
               {mode === 'save'
-                ? 'Spending without picking a goal records borrowed money instead — your next deposits clear it before anything reaches your goals.'
+                ? 'Spending without picking a goal is recorded as spent ahead — your next deposits cover it before anything reaches your goals.'
                 : 'Every trade keeps the day it was done. That date is what decides which dividends are yours, so enter the day you dealt, not the day you typed it in.'}
             </p>
           </div>

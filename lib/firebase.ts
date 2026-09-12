@@ -1,6 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, connectAuthEmulator } from 'firebase/auth';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import {
+  connectFirestoreEmulator,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 
 const env = {
@@ -38,13 +43,44 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+/**
+ * Firestore with a cache that survives the app being closed.
+ *
+ * Without it the ledger lived in memory only: a cold start was blank until
+ * the network answered, a deposit made offline was queued in RAM and lost the
+ * moment the app was killed, and every open re-read every kept record from
+ * the server. That last one matters most — a free project allows fifty
+ * thousand reads a day, and the whole retention system exists to protect it.
+ * With a disk cache the listeners start from what is already on the phone and
+ * the server only sends what changed.
+ *
+ * The tab manager is for the browser build; on the phone there is only ever
+ * one, and it costs nothing to be right about both.
+ */
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Opt-in local emulators: set VITE_USE_FIREBASE_EMULATOR=true in .env.local
+/**
+ * Opt-in local emulators: set VITE_USE_FIREBASE_EMULATOR=true in .env.local.
+ *
+ * The ports are overridable because 8080 is one of the most commonly occupied
+ * ports on a development machine — anything from a local Tomcat to an Oracle
+ * listener will already be sitting on it, and the emulator then refuses to
+ * start at all. `firebase.test.json` already moves Firestore to 8567 for the
+ * same reason. The defaults are what firebase.json declares.
+ */
+const emulatorPort = (name: string, fallback: number) => {
+  const raw = import.meta.env[`VITE_EMULATOR_${name}_PORT`];
+  const port = Number(raw);
+  return Number.isFinite(port) && port > 0 ? port : fallback;
+};
+
 if (isFirebaseConfigured && import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
-  connectFirestoreEmulator(db, '127.0.0.1', 8080);
-  connectStorageEmulator(storage, '127.0.0.1', 9199);
+  const host = import.meta.env.VITE_EMULATOR_HOST || '127.0.0.1';
+  connectAuthEmulator(auth, `http://${host}:${emulatorPort('AUTH', 9099)}`, { disableWarnings: true });
+  connectFirestoreEmulator(db, host, emulatorPort('FIRESTORE', 8080));
+  connectStorageEmulator(storage, host, emulatorPort('STORAGE', 9199));
 }

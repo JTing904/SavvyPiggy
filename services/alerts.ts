@@ -3,8 +3,34 @@ import { currentStreak, dayKey, inflowCents, startOfDay } from './analytics';
 import { isInSplit, type Movement } from './ledger';
 import { fromCents, toCents } from './money';
 
-/** Percent-of-target lines a goal is congratulated for crossing. */
-export const MILESTONES = [25, 50, 75, 100];
+/**
+ * The round amounts a goal is congratulated for passing.
+ *
+ * These used to be percentages of the target — 25, 50, 75, 100 — which works
+ * for a goal of a few hundred and not at all for anything bigger: a target of
+ * RM200,000 puts the first line at RM50,000, so the card never comes. It also
+ * meant a goal with no target got nothing, because a percentage needs
+ * something to be a percentage of.
+ *
+ * A round amount needs neither. The step scales with what is already saved,
+ * on a 1-2-5 ladder, so the cadence is about ten cards per tenfold — frequent
+ * enough to mean something early and not a nuisance later.
+ */
+const LADDER = [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000, 100_000];
+
+/**
+ * The step to congratulate on, for a goal holding this much. The largest rung
+ * no bigger than a tenth of the balance, and never below the first one.
+ */
+export const milestoneStep = (balanceCents: number) => {
+  const tenth = balanceCents / 10;
+  let step = toCents(LADDER[0]);
+  for (const rung of LADDER) {
+    const cents = toCents(rung);
+    if (cents <= tenth) step = cents;
+  }
+  return step;
+};
 
 /** Consecutive saving days worth a card. */
 export const STREAK_MILESTONES = [7, 30, 100, 365];
@@ -24,16 +50,23 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   reminder: false,
   reminderTime: '20:00',
   digest: true,
+  exDates: true,
 };
 
 /** Everything but `read`, which is always false when an alert is born. */
 export type AlertDraft = Omit<Alert, 'read'>;
 
 /**
- * Cards for goals a deposit pushed past a milestone. Ids are deterministic,
- * so re-crossing the same line (after spending, say) refreshes the card
- * instead of stacking a duplicate. Only the highest line crossed is reported:
- * one deposit jumping from 20 % to 60 % earns a single "50 %" card.
+ * Cards for goals a deposit pushed past a round amount, or past their target.
+ *
+ * Ids are deterministic, so crossing the same line again — after spending it
+ * back down, say — refreshes the card instead of stacking a duplicate. Only
+ * the highest line crossed is reported: one deposit that clears RM1,500 and
+ * RM1,600 earns a single card.
+ *
+ * Reaching the target outranks any step, because it is the bigger news and
+ * carries a question the step cards do not: what to do with the share this
+ * goal keeps taking.
  */
 export const milestoneAlerts = (
   banks: PiggyBank[],
@@ -46,40 +79,53 @@ export const milestoneAlerts = (
   for (const m of movements) {
     if (m.cents <= 0) continue;
     const bank = banks.find((b) => b.id === m.bankId);
-    if (!bank || bank.targetAmount <= 0) continue;
+    // A goal with no target is no longer skipped: a round amount is something
+    // to pass whether or not there is a finish line beyond it.
+    if (!bank) continue;
 
     const target = toCents(bank.targetAmount);
     const before = toCents(bank.currentAmount);
     const after = before + m.cents;
-    // Integer comparison: `before < p% of target <= after`.
-    const crossed = MILESTONES.filter((p) => before * 100 < p * target && after * 100 >= p * target);
-    const percent = crossed[crossed.length - 1];
-    if (!percent) continue;
 
-    out.push(
-      percent === 100
-        ? {
-            id: `reached_${bank.id}`,
-            kind: 'reached',
-            date: when.toISOString(),
-            bankId: bank.id,
-            bankName: bank.name,
-            // The share it keeps taking — the card asks to move it elsewhere,
-            // unless overflow is already doing exactly that.
-            percent: isInSplit(bank) && !overflow ? bank.splitPercentage : 0,
-            overflow,
-            amount: bank.targetAmount,
-          }
-        : {
-            id: `milestone_${bank.id}_${percent}`,
-            kind: 'milestone',
-            date: when.toISOString(),
-            bankId: bank.id,
-            bankName: bank.name,
-            percent,
-            amount: fromCents(target - after),
-          }
-    );
+    if (target > 0 && before < target && after >= target) {
+      out.push({
+        id: `reached_${bank.id}`,
+        kind: 'reached',
+        date: when.toISOString(),
+        bankId: bank.id,
+        bankName: bank.name,
+        // The share it keeps taking — the card asks to move it elsewhere,
+        // unless overflow is already doing exactly that.
+        percent: isInSplit(bank) && !overflow ? bank.splitPercentage : 0,
+        overflow,
+        amount: bank.targetAmount,
+      });
+      continue;
+    }
+
+    // The highest multiple of the step that this deposit carried the balance
+    // past. Judged on where the balance lands, so a goal stepping up a rung
+    // does not re-announce lines it passed long ago.
+    const step = milestoneStep(after);
+    const passed = Math.floor(after / step) * step;
+    if (passed <= before || passed <= 0) continue;
+    // A goal with a target never celebrates a step at or beyond it; that is
+    // what the reached card is for, and it has either already fired or is not
+    // due yet.
+    if (target > 0 && passed >= target) continue;
+
+    out.push({
+      id: `milestone_${bank.id}_${passed}`,
+      kind: 'milestone',
+      date: when.toISOString(),
+      bankId: bank.id,
+      bankName: bank.name,
+      reachedAmount: fromCents(passed),
+      // Only a goal with a finish line has a percentage or a distance to it.
+      ...(target > 0
+        ? { percent: Math.floor((after * 100) / target), amount: fromCents(target - after) }
+        : {}),
+    });
   }
   return out;
 };

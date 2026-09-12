@@ -1,5 +1,5 @@
 import type { Dividend, Trade } from '../types';
-import { dayStart, unitsOnExDate } from './holdings';
+import { dayStart, replay, tradeCents, unitsOnExDate } from './holdings';
 
 /**
  * Dividends: reading the announcements, and deciding what is owed.
@@ -145,16 +145,22 @@ export interface DueDividend {
  * The dividends that should have landed by now and have not been recorded.
  *
  * A dividend qualifies once its pay date has arrived, on the units the log
- * says were held on its ex-date. Anything already in the log is skipped by id,
- * which is what keeps opening the app twice from paying twice.
+ * says were held on its ex-date.
+ *
+ * What counts as "already paid" is the `credited` list, not the trade log.
+ * They used to be the same thing, and deleting the dividend's row from the
+ * log — which reads like tidying away a record — made the dividend fall due
+ * again while its money was still sitting in the goals. The record is the
+ * user's to edit; whether the money moved is not.
  */
 export const dueDividends = (
   dividends: Dividend[],
   trades: Trade[],
+  credited: Iterable<string> = [],
   now = Date.now()
 ): DueDividend[] => {
   const today = dayStart(now);
-  const recorded = new Set(trades.filter((t) => t.kind === 'dividend').map((t) => t.id));
+  const recorded = new Set(credited);
 
   return dividends
     .filter((d) => d.payDate <= today)
@@ -169,6 +175,75 @@ export const dueDividends = (
     // Nothing held then, nothing owed — and a sub-sen amount is not money.
     .filter((due) => due.units > 0 && due.amountCents > 0)
     .sort((a, b) => a.dividend.payDate - b.dividend.payDate);
+};
+
+/**
+ * What a counter has actually paid, against what it cost.
+ *
+ * Worked out from the trade log, never stored: the dividends are the ones
+ * credited in the last twelve months, and the cost is what the position is
+ * held at now. It is a yield on cost — what this holding returns to the
+ * person who owns it — not the market yield a quote screen shows, which
+ * moves with the share price and says nothing about what anyone paid.
+ *
+ * Null when there is nothing to divide by, or nothing has been paid yet;
+ * a zero would read as "this pays nothing", which is a different claim.
+ */
+export const yieldOnCost = (trades: Trade[], symbol: string, now = Date.now()) => {
+  const mine = trades.filter((t) => t.symbol === symbol);
+  const costCents = replay(mine).costCents;
+  if (costCents <= 0) return null;
+
+  const since = new Date(now);
+  since.setFullYear(since.getFullYear() - 1);
+
+  const paid = mine
+    .filter((t) => t.kind === 'dividend' && t.tradedAt >= since.getTime())
+    .reduce((sum, t) => sum + tradeCents(t), 0);
+  if (paid <= 0) return null;
+
+  return { paidCents: paid, costCents, percent: Math.round((paid / costCents) * 1000) / 10 };
+};
+export interface DeclaredRow extends DueDividend {
+  /**
+   * The ex-date has arrived, so these units are already entitled: selling
+   * tomorrow does not take the payment away.
+   */
+  locked: boolean;
+}
+
+/**
+ * What the next twelve months will pay, counting only what has been declared.
+ *
+ * Every figure here comes from a company's own announcement — the per-unit
+ * amount, the ex-date, the pay date — multiplied by the units the trade log
+ * says were held. Nothing is annualised, extrapolated from last year, or
+ * assumed to repeat. A counter that has declared one dividend contributes one
+ * dividend, and a counter that has declared none contributes nothing at all.
+ *
+ * The split matters more than the total. Once the ex-date has passed the
+ * money is owed whatever happens next; before it, the payment only arrives if
+ * the shares are still held on the day. Presenting them as one number would
+ * claim a certainty the second half does not have.
+ */
+export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Date.now()) => {
+  const today = dayStart(now);
+  const start = new Date(today);
+  const horizon = new Date(start.getFullYear() + 1, start.getMonth(), start.getDate()).getTime();
+
+  const rows: DeclaredRow[] = upcomingDividends(dividends, trades, now)
+    .filter((r) => r.dividend.payDate < horizon)
+    // Nothing held on the ex-date, nothing owed — the same rule dueDividends
+    // applies, so the two lists never disagree about a counter.
+    .filter((r) => r.units > 0 && r.amountCents > 0)
+    .map((r) => ({ ...r, locked: r.dividend.exDate <= today }));
+
+  const sum = (only: boolean) =>
+    rows.filter((r) => r.locked === only).reduce((total, r) => total + r.amountCents, 0);
+
+  const lockedCents = sum(true);
+  const pendingCents = sum(false);
+  return { rows, lockedCents, pendingCents, totalCents: lockedCents + pendingCents };
 };
 
 /**
