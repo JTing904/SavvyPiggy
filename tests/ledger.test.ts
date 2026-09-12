@@ -8,6 +8,7 @@ import {
   planWithdrawal,
   totalDebtCents,
 } from '../services/ledger';
+import { splitByPercentage } from '../services/money';
 import type { Loan, PiggyBank } from '../types';
 import { eq, report } from './harness';
 
@@ -201,5 +202,27 @@ eq('a zero withdrawal moves nothing', planWithdrawal(0, 'tech'), []);
 
 eq('balance of one goal', balanceCents(BANKS, 'vacation'), 2400);
 eq('total debt across open loans', totalDebtCents([loan('a', 1.5), loan('b', 2.25)]), 375);
+
+// --- overflow hands on a share that does not divide evenly
+{
+  // 5 and 10 splitting a freed 85 gives 33.33…% and 66.66…%, which in floating
+  // point sum to 99.99999999999999. Read literally that shaved a cent off every
+  // deposit: the goals took RM9.99 of an RM10.00 while the entry said RM10.00.
+  const full = { ...bank('done', 85, 100), targetAmount: 100 };
+  const banks = [bank('a', 5, 0), bank('b', 10, 0), full];
+
+  const placed = planDeposit(1000, banks, [], null, true).movements.reduce((sum, m) => sum + m.cents, 0);
+  eq('overflow places every cent of the deposit', placed, 1000);
+  eq('and the odd one goes to the biggest share',
+    net(planDeposit(1000, banks, [], null, true).movements), [['a', 333], ['b', 667]]);
+
+  // The same shares stored to two places can land a hair over 100 instead of
+  // under, which used to place one cent more than the deposit.
+  const over = [{ item: 'a', percentage: 3.13 }, { item: 'b', percentage: 96.88 }];
+  eq('percentages totalling a hair over 100 still place exactly the amount',
+    splitByPercentage(10000, over).reduce((sum, sh) => sum + sh.cents, 0), 10000);
+  eq('and the extra cent comes off the biggest share',
+    splitByPercentage(10000, over).map((sh) => sh.cents), [313, 9687]);
+}
 
 report();

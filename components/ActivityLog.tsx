@@ -177,7 +177,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
     if (activity.distributions.length === 0) {
       return (
         <p className="text-slate-500 text-xs font-medium py-2 leading-relaxed">
-          No goal was touched — borrowed money is cleared by your next deposits.
+          No goal was touched — your next deposits cover this before anything reaches them.
         </p>
       );
     }

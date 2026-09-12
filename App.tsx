@@ -253,7 +253,13 @@ const App: React.FC = () => {
 
   const handleDeleteActivity = (id: string) => {
     const activity = activities.find((a) => a.id === id);
-    if (uid && activity) run(() => api.deleteActivity(uid, activity));
+    // Deleting spending that was already covered puts that money back into
+    // the goals, so the strategy travels with it — and so do the deposits
+    // that covered it, which are the entries that get corrected.
+    const covering = activity?.loanId
+      ? activities.filter((a) => a.repayments?.some((r) => r.loanId === activity.loanId))
+      : [];
+    if (uid && activity) run(() => api.deleteActivity(uid, activity, banks, savings, covering));
   };
 
   const handleEditActivity = (id: string, newAmount: number) => {

@@ -397,7 +397,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <div className="min-w-0">
                       <p className="text-white text-sm font-bold truncate">{loan.note || 'Spent ahead'}</p>
                       <p className="text-slate-500 text-[10px] font-medium">
-                        borrowed {formatMoney(loan.amount)}
+                        spent {formatMoney(loan.amount)} ahead
                       </p>
                     </div>
                     <p className="shrink-0 text-amber-300 text-lg font-black tabular-nums">
@@ -720,7 +720,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="rounded-2xl bg-white/5 border border-white/10 px-5 py-4 space-y-2">
                   {preview!.repaidCents > 0 && (
                     <p className="text-amber-300 text-xs font-bold">
-                      {formatMoney(fromCents(preview!.repaidCents))} clears your borrowing first
+                      {formatMoney(fromCents(preview!.repaidCents))} covers earlier spending first
                     </p>
                   )}
                   {preview!.splitMovements.map((m) => {

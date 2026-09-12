@@ -436,9 +436,35 @@ export const setActivityCategory = (uid: string, id: string, category: string) =
   updateDoc(activityRef(uid, id), { category });
 
 /** Removes an activity and reverses its movements, never below zero. */
-export const deleteActivity = (uid: string, activity: Activity) =>
+/**
+ * Removing one entry from the ledger, and everything it did.
+ *
+ * The hard case is spending that has since been covered. Spend RM5 without
+ * picking a goal and the app records a debt; the next deposit clears it, so
+ * RM5 of that deposit never reaches the goals. Deleting the spending then has
+ * to answer for that RM5 — and it used to just drop the debt and walk away,
+ * leaving the goals short by exactly the amount already covered while the
+ * confirmation promised the money was going back.
+ *
+ * It goes back by correcting the deposit that covered it, not by inventing a
+ * second entry. Only one deposit ever happened, so the ledger should go on
+ * showing one: the same RM5, now landing in the goals instead of paying off a
+ * debt that no longer exists. Adding a separate "returned" row alongside the
+ * original made the day read as RM10 of income.
+ *
+ * `covering` is the deposits that repaid this entry's debt, found in the
+ * loaded ledger by the caller.
+ */
+export const deleteActivity = (
+  uid: string,
+  activity: Activity,
+  banks: PiggyBank[] = [],
+  savings: SavingsSettings = DEFAULT_SAVINGS,
+  covering: Activity[] = []
+) =>
   runTransaction(db, async (tx) => {
     const refs = activity.distributions.map((d) => bankRef(uid, d.bankId));
+    // Every read has to happen before the first write.
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
 
     snaps.forEach((snap, i) => {
@@ -449,11 +475,36 @@ export const deleteActivity = (uid: string, activity: Activity) =>
       tx.update(refs[i], { currentAmount: fromCents(next) });
     });
 
-    // Undoing a repayment puts the debt back; undoing a borrow drops it.
+    // Undoing a repayment puts the debt back.
     activity.repayments?.forEach((r) =>
       tx.update(loanRef(uid, r.loanId), { outstanding: increment(r.amount), settledAt: null })
     );
-    if (activity.loanId) tx.delete(loanRef(uid, activity.loanId));
+
+    if (activity.loanId) {
+      for (const paid of covering) {
+        const line = paid.repayments?.find((r) => r.loanId === activity.loanId);
+        const back = toCents(line?.amount ?? 0);
+        if (back <= 0) continue;
+
+        // Where that money should have gone. No loans passed: this is the
+        // debt disappearing, not a new deposit arriving to pay one off.
+        const plan = planDeposit(back, banks, [], null, savings.overflow);
+        const merged = paid.distributions.map((d) => ({ ...d }));
+        for (const m of plan.movements) {
+          tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) });
+          const existing = merged.find((d) => d.bankId === m.bankId);
+          if (existing) existing.amount = fromCents(toCents(existing.amount) + m.cents);
+          else merged.push({ bankId: m.bankId, amount: fromCents(m.cents), percentage: m.percentage });
+        }
+
+        tx.update(activityRef(uid, paid.id), {
+          distributions: merged,
+          repaid: fromCents(Math.max(0, toCents(paid.repaid ?? 0) - back)),
+          repayments: (paid.repayments ?? []).filter((r) => r.loanId !== activity.loanId),
+        });
+      }
+      tx.delete(loanRef(uid, activity.loanId));
+    }
 
     tx.delete(activityRef(uid, activity.id));
   });
@@ -752,8 +803,31 @@ export const createSchedule = (
     createdAt: Date.now(),
   });
 
-export const updateSchedule = (uid: string, id: string, patch: Partial<Schedule>) =>
-  updateDoc(scheduleRef(uid, id), patch);
+/**
+ * Changing a rule. Anything that alters *when* it fires restarts its clock.
+ *
+ * A paused rule never advances `lastRunAt`, because the catch-up skips it —
+ * so switching one back on used to hand `dueOccurrences` every day since the
+ * pause and post them all as real deposits. Pause a daily RM10 rule for three
+ * months, turn it on, and the next app open credited sixty deposits of money
+ * that was never saved. Changing the frequency did the same thing sideways: a
+ * monthly rule switched to daily backfilled every day since its last monthly
+ * run.
+ *
+ * The screen already promises the change "applies from the next occurrence
+ * and never backwards". This is what makes that true. Editing only the amount
+ * leaves the clock alone, so correcting a figure still does not repost.
+ */
+const RESCHEDULES: (keyof Schedule)[] = ['frequency', 'weekday', 'dayOfMonth', 'month'];
+
+export const updateSchedule = (uid: string, id: string, patch: Partial<Schedule>) => {
+  const restarts =
+    patch.enabled === true || RESCHEDULES.some((key) => patch[key] !== undefined);
+  return updateDoc(scheduleRef(uid, id), {
+    ...patch,
+    ...(restarts ? { lastRunAt: new Date().toISOString() } : {}),
+  });
+};
 
 export const deleteSchedule = (uid: string, id: string) => deleteDoc(scheduleRef(uid, id));
 

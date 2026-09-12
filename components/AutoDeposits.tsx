@@ -72,8 +72,10 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
     setBusy(true);
     try {
       const shape = { amount: value, frequency, weekday, dayOfMonth, month, targetBankId };
-      // An edit keeps the rule's own enabled state and its lastRunAt, so the
-      // change applies from the next occurrence and never backwards.
+      // An edit keeps the rule's own enabled state. Changing when it fires
+      // restarts its clock in updateSchedule, so the change applies from the
+      // next occurrence and never backwards; changing only the amount does
+      // not, so correcting a figure never reposts.
       if (editing) await onUpdate(editing.id, shape);
       else await onCreate({ ...shape, enabled: true });
       reset();
