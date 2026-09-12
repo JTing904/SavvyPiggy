@@ -358,10 +358,21 @@ export const deposit = async (
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
 
+    /*
+      Relative, not absolute.
+
+      This used to write `outstanding` as a figure worked out from a loan read
+      off React state before the write began. Two writers planning against the
+      same snapshot then overwrote each other: a RM60 repayment and a RM50 one
+      against a RM100 debt left it at RM50, so RM110 of income went to clearing
+      a debt that only fell by RM50. Goal balances already used increments and
+      were never affected; loans were the one place still doing arithmetic on
+      a stale value.
+    */
   plan.repayments.forEach((r) => {
     const left = outstandingCents(r.loan) - r.cents;
     batch.update(loanRef(uid, r.loan.id), {
-      outstanding: fromCents(left),
+      outstanding: increment(-fromCents(r.cents)),
       settledAt: left === 0 ? now.toISOString() : null,
     });
   });
@@ -740,7 +751,7 @@ export const creditDividend = async (
     plan.repayments.forEach((r) => {
       const left = outstandingCents(r.loan) - r.cents;
       tx.update(loanRef(uid, r.loan.id), {
-        outstanding: fromCents(left),
+        outstanding: increment(-fromCents(r.cents)),
         settledAt: left === 0 ? now.toISOString() : null,
       });
     });
@@ -786,7 +797,13 @@ export const creditDividend = async (
       }
     }
 
-    return { amountCents, units };
+    // The caller may have more than one dividend to credit in a pass, and
+    // each one changes the debt the next is planned against.
+    return {
+      amountCents,
+      units,
+      repaid: plan.repayments.map((r) => ({ loanId: r.loan.id, cents: r.cents })),
+    };
   });
 };
 
@@ -874,7 +891,7 @@ export const runDueSchedules = async (
       plan.repayments.forEach((r) => {
         const left = outstandingCents(r.loan) - r.cents;
         batch.update(loanRef(uid, r.loan.id), {
-          outstanding: fromCents(left),
+          outstanding: increment(-fromCents(r.cents)),
           settledAt: left === 0 ? when.toISOString() : null,
         });
       });

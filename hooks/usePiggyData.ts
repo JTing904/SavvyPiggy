@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
@@ -157,6 +157,32 @@ export const usePiggyData = (uid: string | undefined) => {
    * allowance is spent on records that still exist. Changing the window
    * reopens this; nothing else here depends on it.
    */
+  /*
+    Saying "offline" only once it is actually true.
+
+    Every local write produces an optimistic snapshot served from the cache
+    before the server acknowledges it, so reacting to `fromCache` the moment
+    it arrives would flash the banner on each deposit. Being genuinely offline
+    keeps it true, so a short wait tells the two apart. Coming back is
+    immediate — there is nothing to be careful about in good news.
+  */
+  const offlineTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flagOffline = useCallback((fromCache: boolean) => {
+    if (offlineTimer.current) {
+      clearTimeout(offlineTimer.current);
+      offlineTimer.current = null;
+    }
+    if (!fromCache) {
+      setOffline(false);
+      return;
+    }
+    offlineTimer.current = setTimeout(() => setOffline(true), 2_000);
+  }, []);
+
+  useEffect(() => () => {
+    if (offlineTimer.current) clearTimeout(offlineTimer.current);
+  }, []);
+
   useEffect(() => {
     if (!uid) {
       setActivities([]);
@@ -167,8 +193,12 @@ export const usePiggyData = (uid: string | undefined) => {
     return subscribeToActivities(
       uid,
       savings.retentionMonths,
-      (a) => {
+      // The second argument is why this listener asks for metadata at all:
+      // an empty cache and an empty ledger look identical without it, and
+      // the banner that says so was never being switched on.
+      (a, fromCache) => {
         setActivities(a);
+        flagOffline(fromCache);
         setActivitiesReady(true);
       },
       (e) => {

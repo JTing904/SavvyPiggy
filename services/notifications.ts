@@ -21,8 +21,20 @@ export const DIGEST_ID = 2;
  * a live alarm at a different rule, and the signature check below could call
  * the plan unchanged while the mapping had shifted underneath it.
  */
-const DUE_BASE = 100;
-const EX_BASE = 300;
+/*
+  Each family gets a million slots.
+
+  It used to be a hundred, and an id that collides does not queue behind the
+  one already there — it replaces it. Ex-date warnings are built for every
+  declared dividend on every counter ever traded, so a handful of counters
+  across a few quarters is easily thirty alarms into a hundred slots, where a
+  collision is all but certain. The ones that lost went missing silently, and
+  an ex-date is the one notification here with money behind it. A million
+  slots makes that vanishingly unlikely, and Android ids are 32-bit anyway.
+*/
+const SPAN = 1_000_000;
+const DUE_BASE = 1_000_000;
+const EX_BASE = 10_000_000;
 
 /** A small stable number from a string, so an id survives reordering. */
 const slot = (key: string, span: number) => {
@@ -153,7 +165,7 @@ export const plannedNotifications = (
     if (!day) return;
     day.setHours(MORNING, 0, 0, 0);
     out.push({
-      id: DUE_BASE + slot(s.id, 100),
+      id: DUE_BASE + slot(s.id, SPAN),
       title: `Auto deposit of ${formatMoney(s.amount)} due today`,
       body: 'Open SavvyPiggy to post it to your goals.',
       schedule: { at: day },
@@ -176,7 +188,7 @@ export const plannedNotifications = (
 
       const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), d.exDate);
       out.push({
-        id: EX_BASE + slot(`${d.symbol}_${d.exDate}`, 100),
+        id: EX_BASE + slot(`${d.symbol}_${d.exDate}`, SPAN),
         title: `${d.symbol} goes ex-dividend in 2 days`,
         body:
           units > 0

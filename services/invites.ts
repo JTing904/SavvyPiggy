@@ -38,8 +38,19 @@ export const subscribeToMembership = (
       // never spoken to the server is not an answer at all.
       onChange(fromCache ? null : false);
     },
-    // A rules rejection means the server has answered, and the answer is no.
-    () => onChange(false)
+    /*
+      Only a refusal is an answer.
+
+      This used to treat every listener error as "not a member", which is true
+      of `permission-denied` and of nothing else. The realistic failure on a
+      free project is `resource-exhausted` — the daily read quota, the very
+      ceiling the retention system exists to stay under — with `unavailable`
+      and `unauthenticated` close behind on a flaky connection or a token
+      refresh. Any of them locked a paid-up member behind the invite wall and
+      asked for a code they had already burned, and because the answer was
+      remembered, it survived a restart.
+    */
+    (error) => onChange(error.code === 'permission-denied' ? false : null)
   );
 
 /**

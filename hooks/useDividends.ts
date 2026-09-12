@@ -39,6 +39,12 @@ interface Options {
 export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready }: Options) => {
   const [dividends, setDividends] = useState<Dividend[]>(() => readCache());
   const [busy, setBusy] = useState(false);
+  /**
+   * Whether anyone has ever got an answer. A cache that has never been filled
+   * and a counter that has declared nothing produce the same empty list, and
+   * only one of them entitles the screen to say so.
+   */
+  const [known, setKnown] = useState(false);
 
   /**
    * Which dividends have already been paid in. Kept apart from the trade log
@@ -67,7 +73,9 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
       if (!symbols) return;
       setBusy(true);
       try {
-        setDividends(await loadDividends(symbols.split(','), force));
+        const answer = await loadDividends(symbols.split(','), force);
+        setDividends(answer.dividends);
+        setKnown(answer.known);
       } finally {
         setBusy(false);
       }
@@ -97,12 +105,27 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
     running.current = true;
     void (async () => {
       try {
+        // Each credit changes the debt the next one is planned against, so the
+        // loans are carried through the loop. Passing the same snapshot to
+        // every dividend had each one planning to clear a debt an earlier one
+        // in the same pass had already paid — so more went to repayment than
+        // was ever owed, and none of it reached the goals.
+        let openLoans = loans.map((l) => ({ ...l }));
+
         for (const item of due) {
           const name =
             trades.find((t) => t.symbol === item.dividend.symbol)?.name ?? item.dividend.symbol;
-          // Sequential on purpose: each credit changes the balances the next
-          // one is split against.
-          await creditDividend(uid, item, name, banks, loans, { alerts: prefs, savings });
+          const result = await creditDividend(uid, item, name, banks, openLoans, {
+            alerts: prefs,
+            savings,
+          });
+          for (const r of result?.repaid ?? []) {
+            openLoans = openLoans.map((l) =>
+              l.id === r.loanId
+                ? { ...l, outstanding: Math.max(0, Math.round((l.outstanding - r.cents / 100) * 100) / 100) }
+                : l
+            );
+          }
         }
       } catch (e) {
         // A refused write leaves the dividend due, and the next app open tries
@@ -114,5 +137,5 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
     })();
   }, [uid, ready, dividends, trades, credited, banks, loans, prefs, savings]);
 
-  return { dividends, busy, refresh };
+  return { dividends, busy, known, refresh };
 };

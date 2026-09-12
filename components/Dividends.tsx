@@ -9,6 +9,8 @@ interface DividendsProps {
   dividends: Dividend[];
   trades: Trade[];
   busy: boolean;
+  /** False until a fetch has actually succeeded at least once. */
+  known: boolean;
   onRefresh: () => void;
   onBack: () => void;
 }
@@ -36,7 +38,7 @@ const Row: React.FC<{ label: string; value: string; strong?: boolean }> = ({ lab
  * units the trade log says were held on the ex-date — so what this screen
  * shows before a payment is exactly what lands after it.
  */
-const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefresh, onBack }) => {
+const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, known, onRefresh, onBack }) => {
   const upcoming = useMemo(() => upcomingDividends(dividends, trades), [dividends, trades]);
   const year = useMemo(() => declaredIncome(dividends, trades), [dividends, trades]);
 
@@ -160,9 +162,15 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefres
         <p className="text-slate-500 text-[10px] font-black tracking-widest mt-7 mb-3">COMING UP</p>
         {upcoming.length === 0 ? (
           <div className="rounded-3xl glass p-5">
+            {/*
+              An empty list means one of two very different things, and saying
+              the wrong one is a claim about the user's own holdings. Until a
+              fetch has succeeded, the honest answer is that we do not know.
+            */}
             <p className="text-slate-400 text-xs font-bold leading-relaxed">
-              Nothing announced for the counters you hold. A dividend appears here as soon as the company
-              declares it, and is paid into your goals on its pay date.
+              {known
+                ? 'Nothing announced for the counters you hold. A dividend appears here as soon as the company declares it, and is paid into your goals on its pay date.'
+                : 'Announcements could not be fetched, so this is not a list of nothing — it is no answer at all. Pull the refresh above once you are back online.'}
             </p>
           </div>
         ) : (

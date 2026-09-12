@@ -69,14 +69,33 @@ const isSound = (d: Dividend) =>
  * fails, when the Worker is not configured, or when anything comes back
  * looking wrong.
  */
-export const loadDividends = async (symbols: string[], force = false): Promise<Dividend[]> => {
+/**
+ * Whether the list that came back was actually fetched. A screen that says
+ * "nothing has been announced" is making a claim about the user's holdings,
+ * and it is only entitled to make it when somebody asked and got an answer.
+ */
+export interface DividendAnswer {
+  dividends: Dividend[];
+  /**
+   * True when this reflects a real answer — a fetch that just succeeded, or a
+   * cache some earlier fetch wrote. False means nobody has ever got through,
+   * and "nothing has been announced" would be a guess dressed as a fact.
+   */
+  known: boolean;
+}
+
+export const loadDividends = async (
+  symbols: string[],
+  force = false
+): Promise<DividendAnswer> => {
   const cached = readCache();
   const wanted = [...new Set(symbols)].filter(Boolean);
-  if (!isDividendApiConfigured || wanted.length === 0) return cached;
-  if (!force && Date.now() - cachedAt() < FRESH_MS) return cached;
+  const fallback = (): DividendAnswer => ({ dividends: cached, known: cachedAt() > 0 });
+  if (!isDividendApiConfigured || wanted.length === 0) return fallback();
+  if (!force && Date.now() - cachedAt() < FRESH_MS) return { dividends: cached, known: true };
 
   const user = auth.currentUser;
-  if (!user) return cached;
+  if (!user) return fallback();
 
   try {
     // The Worker checks this is a live token for this project before it will
@@ -89,22 +108,22 @@ export const loadDividends = async (symbols: string[], force = false): Promise<D
     let payload: unknown;
     if (native()) {
       const res = await CapacitorHttp.get({ url, params, headers, readTimeout: 12_000, connectTimeout: 12_000 });
-      if (res.status < 200 || res.status >= 300) return cached;
+      if (res.status < 200 || res.status >= 300) return fallback();
       payload = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
     } else {
       const res = await fetch(`${url}?${new URLSearchParams(params)}`, { headers });
-      if (!res.ok) return cached;
+      if (!res.ok) return fallback();
       payload = await res.json();
     }
 
     const rows = (payload as { dividends?: Dividend[] } | null)?.dividends;
-    if (!Array.isArray(rows)) return cached;
+    if (!Array.isArray(rows)) return fallback();
 
     const dividends = rows.filter(isSound);
     localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), dividends } satisfies Cache));
-    return dividends;
+    return { dividends, known: true };
   } catch (e) {
     console.warn('[dividends] request failed', e instanceof Error ? e.message : e);
-    return cached;
+    return fallback();
   }
 };

@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const {
     dividends,
     busy: dividendsBusy,
+    known: dividendsKnown,
     refresh: refreshDividends,
   } = useDividends({ uid, trades, banks, loans, prefs, savings, ready: !dataLoading });
 
@@ -97,6 +98,12 @@ const App: React.FC = () => {
       catchingUp.current = true;
       try {
         await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings });
+      } catch (e) {
+        // This one posts real deposits and nobody asked it to run, so a
+        // failure has to be visible: a rule pointing at a goal deleted on
+        // another device used to stop posting silently, on every open,
+        // forever, while the screen went on showing it as enabled.
+        fail(e);
       } finally {
         catchingUp.current = false;
       }
@@ -197,12 +204,13 @@ const App: React.FC = () => {
    * it only makes a failure impossible to miss.
    */
   const [failure, setFailure] = useState<string | null>(null);
+  const fail = (e: unknown) => {
+    const text = e instanceof Error ? e.message : String(e);
+    setFailure(text);
+    setTimeout(() => setFailure((current) => (current === text ? null : current)), 6000);
+  };
   const run = (job: () => Promise<unknown>) => {
-    void job().catch((e: unknown) => {
-      const text = e instanceof Error ? e.message : String(e);
-      setFailure(text);
-      setTimeout(() => setFailure((current) => (current === text ? null : current)), 6000);
-    });
+    void job().catch(fail);
   };
 
   const handleDeposit = (amount: number, targetBankId: string | null) => {
@@ -218,7 +226,14 @@ const App: React.FC = () => {
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
-    if (uid) await api.createSchedule(uid, schedule);
+    if (!uid) return;
+    try {
+      await api.createSchedule(uid, schedule);
+    } catch (e) {
+      // The sheet closes on success, so it cannot report this itself.
+      fail(e);
+      throw e;
+    }
   };
 
   const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
@@ -467,6 +482,7 @@ const App: React.FC = () => {
             dividends={dividends}
             trades={trades}
             busy={dividendsBusy}
+            known={dividendsKnown}
             onRefresh={() => void refreshDividends(true)}
             onBack={() => setActiveTab(Tab.HOME)}
           />
