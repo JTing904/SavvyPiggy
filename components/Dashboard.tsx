@@ -279,7 +279,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         onScroll={onRailScroll}
         className="flex items-stretch gap-3 px-6 py-2 overflow-x-auto no-scrollbar snap-x snap-mandatory"
       >
-        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-accent p-7 shadow-2xl shadow-primary/20 shrink-0 h-[11.5rem] w-[calc(100vw-3rem)] max-w-[22rem] snap-center">
+        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-accent p-7 shadow-2xl shadow-primary/20 shrink-0 h-[11.5rem] sm:h-[14rem] w-full snap-center">
           {/* The same glow, painted as a gradient rather than blurred circles.
               A 64px blur filter has to be redone every frame the card moves,
               which was most of the cost of swiping between the two cards. */}
@@ -324,7 +324,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
         <button
           onClick={() => (navMode === 'invest' ? onOpenTrades() : onModeChange('invest'))}
-          className="relative overflow-hidden rounded-[2rem] bg-surface border border-accent/30 p-7 shadow-2xl shrink-0 h-[11.5rem] w-[calc(100vw-3rem)] max-w-[22rem] snap-center text-left active:scale-[0.99] transition-transform flex flex-col justify-between"
+          className="relative overflow-hidden rounded-[2rem] bg-surface border border-accent/30 p-7 shadow-2xl shrink-0 h-[11.5rem] sm:h-[14rem] w-full snap-center text-left active:scale-[0.99] transition-transform flex flex-col justify-between"
         >
           <p className="text-accent text-xs font-bold uppercase tracking-widest mb-1">Investments</p>
           {holdings.length === 0 ? (

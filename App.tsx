@@ -481,13 +481,25 @@ const App: React.FC = () => {
 
   const shell = (children: React.ReactNode, withNav = false) => (
     <div className="h-screen w-full flex flex-col bg-bg-dark overflow-hidden">
-      <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
+      {/*
+        One column, centred, capped.
+
+        Every screen was laid out for a phone and then allowed to run the full
+        width of whatever it was opened on. The floating nav was already capped
+        at a phone width, so on a tablet a narrow island of navigation sat under
+        content sprawling twice as wide, and the mode rail — two cards that are
+        meant to be swiped between — had room to show both at once, which killed
+        the swipe and the whole idea of looking at one half at a time.
+      */}
+      <main className="flex-1 overflow-y-auto no-scrollbar relative">
+        <div className="mx-auto w-full max-w-2xl">{children}</div>
+      </main>
 
       {/* Showing yesterday's numbers is fine; showing them as if they were
           today's is not. */}
       {offline && !failure && (
         <div className="fixed inset-x-0 top-0 z-[55] px-4 pt-3 safe-pt pointer-events-none">
-          <div className="max-w-md mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
+          <div className="max-w-2xl mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
             <span className="material-symbols-rounded text-amber-300 text-lg shrink-0">cloud_off</span>
             <p className="text-amber-200 text-[11px] font-black">
               Offline — showing what was last synced to this phone
@@ -502,7 +514,7 @@ const App: React.FC = () => {
         <div className="fixed inset-x-0 top-0 z-[60] px-4 pt-3 safe-pt pointer-events-none">
           <div
             role="alert"
-            className="max-w-md mx-auto rounded-2xl bg-red-500/15 border border-red-500/40 backdrop-blur px-4 py-3 flex items-start gap-3"
+            className="max-w-2xl mx-auto rounded-2xl bg-red-500/15 border border-red-500/40 backdrop-blur px-4 py-3 flex items-start gap-3"
           >
             <span className="material-symbols-rounded text-red-400 text-xl shrink-0">error</span>
             <div className="min-w-0">

@@ -62,7 +62,7 @@ const Navigation: React.FC<NavigationProps> = ({ mode, activeTab, onTabChange, o
   // without one here an expanded card paints straight over the bar.
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 pointer-events-none safe-pb">
-      <div className="max-w-md mx-auto pointer-events-auto">
+      <div className="max-w-2xl mx-auto pointer-events-auto">
         <div className="flex items-center glass rounded-[2.5rem] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10">
           {tabs.slice(0, 2).map(renderTab)}
 
