@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Alert, AlertKind, NotificationPrefs } from '../types';
 import { formatTime } from '../services/alerts';
-import { checkPermission, requestPermission, type Permission } from '../services/notifications';
+import {
+  checkPermission,
+  exactAlarmAllowed,
+  requestExactAlarms,
+  requestPermission,
+  sendTestNotification,
+  type Permission,
+} from '../services/notifications';
 import { formatMoney } from '../services/money';
 
 interface AlertsProps {
@@ -71,10 +78,22 @@ const ICONS: Record<AlertKind, string> = {
 const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSavePrefs, onOpenStrategy }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [permission, setPermission] = useState<Permission>('unsupported');
+  const [exact, setExact] = useState(true);
+  const [tested, setTested] = useState<string | null>(null);
   const now = new Date();
 
+  // Checked again every time the screen comes back into view. It used to be
+  // read once on mount, so someone who went to Android's settings to allow
+  // notifications came back to an app still convinced it was blocked.
   useEffect(() => {
-    void checkPermission().then(setPermission);
+    const read = () => {
+      if (document.visibilityState !== 'visible') return;
+      void checkPermission().then(setPermission);
+      void exactAlarmAllowed().then(setExact);
+    };
+    read();
+    document.addEventListener('visibilitychange', read);
+    return () => document.removeEventListener('visibilitychange', read);
   }, []);
 
   const unread = alerts.filter((a) => !a.read);
@@ -95,13 +114,40 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
 
   const countOf = (f: Filter) => alerts.filter((a) => !a.read && FILTERS.find((x) => x.key === f)!.kinds.includes(a.kind)).length;
 
-  /** Turning a system notification on is the moment to ask the phone. */
+  /**
+   * Turning a system notification on is the moment to ask the phone.
+   *
+   * The setting is only saved if the phone will actually deliver it. It used
+   * to be saved either way, so a refused permission left the switch on and the
+   * card cheerfully reading "Every evening at 8:00 PM" while `syncNotifications`
+   * bailed on its first line and nothing was ever scheduled. Turning something
+   * off always saves — that never needs permission.
+   */
   const enableSystem = async (patch: Partial<NotificationPrefs>) => {
-    if (permission === 'prompt') setPermission(await requestPermission());
+    const turningOn = Object.values(patch).some((v) => v === true);
+    if (!turningOn) {
+      onSavePrefs(patch);
+      return;
+    }
+    let state = permission;
+    if (state === 'prompt') {
+      state = await requestPermission();
+      setPermission(state);
+    }
+    if (state === 'denied') return;
     onSavePrefs(patch);
   };
 
-  const blocked = permission === 'denied' && (prefs.reminder || prefs.digest);
+  const test = async () => {
+    setTested(
+      (await sendTestNotification())
+        ? 'Sent — it should appear in about five seconds.'
+        : 'Could not send it. Notifications are still blocked.'
+    );
+  };
+
+  const blocked = permission === 'denied';
+  const wantsAlarms = prefs.reminder || prefs.digest || prefs.exDates;
 
   const body = (a: Alert) => {
     switch (a.kind) {
@@ -276,10 +322,64 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
 
         {blocked && (
           <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-5 flex items-start gap-3">
-            <span className="material-symbols-rounded text-amber-400">notifications_off</span>
-            <p className="text-amber-200/80 text-xs font-medium leading-relaxed">
-              Notifications are blocked for SavvyPiggy. Allow them in your phone’s app settings, then reopen the app.
-            </p>
+            <span className="material-symbols-rounded text-amber-400 shrink-0">notifications_off</span>
+            <div className="min-w-0">
+              <p className="text-amber-200 text-sm font-black">Android is blocking these</p>
+              <p className="text-amber-200/70 text-xs font-medium leading-relaxed mt-1">
+                Nothing can be scheduled until you allow them. Open Settings → Apps → SavvyPiggy →
+                Notifications and turn them on, then come back — this screen rechecks itself.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/*
+          An inexact alarm is handed to the system as a suggestion: a dozing
+          phone can sit on it for the best part of an hour, and an aggressive
+          battery saver can drop it entirely. Since Android 13 this is not
+          granted on install, and the app never asked — which is the most
+          likely reason an evening reminder simply never arrived.
+        */}
+        {!blocked && permission === 'granted' && wantsAlarms && !exact && (
+          <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-5">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-rounded text-amber-400 shrink-0">schedule</span>
+              <div className="min-w-0">
+                <p className="text-amber-200 text-sm font-black">Reminders may arrive late</p>
+                <p className="text-amber-200/70 text-xs font-medium leading-relaxed mt-1">
+                  Android is allowed to delay these by up to an hour, or skip them while the phone is
+                  asleep. Allowing exact alarms makes 8:00 PM mean 8:00 PM.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => void requestExactAlarms().then(setExact)}
+              className="w-full h-12 rounded-2xl bg-amber-400 text-black font-black text-sm mt-4 active:scale-95 transition-transform"
+            >
+              Allow exact alarms
+            </button>
+          </div>
+        )}
+
+        {/* "Is this thing on?" deserves an answer that isn't "wait until 8pm". */}
+        {permission !== 'unsupported' && (
+          <div className="rounded-[2rem] glass p-5">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-rounded text-slate-400 shrink-0">notifications_active</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-white text-sm font-black">Check it works</p>
+                <p className="text-slate-500 text-[11px] font-medium mt-0.5 leading-relaxed">
+                  {tested ?? 'Sends one notification now, so you can see it arrive.'}
+                </p>
+              </div>
+              <button
+                onClick={() => void test()}
+                disabled={blocked}
+                className="shrink-0 h-10 px-4 rounded-2xl bg-white/5 border border-white/10 text-slate-300 font-black text-xs active:scale-95 transition-transform disabled:opacity-40"
+              >
+                Send
+              </button>
+            </div>
           </div>
         )}
 

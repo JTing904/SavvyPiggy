@@ -4,6 +4,7 @@ import { formatMoney, fromCents, toCents } from '../services/money';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { SLICE_COLORS } from './DonutChart';
 import { CATEGORIES, categoryOf } from '../services/categories';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 const STYLES: Record<ActivityType, { label: string; icon: string; tint: string; outgoing: boolean }> = {
   'auto-save': { label: 'Scheduled deposit', icon: 'cycle', tint: 'bg-primary/10 text-primary', outgoing: false },
@@ -60,6 +61,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   onEditActivity,
   onSetCategory,
 }) => {
+  const confirm = useConfirm();
   const now = new Date();
   const [month, setMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   const [openDay, setOpenDay] = useState<string | null>(null);
@@ -139,11 +141,33 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
     setEditingId(null);
   };
 
-  const handleDelete = (activity: Activity) => {
-    const undo = STYLES[activity.type].outgoing
-      ? 'This will put the money back into your goals.'
-      : 'This will deduct the corresponding amounts from your goals.';
-    if (window.confirm(`Remove this entry? ${undo}`)) onDeleteActivity(activity.id);
+  const handleDelete = async (activity: Activity) => {
+    const style = STYLES[activity.type];
+    const undo = style.outgoing
+      ? `The ${money(activity.amount)} goes back into your goals.`
+      : `The ${money(activity.amount)} is taken back out of your goals.`;
+    const ok = await confirm({
+      title: 'Remove this entry?',
+      body: undo,
+      tone: 'danger',
+      confirmLabel: 'Remove',
+      // The row exactly as it reads in the list above, so the entry being
+      // deleted is visible at the moment of deciding.
+      detail: {
+        icon: style.icon,
+        tint: style.tint,
+        label: activity.note || style.label,
+        meta: new Date(activity.date).toLocaleString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+        amount: `${style.outgoing ? '−' : '+'}${money(activity.amount)}`,
+        amountTint: style.outgoing ? 'text-slate-400' : 'text-white',
+      },
+    });
+    if (ok) onDeleteActivity(activity.id);
   };
 
   /** Where one entry's money went, as coloured rows carrying their share. */
@@ -426,11 +450,11 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
         const current = activities.find((a) => a.id === pickingFor);
         return (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={() => setPickingFor(null)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[2.5rem] p-6 safe-pb"
+            className="w-full max-w-md bg-surface sheet-rise rounded-t-[2.5rem] p-6 safe-pb"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
@@ -470,11 +494,11 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       {/* Month picker */}
       {pickMonth && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={() => setPickMonth(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300 p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-white text-2xl font-black">Jump to a month</h3>

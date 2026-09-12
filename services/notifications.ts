@@ -15,6 +15,8 @@ import { formatMoney } from '../services/money';
 
 export const REMINDER_ID = 1;
 export const DIGEST_ID = 2;
+/** Reserved for the "is this working?" test, so it never collides with a real one. */
+const TEST_ID = 99;
 /**
  * Alarm ids come from the thing they are about, not its place in a list.
  * They used to be `DUE_BASE + index`: deleting one rule silently re-pointed
@@ -33,6 +35,38 @@ const slot = (key: string, span: number) => {
 
 /** Reminders about a due rule and the monthly digest fire at this hour. */
 const MORNING = 9;
+
+/**
+ * Everything posts to one named channel.
+ *
+ * The plugin creates a generic "Default" channel if none is given, which is
+ * both unfindable in Android's settings and easy to mute by accident — and a
+ * muted channel is invisible to `checkPermissions`, which keeps reporting
+ * `granted` while nothing is ever shown. A channel of our own can be pointed
+ * at, and HIGH importance is what makes a reminder appear on screen instead of
+ * landing silently in the shade.
+ */
+export const CHANNEL_ID = 'savvypiggy-reminders';
+
+let channelReady = false;
+const ensureChannel = async () => {
+  if (!native() || channelReady) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: CHANNEL_ID,
+      name: 'Reminders',
+      description: 'Savings reminders, auto-deposit nudges and ex-dividend dates.',
+      importance: 4,
+      visibility: 1,
+      vibration: true,
+    });
+    channelReady = true;
+  } catch {
+    // Channels only exist on Android 8+; elsewhere the notification posts fine
+    // without one.
+    channelReady = true;
+  }
+};
 
 export type Permission = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
@@ -59,6 +93,59 @@ const exactAllowed = async () => {
     return (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted';
   } catch {
     return false;
+  }
+};
+
+export const exactAlarmAllowed = exactAllowed;
+
+/**
+ * Opens Android's "Alarms & reminders" screen.
+ *
+ * From API 33 `SCHEDULE_EXACT_ALARM` is not granted on install, and nothing in
+ * the app ever asked — so every alarm fell back to an inexact one, which a
+ * dozing phone can hold for the best part of an hour, or drop entirely under
+ * an aggressive battery saver. The app can only open the screen; the switch is
+ * the user's to flip.
+ */
+export const requestExactAlarms = async () => {
+  if (!native()) return false;
+  try {
+    await LocalNotifications.changeExactNotificationSetting();
+    return (await exactAllowed());
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Posts one notification a few seconds out, so "is this thing on?" has an
+ * answer that does not involve waiting until 8pm.
+ */
+export const sendTestNotification = async () => {
+  if (!native()) return false;
+  if ((await checkPermission()) !== 'granted') return false;
+  await ensureChannel();
+  const at = new Date(Date.now() + 5_000);
+  await LocalNotifications.schedule({
+    notifications: [{
+      id: TEST_ID,
+      title: 'SavvyPiggy notifications are working',
+      body: 'This is the test you asked for. Your real reminders will look like this.',
+      channelId: CHANNEL_ID,
+      schedule: { at, allowWhileIdle: true },
+      extra: { open: 'home' satisfies OpenTarget },
+    }],
+  });
+  return true;
+};
+
+/** What the phone is actually holding right now — the honest answer. */
+export const pendingNotifications = async () => {
+  if (!native()) return [];
+  try {
+    return (await LocalNotifications.getPending()).notifications;
+  } catch {
+    return [];
   }
 };
 
@@ -143,7 +230,34 @@ export const plannedNotifications = (
  * the rules, so the phone always holds exactly what they say — never a stale
  * reminder for a rule that was deleted or a time that was changed.
  */
-let lastPlan = '';
+/**
+ * The last plan actually written to the phone.
+ *
+ * This used to be a module variable, which reset to '' on every cold start —
+ * so the guard below could never fire on the first sync after launch, and the
+ * app cancelled and re-armed every alarm each time it opened. Re-arming a
+ * daily reminder pushes its next trigger to tomorrow, so anyone who opened the
+ * app in the evening kept moving their own 8pm reminder out of reach, night
+ * after night. Kept on the device so a restart remembers.
+ */
+const PLAN_KEY = 'savvypiggy.notifications.plan';
+
+const readPlan = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(PLAN_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const writePlan = (plan: Record<string, string>) => {
+  try {
+    localStorage.setItem(PLAN_KEY, JSON.stringify(plan));
+  } catch {
+    // Storage can be unavailable; the worst case is a rebuild next launch.
+  }
+};
 
 export const syncNotifications = async (
   prefs: NotificationPrefs,
@@ -153,33 +267,44 @@ export const syncNotifications = async (
   now = new Date()
 ) => {
   if (!native() || (await checkPermission()) !== 'granted') return;
-
-  const planned = plannedNotifications(prefs, schedules, dividends, trades, now);
-  // Rebuilding on every app open would wipe an alarm that is due but has not
-  // been delivered yet — this phone can run minutes late — so only touch the
-  // alarms when what they should be has actually changed.
-  const signature = JSON.stringify(planned);
-  const pending = await LocalNotifications.getPending();
-  const held = new Set(pending.notifications.map((n) => n.id));
-  // ...but do rebuild if the phone has lost one, which happens when the app is
-  // reinstalled or the system clears its alarms.
-  if (signature === lastPlan && planned.every((n) => held.has(n.id))) return;
-
-  if (pending.notifications.length > 0) {
-    await LocalNotifications.cancel({ notifications: pending.notifications.map((n) => ({ id: n.id })) });
-  }
+  await ensureChannel();
 
   // An inexact alarm can be held back for the best part of an hour while the
   // phone dozes, which is no use for "remind me at 8pm" — so take a real one
   // whenever the phone already allows it, and fall back quietly when it does not.
   const isExactNotification = await exactAllowed();
-  const notifications = planned.map((n) => ({
+  const planned = plannedNotifications(prefs, schedules, dividends, trades, now).map((n) => ({
     ...n,
+    channelId: CHANNEL_ID,
     isExactNotification,
     schedule: { ...n.schedule, allowWhileIdle: true },
   }));
-  if (notifications.length > 0) await LocalNotifications.schedule({ notifications });
-  lastPlan = signature;
+
+  const pending = await LocalNotifications.getPending();
+  const held = new Set(pending.notifications.map((n) => n.id));
+  const before = readPlan();
+  const after: Record<string, string> = {};
+  for (const n of planned) after[n.id] = JSON.stringify(n);
+
+  // Re-arming an alarm is not free: scheduling an id that already exists
+  // replaces it, and replacing a daily reminder pushes its next trigger to
+  // tomorrow. So each alarm is judged on its own — one that the phone is
+  // already holding, unchanged, is left exactly where it is. Rebuilding the
+  // lot on every app open is what kept moving the evening reminder out of
+  // reach for anyone who opened the app in the evening.
+  const changed = planned.filter((n) => !held.has(n.id) || before[n.id] !== after[n.id]);
+
+  // Anything the phone holds that is no longer planned goes, except the test
+  // notification, which is nobody's business but the person who asked for it.
+  const wanted = new Set(planned.map((n) => n.id));
+  const stale = pending.notifications.filter((n) => !wanted.has(n.id) && n.id !== TEST_ID);
+
+  if (stale.length === 0 && changed.length === 0) return;
+  if (stale.length > 0) {
+    await LocalNotifications.cancel({ notifications: stale.map((n) => ({ id: n.id })) });
+  }
+  if (changed.length > 0) await LocalNotifications.schedule({ notifications: changed });
+  writePlan(after);
 };
 
 /** Fires when the user taps a notification; returns a way to stop listening. */

@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Trade } from '../types';
-import { averageCostCents, buildHoldings, dayStart, normalizeSymbol, replay, tradeCents } from '../services/holdings';
+import { averageCostCents, buildHoldings, normalizeSymbol, replay, tradeCents } from '../services/holdings';
 import { searchSymbols, type SymbolHit } from '../services/quotes';
 import { createTrade, deleteTrade, updateTrade } from '../services/firestore';
 import { formatMoney, fromCents, toCents } from '../services/money';
+import { fromInputDate, toInputDate } from '../services/calendar';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useConfirm } from '../contexts/ConfirmContext';
+import DateField from './DateField';
 
 /**
  * What the sheet has been opened to do. Recording a trade and correcting one
@@ -26,19 +29,6 @@ interface TradeSheetProps {
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
   formatMoney(fromCents(cents), opts);
-
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** Both directions of the date field, in local time — the day is the point. */
-const toInputDate = (ms: number) => {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
-const fromInputDate = (text: string) => {
-  const [y, m, d] = text.split('-').map(Number);
-  if (!y || !m || !d) return dayStart(Date.now());
-  return new Date(y, m - 1, d).getTime();
-};
 
 const LABEL: Record<Trade['kind'], string> = { buy: 'Buy', sell: 'Sell', dividend: 'Dividend' };
 
@@ -68,6 +58,7 @@ const Field: React.FC<{
 );
 
 const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, onDone }) => {
+  const confirm = useConfirm();
   const editing = draft.mode === 'edit' ? draft.trade : null;
   const kind: Trade['kind'] = draft.mode === 'edit' ? draft.trade.kind : draft.kind;
 
@@ -75,7 +66,14 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
   const [name, setName] = useState(editing?.name ?? (draft.mode === 'new' ? draft.name ?? '' : ''));
   const [units, setUnits] = useState(editing ? String(editing.units) : '');
   const [price, setPrice] = useState(editing ? fromCents(editing.priceCents).toFixed(kind === 'dividend' ? 4 : 2) : '');
-  const [date, setDate] = useState(toInputDate(editing?.tradedAt ?? Date.now()));
+  // A trade cannot have happened tomorrow, and a date that had drifted into
+  // the future would count the shares as held on an ex-date that has not
+  // arrived. An existing one is pulled back to today rather than silently kept.
+  const today = toInputDate(Date.now());
+  const [date, setDate] = useState(() => {
+    const from = toInputDate(editing?.tradedAt ?? Date.now());
+    return from > today ? today : from;
+  });
   const [term, setTerm] = useState('');
   const [hits, setHits] = useState<SymbolHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -154,7 +152,20 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
 
   const remove = async () => {
     if (!editing || busy) return;
-    if (!confirm('Delete this trade? The position will be worked out again without it.')) return;
+    const ok = await confirm({
+      title: 'Delete this trade?',
+      body: 'The position is worked out again from the remaining trades, so your units and average cost will move.',
+      tone: 'danger',
+      confirmLabel: 'Delete',
+      detail: {
+        icon: editing.kind === 'sell' ? 'trending_down' : 'trending_up',
+        tint: editing.kind === 'sell' ? 'bg-slate-500/10 text-slate-400' : 'bg-accent/10 text-accent',
+        label: `${LABEL[editing.kind]} · ${editing.name || editing.symbol}`,
+        meta: `${editing.units.toLocaleString('en-US')} units · ${new Date(editing.tradedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        amount: money(tradeCents(editing)),
+      },
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await deleteTrade(uid, editing.id);
@@ -171,10 +182,10 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
     kind === 'dividend' ? 'Dividend' : editing ? `Edit · ${LABEL[kind]}` : kind === 'buy' ? 'Buy' : 'Sell';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/85" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end bg-black/85 veil-in" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md mx-auto bg-surface rounded-t-[2rem] border-t border-white/10 px-6 pt-4 pb-8 max-h-[90%] overflow-y-auto no-scrollbar safe-pb"
+        className="w-full max-w-md mx-auto bg-surface sheet-rise rounded-t-[2rem] border-t border-white/10 px-6 pt-4 pb-8 max-h-[90%] overflow-y-auto no-scrollbar safe-pb"
       >
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
 
@@ -310,7 +321,14 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
         ) : (
           <>
             <div className="mt-5">
-              <Field label="Trade date" value={date} onChange={setDate} type="date" />
+              <DateField
+                label="Trade date"
+                value={date}
+                onChange={setDate}
+                max={today}
+                title="When was this trade?"
+                hint="The day you dealt decides which dividends are yours."
+              />
             </div>
             <div className="flex gap-3 mt-4">
               <Field label="Units" value={units} onChange={setUnits} autoFocus={!editing} />

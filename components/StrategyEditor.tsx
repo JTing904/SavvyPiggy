@@ -5,6 +5,7 @@ import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
@@ -117,6 +118,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 }) => {
   // Unsaved edits only. Everything else reads straight from Firestore, so
   // live updates can never be shadowed by stale local copies.
+  const confirm = useConfirm();
   const [draft, setDraft] = useState<Draft>({});
   const [order, setOrder] = useSortOrder('savvypiggy.sort.strategy');
 
@@ -158,11 +160,23 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
     setDraft({});
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this piggy bank? This will not return funds already saved.')) {
-      onDeleteBank(id);
-      setDraft(({ [id]: _removed, ...rest }) => rest);
-    }
+  const handleDelete = async (id: string) => {
+    const bank = localBanks.find((b) => b.id === id);
+    const ok = await confirm({
+      title: `Delete ${bank?.name ?? 'this goal'}?`,
+      body: 'The money already saved into it is not returned, and its share of future deposits stops.',
+      tone: 'danger',
+      confirmLabel: 'Delete',
+      detail: bank && {
+        icon: bank.icon,
+        label: bank.name,
+        meta: `${bank.splitPercentage}% of each deposit`,
+        amount: formatMoney(bank.currentAmount),
+      },
+    });
+    if (!ok) return;
+    onDeleteBank(id);
+    setDraft(({ [id]: _removed, ...rest }) => rest);
   };
 
   const sorted = sortBanks(localBanks, order);

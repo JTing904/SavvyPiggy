@@ -594,11 +594,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           the close button can never be pushed off the top of the screen. */}
       {mode && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
           onClick={closeModal}
         >
           <div
-            className="w-full max-w-md max-h-[88vh] flex flex-col bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl animate-in slide-in-from-bottom duration-300"
+            className="w-full max-w-md max-h-[88vh] flex flex-col bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 px-7 pt-7 pb-4 flex items-center justify-between gap-3">
