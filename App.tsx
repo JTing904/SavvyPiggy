@@ -596,7 +596,7 @@ const App: React.FC = () => {
             </div>
             <p className="text-slate-500 text-xs font-medium leading-relaxed mt-5">
               {mode === 'save'
-                ? 'Spending without picking a goal records borrowed money instead — your next deposits clear it before anything reaches your goals.'
+                ? 'Spending without picking a goal is recorded as spent ahead — your next deposits cover it before anything reaches your goals.'
                 : 'Every trade keeps the day it was done. That date is what decides which dividends are yours, so enter the day you dealt, not the day you typed it in.'}
             </p>
           </div>

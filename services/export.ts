@@ -21,7 +21,7 @@ const TYPE_LABEL: Record<Activity['type'], string> = {
   'auto-save': 'Scheduled deposit',
   manual: 'Deposit',
   withdraw: 'Withdrawal',
-  borrow: 'Borrowed',
+  borrow: 'Spent ahead',
 };
 
 const TRADE_LABEL: Record<Trade['kind'], string> = {

@@ -20,7 +20,7 @@ const ACTIVITY_STYLES: Record<ActivityType, { label: string; icon: string; tint:
   'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary', outgoing: false },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
   withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
-  borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
 };
 
 interface DashboardProps {
@@ -248,7 +248,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => window.clearTimeout(release.current);
   }, [navMode]);
 
-  const confirmLabel = mode === 'deposit' ? 'Confirm Deposit' : isBorrow ? 'Record Borrowing' : 'Withdraw';
+  const confirmLabel = mode === 'deposit' ? 'Confirm Deposit' : isBorrow ? 'Record Spending' : 'Withdraw';
 
   return (
     <div className="flex flex-col min-h-full pb-40 safe-pt relative">
@@ -381,7 +381,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-6 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-amber-400/70 text-xs font-bold uppercase tracking-widest mb-1">Borrowed</p>
+                  <p className="text-amber-400/70 text-xs font-bold uppercase tracking-widest mb-1">Spent ahead</p>
                   <h2 className="text-amber-300 text-3xl font-extrabold tracking-tight">
                     {formatMoney(fromCents(debtCents))}
                   </h2>
@@ -395,7 +395,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {openLoans.map((loan) => (
                   <div key={loan.id} className="flex items-center justify-between gap-3 bg-black/20 rounded-2xl px-4 py-3">
                     <div className="min-w-0">
-                      <p className="text-white text-sm font-bold truncate">{loan.note || 'Borrowed'}</p>
+                      <p className="text-white text-sm font-bold truncate">{loan.note || 'Spent ahead'}</p>
                       <p className="text-slate-500 text-[10px] font-medium">
                         borrowed {formatMoney(loan.amount)}
                       </p>
@@ -653,7 +653,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     {mode === 'withdraw' && (
                       <span className="material-symbols-rounded text-base">account_balance</span>
                     )}
-                    {mode === 'deposit' ? 'Auto split' : 'Borrow'}
+                    {mode === 'deposit' ? 'Auto split' : 'Not from a goal'}
                   </button>
                   {banks.map((b) => (
                     <button
@@ -671,7 +671,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {mode === 'withdraw' && (
                   <p className="text-slate-500 text-[10px] text-center pt-1 font-medium leading-relaxed">
                     {isBorrow
-                      ? 'Money from outside. No goal is touched — it just records what you owe.'
+                      ? 'Money you had not set aside yet. No goal is touched — your next deposits cover it first.'
                       : `${formatMoney(fromCents(balanceCents(banks, target)))} in this goal. Spending more takes it negative.`}
                   </p>
                 )}
@@ -683,7 +683,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder={isBorrow ? 'e.g. Borrowed from mum' : 'e.g. Groceries'}
+                    placeholder={isBorrow ? 'e.g. Lunch' : 'e.g. Groceries'}
                     className="w-full h-14 px-5 rounded-2xl bg-white/5 border border-white/10 text-base font-bold text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
                   />
 

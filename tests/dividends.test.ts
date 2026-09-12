@@ -1,4 +1,5 @@
 import {
+  declaredIncome,
   dividendCents,
   dividendTradeId,
   dueDividends,
@@ -172,6 +173,42 @@ eq('an id is one per counter per ex-date',
   eq('with what it should come to', soon[0].amountCents, 16500);
   eq("today's payment still counts as upcoming",
     upcomingDividends(parsed, log, on(2026, 3, 26)).length, 1);
+}
+
+// --- what the next twelve months will actually pay
+
+{
+  // The fixture's upcoming dividend: ex 12 Mar 2026, pays 26 Mar 2026, RM0.33.
+  const log = [trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) })];
+
+  const year = declaredIncome(parsed, log, on(2026, 1, 1));
+  eq('a declared dividend inside the year counts', year.rows.length, 1);
+  eq('for exactly what it will pay', year.totalCents, 16500);
+
+  // Before the ex-date the payment still depends on holding on.
+  eq('and is pending while the ex-date is still to come',
+    [year.lockedCents, year.pendingCents], [0, 16500]);
+
+  // On the ex-date itself the entitlement was settled at yesterday's close.
+  const onExDate = declaredIncome(parsed, log, on(2026, 3, 12));
+  eq('the ex-date arriving locks it in',
+    [onExDate.lockedCents, onExDate.pendingCents], [16500, 0]);
+
+  // Nothing is annualised: a year on, with no new announcement, there is
+  // nothing to report rather than "probably the same again".
+  eq('nothing is assumed to repeat', declaredIncome(parsed, log, on(2026, 4, 1)).totalCents, 0);
+
+  // The horizon is a year to the day. Asked on 25 Mar 2025 the March 2026
+  // payment falls a day outside it; asked two days later it does not. (Both
+  // windows also catch the September 2025 payment, so the boundary is checked
+  // on the one dividend that moves.)
+  const has2026 = (at: number) =>
+    declaredIncome(parsed, log, at).rows.some((r) => r.dividend.payDate === on(2026, 3, 26));
+  eq('a payment beyond twelve months is left out', has2026(on(2025, 3, 25)), false);
+  eq('and one a day inside it is not', has2026(on(2025, 3, 27)), true);
+
+  eq('holding nothing on the ex-date earns nothing',
+    declaredIncome(parsed, [], on(2026, 1, 1)).rows.length, 0);
 }
 
 report();

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { Dividend, Trade } from '../types';
-import { upcomingDividends, yieldOnCost } from '../services/dividends';
+import { declaredIncome, upcomingDividends, yieldOnCost } from '../services/dividends';
 import { isDividendApiConfigured } from '../services/dividendApi';
 import { tradeCents, unitsOnExDate } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
@@ -38,6 +38,7 @@ const Row: React.FC<{ label: string; value: string; strong?: boolean }> = ({ lab
  */
 const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefresh, onBack }) => {
   const upcoming = useMemo(() => upcomingDividends(dividends, trades), [dividends, trades]);
+  const year = useMemo(() => declaredIncome(dividends, trades), [dividends, trades]);
 
   const paid = useMemo(
     () =>
@@ -122,6 +123,36 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, onRefres
             <p className="text-accent text-3xl font-black tracking-tight mt-1">{money(paidTotal)}</p>
             <p className="text-accent/60 text-[11px] font-bold mt-1">
               across {paid.length} payment{paid.length === 1 ? '' : 's'}
+            </p>
+          </div>
+        )}
+
+        {/*
+          Declared income only.
+
+          Every figure is a company's own announcement times the units the log
+          says were held — nothing annualised, nothing assumed to repeat. The
+          two halves are kept apart because they are not equally certain: once
+          the ex-date has passed the money is owed whatever happens next, while
+          before it the payment depends on still holding the shares that day.
+          One combined number would claim the second half is as settled as the
+          first.
+        */}
+        {year.rows.length > 0 && (
+          <div className="rounded-3xl glass p-5 mt-7">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
+                Declared, next 12 months
+              </p>
+              <p className="text-accent text-2xl font-black tabular-nums">{money(year.totalCents)}</p>
+            </div>
+            <div className="mt-4 space-y-2.5">
+              <Row label="Already yours — ex-date has passed" value={money(year.lockedCents)} />
+              <Row label="If you still hold on the ex-date" value={money(year.pendingCents)} />
+            </div>
+            <p className="text-slate-600 text-[11px] font-medium mt-4 leading-relaxed">
+              Only what has actually been announced. A counter that has declared nothing for a quarter
+              adds nothing here — this is not a forecast.
             </p>
           </div>
         )}

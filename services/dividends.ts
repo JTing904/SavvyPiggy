@@ -204,6 +204,48 @@ export const yieldOnCost = (trades: Trade[], symbol: string, now = Date.now()) =
 
   return { paidCents: paid, costCents, percent: Math.round((paid / costCents) * 1000) / 10 };
 };
+export interface DeclaredRow extends DueDividend {
+  /**
+   * The ex-date has arrived, so these units are already entitled: selling
+   * tomorrow does not take the payment away.
+   */
+  locked: boolean;
+}
+
+/**
+ * What the next twelve months will pay, counting only what has been declared.
+ *
+ * Every figure here comes from a company's own announcement — the per-unit
+ * amount, the ex-date, the pay date — multiplied by the units the trade log
+ * says were held. Nothing is annualised, extrapolated from last year, or
+ * assumed to repeat. A counter that has declared one dividend contributes one
+ * dividend, and a counter that has declared none contributes nothing at all.
+ *
+ * The split matters more than the total. Once the ex-date has passed the
+ * money is owed whatever happens next; before it, the payment only arrives if
+ * the shares are still held on the day. Presenting them as one number would
+ * claim a certainty the second half does not have.
+ */
+export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Date.now()) => {
+  const today = dayStart(now);
+  const start = new Date(today);
+  const horizon = new Date(start.getFullYear() + 1, start.getMonth(), start.getDate()).getTime();
+
+  const rows: DeclaredRow[] = upcomingDividends(dividends, trades, now)
+    .filter((r) => r.dividend.payDate < horizon)
+    // Nothing held on the ex-date, nothing owed — the same rule dueDividends
+    // applies, so the two lists never disagree about a counter.
+    .filter((r) => r.units > 0 && r.amountCents > 0)
+    .map((r) => ({ ...r, locked: r.dividend.exDate <= today }));
+
+  const sum = (only: boolean) =>
+    rows.filter((r) => r.locked === only).reduce((total, r) => total + r.amountCents, 0);
+
+  const lockedCents = sum(true);
+  const pendingCents = sum(false);
+  return { rows, lockedCents, pendingCents, totalCents: lockedCents + pendingCents };
+};
+
 /**
  * Dividends still to come, for the screen that lists them. Includes today's,
  * since a pay date arrives before the money does.

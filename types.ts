@@ -165,7 +165,14 @@ export interface Alert {
   /** `milestone` / `reached`: which goal, and where it stands. */
   bankId?: string;
   bankName?: string;
+  /**
+   * `reached`: the share the full goal still takes of every deposit.
+   * `milestone`: how far along it is — absent for a goal with no target,
+   * which has no percentage to be a percentage of.
+   */
   percent?: number;
+  /** `milestone`: the round amount the balance passed. */
+  reachedAmount?: number;
   /** `milestone`: what is still to go. `receipt`: the deposit's total. */
   amount?: number;
   /** `receipt`: what each goal received. */

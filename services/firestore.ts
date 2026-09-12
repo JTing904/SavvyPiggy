@@ -408,7 +408,7 @@ export const withdraw = async (
  */
 export const borrow = async (uid: string, amount: number, note = '') => {
   const cents = toCents(amount);
-  if (cents <= 0) throw new Error('Enter an amount to borrow.');
+  if (cents <= 0) throw new Error('Enter an amount to spend.');
 
   const loan = await addDoc(loansCol(uid), {
     amount: fromCents(cents),
@@ -692,6 +692,29 @@ export const creditDividend = async (
         outstanding: fromCents(left),
         settledAt: left === 0 ? now.toISOString() : null,
       });
+    });
+
+    /*
+      The marker the guard above reads, written in the same transaction as the
+      money it describes.
+
+      It was missing. The guard read a document nothing ever wrote, so the set
+      of credited dividends stayed empty forever: `dueDividends` kept reporting
+      this one as unpaid and the guard never short-circuited. The trade row
+      survived that, because its id is derived from the counter and ex-date and
+      a repeat just overwrote it — but the money did not. Every app open added
+      another activity, incremented the goals again, and re-applied the loan
+      repayments. A dividend was being paid in over and over.
+
+      Same transaction is the whole point: either the money moved and this says
+      so, or neither happened.
+    */
+    tx.set(creditedRef(uid, id), {
+      creditedAt: now.toISOString(),
+      symbol: dividend.symbol,
+      exDate: dividend.exDate,
+      units,
+      amountCents,
     });
 
     // This one the user did not type in, so it is worth telling them about

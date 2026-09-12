@@ -30,7 +30,7 @@ const TYPE_LABEL: Record<Activity['type'], string> = {
   'auto-save': 'Scheduled deposit',
   manual: 'Deposit',
   withdraw: 'Withdrawal',
-  borrow: 'Borrowed',
+  borrow: 'Spent ahead',
 };
 
 const TRADE_LABEL: Record<Trade['kind'], string> = {
@@ -251,7 +251,7 @@ export const renderStatement = ({
     { label: 'Saved into goals', value: money(summary.distributed), color: GREEN },
     { label: 'Spent from goals', value: money(summary.spent), color: INK },
     { label: 'Debt repaid', value: money(summary.repaid), color: INK },
-    { label: 'Borrowed', value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
+    { label: 'Spent ahead', value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
   ];
   const gap = 8 * SCALE;
   const panelWidth = (contentWidth - gap * (panels.length - 1)) / panels.length;

@@ -1,4 +1,12 @@
-import { formatTime, milestoneAlerts, parseTime, receiptAlert, staleAlerts, streakAlert } from '../services/alerts';
+import {
+  formatTime,
+  milestoneAlerts,
+  milestoneStep,
+  parseTime,
+  receiptAlert,
+  staleAlerts,
+  streakAlert,
+} from '../services/alerts';
 import { plannedNotifications } from '../services/notifications';
 import { nextOccurrence } from '../services/schedules';
 import type { Activity, Alert, PiggyBank, Schedule } from '../types';
@@ -37,18 +45,46 @@ const BANKS = [
   bank('idle', { name: 'Idle', targetAmount: 100, currentAmount: 99, splitPercentage: 0 }),
 ];
 
+// The step scales with what is already saved, so the cadence stays sane from
+// a first RM50 to a house deposit.
+eq('the step is a tenth, rounded down the 1-2-5 ladder', [
+  milestoneStep(8_000),        // RM80 -> RM50
+  milestoneStep(146_100),      // RM1,461 -> RM100
+  milestoneStep(1_200_000),    // RM12,000 -> RM1,000
+  milestoneStep(20_000_000),   // RM200,000 -> RM10,000
+], [5_000, 10_000, 100_000, 1_000_000]);
+eq('never finer than the first rung', [milestoneStep(0), milestoneStep(1), milestoneStep(49_900)], [5_000, 5_000, 5_000]);
+
+// Car: RM240 of RM1,000. A RM10 deposit lands on RM250, and at that balance
+// the step is RM50 — so RM250 is the line it passes.
 const cross = milestoneAlerts(BANKS, [{ bankId: 'car', cents: 1000, percentage: 50 }], NOW);
-eq('crossing 25% earns one card', cross.map((a) => [a.id, a.kind, a.percent, a.amount]), [['milestone_car_25', 'milestone', 25, 750]]);
+eq('passing a round amount earns one card',
+  cross.map((a) => [a.id, a.kind, a.reachedAmount]),
+  [['milestone_car_25000', 'milestone', 250]]);
 eq('card names the goal', cross[0].bankName, 'Car');
+eq('a goal with a target still says how far it has to go', [cross[0].percent, cross[0].amount], [25, 750]);
 
-eq('just under the line earns nothing', milestoneAlerts(BANKS, [{ bankId: 'car', cents: 999, percentage: 50 }], NOW).length, 0);
-eq('reaching the line counts', milestoneAlerts(BANKS, [{ bankId: 'car', cents: 1001, percentage: 50 }], NOW).length, 1);
+eq('stopping short of the line earns nothing',
+  milestoneAlerts(BANKS, [{ bankId: 'car', cents: 999, percentage: 50 }], NOW).length, 0);
+eq('landing exactly on it counts',
+  milestoneAlerts(BANKS, [{ bankId: 'car', cents: 1000, percentage: 50 }], NOW).length, 1);
 
-const jump = milestoneAlerts(BANKS, [{ bankId: 'car', cents: 40000, percentage: 50 }], NOW);
-eq('a big jump reports only the highest line', jump.map((a) => a.percent), [50]);
+// RM240 -> RM740 crosses RM250, RM300 ... RM700 at the RM50 step.
+const jump = milestoneAlerts(BANKS, [{ bankId: 'car', cents: 50000, percentage: 50 }], NOW);
+eq('a big deposit reports only the highest line', jump.map((a) => a.reachedAmount), [700]);
 
+// The whole point of the change: a goal with no finish line now gets cards.
+const open = milestoneAlerts(BANKS, [{ bankId: 'fun', cents: 100000, percentage: 50 }], NOW);
+eq('an open-ended goal passes round amounts too',
+  open.map((a) => [a.kind, a.reachedAmount]), [['milestone', 1000]]);
+eq('and has no percentage or distance, because it has no target',
+  [open[0].percent, open[0].amount], [undefined, undefined]);
+
+// PC: RM480 of RM500.
 const reached = milestoneAlerts(BANKS, [{ bankId: 'pc', cents: 2000, percentage: 20 }], NOW);
-eq('100% is a "reached" card carrying the share it still takes', reached.map((a) => [a.id, a.kind, a.percent, a.amount]), [['reached_pc', 'reached', 20, 500]]);
+eq('reaching the target is a "reached" card carrying the share it still takes',
+  reached.map((a) => [a.id, a.kind, a.percent, a.amount]), [['reached_pc', 'reached', 20, 500]]);
+eq('and it outranks any step crossed by the same deposit', reached.length, 1);
 
 const overflowed = milestoneAlerts(BANKS, [{ bankId: 'pc', cents: 2000, percentage: 20 }], NOW, true);
 eq('with overflow on there is nothing to reallocate by hand', [overflowed[0].percent, overflowed[0].overflow], [0, true]);
@@ -56,7 +92,6 @@ eq('with overflow on there is nothing to reallocate by hand', [overflowed[0].per
 const idle = milestoneAlerts(BANKS, [{ bankId: 'idle', cents: 100, percentage: 100 }], NOW);
 eq('a goal outside the split has nothing to reallocate', idle[0].percent, 0);
 
-eq('open-ended goals have no milestones', milestoneAlerts(BANKS, [{ bankId: 'fun', cents: 100000, percentage: 50 }], NOW), []);
 eq('spending never earns a milestone', milestoneAlerts(BANKS, [{ bankId: 'car', cents: -1000, percentage: 100 }], NOW), []);
 eq('unknown goals are skipped', milestoneAlerts(BANKS, [{ bankId: 'gone', cents: 1000, percentage: 100 }], NOW), []);
 

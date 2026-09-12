@@ -10,7 +10,7 @@ const STYLES: Record<ActivityType, { label: string; icon: string; tint: string; 
   'auto-save': { label: 'Scheduled deposit', icon: 'cycle', tint: 'bg-primary/10 text-primary', outgoing: false },
   manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
   withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
-  borrow: { label: 'Borrowed', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
 };
 
 interface ActivityLogProps {
@@ -395,7 +395,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                                 <span className="text-amber-400"> · {money(fromCents(day.repaid))} to debt</span>
                               )}
                               {day.borrowed > 0 && (
-                                <span className="text-amber-400"> · borrowed {money(fromCents(day.borrowed))}</span>
+                                <span className="text-amber-400"> · spent ahead {money(fromCents(day.borrowed))}</span>
                               )}
                             </p>
                           )}

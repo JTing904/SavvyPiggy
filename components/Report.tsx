@@ -203,7 +203,7 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
           <div className="mt-5 space-y-3">
             <Line label="Put in" value={arrived} />
             {summary.repaid > 0 && (
-              <Line label="Cleared what you had borrowed" value={-summary.repaid} muted />
+              <Line label="Covered earlier spending" value={-summary.repaid} muted />
             )}
             <Line label="Reached your goals" value={summary.distributed} rule strong />
 
@@ -213,7 +213,7 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
                 {summary.spent > 0 && summary.borrowed > 0 && (
                   <div className="pl-4 space-y-2">
                     <Line label="Out of a goal" value={-summary.spent} muted small />
-                    <Line label="Borrowed instead" value={-summary.borrowed} muted small />
+                    <Line label="Spent ahead" value={-summary.borrowed} muted small />
                   </div>
                 )}
               </>

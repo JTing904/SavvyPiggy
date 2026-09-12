@@ -162,15 +162,21 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         return (
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
-              A deposit pushed <span className="text-white font-bold">{a.bankName}</span> past {a.percent}% of its target.{' '}
-              <span className="text-primary font-bold">{formatMoney(a.amount ?? 0)}</span> left to go.
+              A deposit carried <span className="text-white font-bold">{a.bankName}</span> past{' '}
+              <span className="text-primary font-bold">{formatMoney(a.reachedAmount ?? 0)}</span>.
+              {a.amount !== undefined && (
+                <> {formatMoney(a.amount)} left to reach its target.</>
+              )}
             </p>
-            <div className="flex items-center gap-3 mt-3">
-              <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${a.percent}%` }} />
+            {/* Only a goal with a target has a bar to fill. */}
+            {a.percent !== undefined && (
+              <div className="flex items-center gap-3 mt-3">
+                <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${a.percent}%` }} />
+                </div>
+                <span className="text-white text-[11px] font-black">{a.percent}%</span>
               </div>
-              <span className="text-white text-[11px] font-black">{a.percent}%</span>
-            </div>
+            )}
           </>
         );
       case 'reached':
@@ -228,7 +234,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
       case 'receipt':
         return `Auto deposit posted (${formatMoney(a.amount ?? 0)})`;
       case 'milestone':
-        return `Milestone: ${a.bankName}`;
+        return `${a.bankName} passed ${formatMoney(a.reachedAmount ?? 0)}`;
       case 'reached':
         return `Goal reached: ${a.bankName}`;
       case 'streak':
@@ -420,7 +426,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-white font-bold text-sm">Milestones &amp; streaks</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">At 25, 50, 75 and 100% of a target, and on 7, 30, 100 and 365-day streaks.</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">Each time a goal passes a round amount or reaches its target, and on 7, 30, 100 and 365-day streaks.</p>
               </div>
               <Switch on={prefs.milestones} onChange={(milestones) => onSavePrefs({ milestones })} />
             </div>
