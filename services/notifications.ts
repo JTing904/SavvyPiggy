@@ -15,8 +15,6 @@ import { formatMoney } from '../services/money';
 
 export const REMINDER_ID = 1;
 export const DIGEST_ID = 2;
-/** Reserved for the "is this working?" test, so it never collides with a real one. */
-const TEST_ID = 99;
 /**
  * Alarm ids come from the thing they are about, not its place in a list.
  * They used to be `DUE_BASE + index`: deleting one rule silently re-pointed
@@ -114,38 +112,6 @@ export const requestExactAlarms = async () => {
     return (await exactAllowed());
   } catch {
     return false;
-  }
-};
-
-/**
- * Posts one notification a few seconds out, so "is this thing on?" has an
- * answer that does not involve waiting until 8pm.
- */
-export const sendTestNotification = async () => {
-  if (!native()) return false;
-  if ((await checkPermission()) !== 'granted') return false;
-  await ensureChannel();
-  const at = new Date(Date.now() + 5_000);
-  await LocalNotifications.schedule({
-    notifications: [{
-      id: TEST_ID,
-      title: 'SavvyPiggy notifications are working',
-      body: 'This is the test you asked for. Your real reminders will look like this.',
-      channelId: CHANNEL_ID,
-      schedule: { at, allowWhileIdle: true },
-      extra: { open: 'home' satisfies OpenTarget },
-    }],
-  });
-  return true;
-};
-
-/** What the phone is actually holding right now — the honest answer. */
-export const pendingNotifications = async () => {
-  if (!native()) return [];
-  try {
-    return (await LocalNotifications.getPending()).notifications;
-  } catch {
-    return [];
   }
 };
 
@@ -297,7 +263,7 @@ export const syncNotifications = async (
   // Anything the phone holds that is no longer planned goes, except the test
   // notification, which is nobody's business but the person who asked for it.
   const wanted = new Set(planned.map((n) => n.id));
-  const stale = pending.notifications.filter((n) => !wanted.has(n.id) && n.id !== TEST_ID);
+  const stale = pending.notifications.filter((n) => !wanted.has(n.id));
 
   if (stale.length === 0 && changed.length === 0) return;
   if (stale.length > 0) {

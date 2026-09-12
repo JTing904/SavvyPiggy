@@ -6,7 +6,6 @@ import {
   exactAlarmAllowed,
   requestExactAlarms,
   requestPermission,
-  sendTestNotification,
   type Permission,
 } from '../services/notifications';
 import { formatMoney } from '../services/money';
@@ -80,7 +79,6 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
   const [filter, setFilter] = useState<Filter>('all');
   const [permission, setPermission] = useState<Permission>('unsupported');
   const [exact, setExact] = useState(true);
-  const [tested, setTested] = useState<string | null>(null);
   const now = new Date();
 
   // Checked again every time the screen comes back into view. It used to be
@@ -137,14 +135,6 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
     }
     if (state === 'denied') return;
     onSavePrefs(patch);
-  };
-
-  const test = async () => {
-    setTested(
-      (await sendTestNotification())
-        ? 'Sent — it should appear in about five seconds.'
-        : 'Could not send it. Notifications are still blocked.'
-    );
   };
 
   const blocked = permission === 'denied';
@@ -359,28 +349,6 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             >
               Allow exact alarms
             </button>
-          </div>
-        )}
-
-        {/* "Is this thing on?" deserves an answer that isn't "wait until 8pm". */}
-        {permission !== 'unsupported' && (
-          <div className="rounded-[2rem] glass p-5">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-rounded text-slate-400 shrink-0">notifications_active</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-white text-sm font-black">Check it works</p>
-                <p className="text-slate-500 text-[11px] font-medium mt-0.5 leading-relaxed">
-                  {tested ?? 'Sends one notification now, so you can see it arrive.'}
-                </p>
-              </div>
-              <button
-                onClick={() => void test()}
-                disabled={blocked}
-                className="shrink-0 h-10 px-4 rounded-2xl bg-white/5 border border-white/10 text-slate-300 font-black text-xs active:scale-95 transition-transform disabled:opacity-40"
-              >
-                Send
-              </button>
-            </div>
           </div>
         )}
 
