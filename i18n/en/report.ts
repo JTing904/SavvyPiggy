@@ -58,7 +58,7 @@ export const report = {
   outOfGoal: 'Out of a goal',
   goalsGrewBy: 'Your goals grew by',
   borrowNote:
-    'Borrowing never touches a goal. Your next deposits clear it before anything reaches them, which is why what you put in and what your goals grew by are different numbers.',
+    'Spending ahead never touches a goal. Your next deposits cover it before anything reaches them, which is why what you put in and what your goals grew by are different numbers.',
 
   allocation: 'Piggy Allocation',
   allocationHint: "How this period's deposits were split.",

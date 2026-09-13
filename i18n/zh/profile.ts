@@ -63,7 +63,7 @@ export const profile: typeof English = {
   statementsExports: '月结单与导出',
   statementsHint: '每月一份月结单，PDF 或电子表格',
   amountsInRM: '金额以 RM 显示',
-  amountsHint: '整个 app 都用令吉格式和 12 小时制',
+  amountsHint: '整个 app 统一用令吉格式',
   synced: '已同步到 Firebase',
   syncedHint: '修改会立即同步到你所有的设备',
   adding: '添加中…',
