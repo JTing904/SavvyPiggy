@@ -7,11 +7,16 @@ import DonutChart, { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useT } from '../contexts/LanguageContext';
+import MoveGoalMoneySheet from './MoveGoalMoneySheet';
+import { toCents } from '../services/money';
+import type { GoalMoneyChoice } from '../services/ledger';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
   onUpdateBanks: (banks: PiggyBank[]) => void;
-  onDeleteBank: (id: string) => void;
+  /** `choice` says where a goal's money goes; null only for an empty goal. */
+  onDeleteBank: (id: string, choice: GoalMoneyChoice | null) => void;
+  onArchiveBank: (id: string) => void;
   onAddGoal: () => void;
   scheduleCount: number;
   onOpenAutoDeposits: () => void;
@@ -114,6 +119,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   banks,
   onUpdateBanks,
   onDeleteBank,
+  onArchiveBank,
   onAddGoal,
   scheduleCount,
   onOpenAutoDeposits,
@@ -123,6 +129,8 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   const t = useT();
   const confirm = useConfirm();
   const [draft, setDraft] = useState<Draft>({});
+  /** The goal being deleted while it still holds money. */
+  const [moving, setMoving] = useState<PiggyBank | null>(null);
   const [order, setOrder] = useSortOrder('savvypiggy.sort.strategy');
 
   const localBanks = banks.map((b) => ({ ...b, ...draft[b.id] }));
@@ -165,6 +173,11 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
   const handleDelete = async (id: string) => {
     const bank = localBanks.find((b) => b.id === id);
+    // A goal with money in it asks where the money goes; that sheet is the confirmation.
+    if (bank && toCents(bank.currentAmount) !== 0) {
+      setMoving(bank);
+      return;
+    }
     const ok = await confirm({
       title: t.goals.deleteTitle(bank?.name),
       body: t.goals.deleteBody,
@@ -178,9 +191,26 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
       },
     });
     if (!ok) return;
-    onDeleteBank(id);
+    onDeleteBank(id, null);
     setDraft(({ [id]: _removed, ...rest }) => rest);
   };
+
+  const moveSheet = moving && (
+    <MoveGoalMoneySheet
+      bank={moving}
+      banks={banks}
+      onConfirm={(choice) => {
+        onDeleteBank(moving.id, choice);
+        setDraft(({ [moving.id]: _removed, ...rest }) => rest);
+        setMoving(null);
+      }}
+      onArchive={() => {
+        onArchiveBank(moving.id);
+        setMoving(null);
+      }}
+      onClose={() => setMoving(null)}
+    />
+  );
 
   const sorted = sortBanks(localBanks, order);
   const slices = inSplit.map((b) => ({ id: b.id, value: b.splitPercentage, color: colorOf(b.id) }));
@@ -452,6 +482,8 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
           </div>
         </div>
       </div>
+
+      {moveSheet}
     </div>
   );
 };

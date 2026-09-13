@@ -5,6 +5,7 @@ import {
   isFull,
   isInSplit,
   planDeposit,
+  planGoalRemoval,
   planWithdrawal,
   totalDebtCents,
 } from '../services/ledger';
@@ -223,6 +224,38 @@ eq('total debt across open loans', totalDebtCents([loan('a', 1.5), loan('b', 2.2
     splitByPercentage(10000, over).reduce((sum, sh) => sum + sh.cents, 0), 10000);
   eq('and the extra cent comes off the biggest share',
     splitByPercentage(10000, over).map((sh) => sh.cents), [313, 9687]);
+}
+
+// --- deleting a goal keeps its money
+
+{
+  // vacation 30% RM24, emergency 50% RM50, tech 20% RM8
+  const plan = (choice: Parameters<typeof planGoalRemoval>[2], banks = BANKS, id = 'tech') => planGoalRemoval(banks, id, choice);
+
+  eq('a goal with money cannot go without saying where', plan(null), { problem: 'needsChoice' });
+  {
+    const out = plan({ mode: 'goal', goalId: 'emergency' });
+    eq('into one goal: all of it', 'plan' in out ? out.plan.movements : null, [{ bankId: 'emergency', cents: 800, percentage: 100 }]);
+    eq('its share of deposits is handed on, and still adds to 100', 'plan' in out ? out.plan.strategy.reduce((s, b) => s + b.splitPercentage, 0) : 0, 100);
+    eq('the deleted goal is gone from the strategy', 'plan' in out ? out.plan.strategy.some((b) => b.id === 'tech') : true, false);
+  }
+  {
+    const out = plan({ mode: 'split' });
+    const moved = 'plan' in out ? out.plan.movements.reduce((s, m) => s + m.cents, 0) : 0;
+    eq('split: every sen lands somewhere', moved, 800);
+    eq('split: only the goals that remain take a share', 'plan' in out ? out.plan.movements.map((m) => m.bankId).sort() : [], ['emergency', 'vacation']);
+  }
+  eq('an empty goal needs no choice', plan(null, [bank('a', 50, 10), bank('b', 50, 0)], 'b'), {
+    plan: { cents: 0, movements: [], strategy: [{ ...bank('a', 100, 10) }] },
+  });
+  eq('a goal cannot move its money into itself', plan({ mode: 'goal', goalId: 'tech' }), { problem: 'noDestination' });
+  {
+    const overspent = [bank('a', 50, 10), bank('b', 50, -5)];
+    eq('an overspent goal cannot split its shortfall', plan({ mode: 'split' }, overspent, 'b'), { problem: 'negativeSplit' });
+    const out = plan({ mode: 'goal', goalId: 'a' }, overspent, 'b');
+    eq('...but one goal can take it on', 'plan' in out ? out.plan.movements : null, [{ bankId: 'a', cents: -500, percentage: 100 }]);
+  }
+  eq('the last goal has nowhere to put its money', plan({ mode: 'split' }, [bank('only', 100, 10)], 'only'), { problem: 'noDestination' });
 }
 
 report();

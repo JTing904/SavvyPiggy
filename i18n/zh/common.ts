@@ -23,6 +23,7 @@ export const common: typeof English = {
     borrow: '预支',
     invest: '买股',
     divest: '卖股所得',
+    transfer: '转入',
   },
 
   categories: {
@@ -41,6 +42,7 @@ export const common: typeof English = {
   },
 
   dividendNote: (name) => `${name} 股息`,
+  movedFrom: (label, goal) => `${label} · 来自「${goal}」`,
   units: (n) => `${n} 股`,
   goal: '钱罐',
   goals: '钱罐',

@@ -35,6 +35,7 @@ const typeLabels = (): Record<Activity['type'], string> => ({
   borrow: m().common.activity.borrow,
   invest: m().common.activity.invest,
   divest: m().common.activity.divest,
+  transfer: m().common.activity.transfer,
 });
 
 const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
@@ -349,7 +350,11 @@ export const renderStatement = ({
           { text: signed(outgoing ? -a.amount : a.amount), color: trade ? INK : outgoing ? RED : GREEN },
           parts.join(', ') || '—',
           a.type === 'withdraw' ? categoryOf(a.category).label : '',
-          trade && a.counter ? f.tradeNote(TYPE_LABEL[a.type], a.counter) : noteText(a.note ?? ''),
+          trade && a.counter
+            ? f.tradeNote(TYPE_LABEL[a.type], a.counter)
+            : a.type === 'transfer' && a.fromGoal
+              ? m().common.movedFrom(TYPE_LABEL[a.type], a.fromGoal)
+              : noteText(a.note ?? ''),
         ];
       })
     );

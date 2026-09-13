@@ -18,6 +18,7 @@ const STYLES: Record<
   borrow: { label: 'borrow', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
   invest: { label: 'invest', icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
   divest: { label: 'divest', icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
+  transfer: { label: 'transfer', icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
 };
 
 interface ActivityLogProps {
@@ -46,9 +47,10 @@ const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
 
 /** What was saved and what was spent, in cents. A sale's proceeds are shares
     coming back rather than saving, and a purchase is not spending. */
-const inflow = (a: Activity) => (a.type === 'divest' ? 0 : credited(a));
+// A deleted goal's money moving into another goal is neither, either.
+const inflow = (a: Activity) => (a.type === 'divest' || a.type === 'transfer' ? 0 : credited(a));
 const outflow = (a: Activity) =>
-  a.type === 'invest' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
+  a.type === 'invest' || a.type === 'transfer' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
 
 /** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
 const sharesCents = (a: Activity) =>
@@ -169,7 +171,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
 
   /** Only a plain split can be re-derived from its percentages. Anything that
       moved money out, or paid down a loan, has to be deleted and redone. */
-  const canEdit = (activity: Activity) => !isTrade(activity) && !STYLES[activity.type].outgoing && !activity.repaid;
+  const canEdit = (activity: Activity) =>
+    !isTrade(activity) && activity.type !== 'transfer' && !STYLES[activity.type].outgoing && !activity.repaid;
 
   /** How a trade's row opens its trade, or null when it cannot be opened from here. */
   const tradeOpener = (activity: Activity) => {
@@ -278,7 +281,9 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
     const title =
       trade && activity.counter
         ? t.history.tradeTitle(label, activity.counter)
-        : (activity.note && noteText(activity.note)) || label;
+        : activity.type === 'transfer' && activity.fromGoal
+          ? t.common.movedFrom(label, activity.fromGoal)
+          : (activity.note && noteText(activity.note)) || label;
     const detail = trade ? tradeDetail(activity) : '';
     return (
       <div className={boxed ? '' : 'pt-3 mt-1 border-t border-white/5'}>
@@ -321,7 +326,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             tradeOpener(activity) && (
               <span className="material-symbols-rounded text-base text-slate-600 shrink-0">chevron_right</span>
             )
-          ) : editingId === activity.id ? (
+          ) : activity.type === 'transfer' ? null : editingId === activity.id ? (
             <>
               <input
                 autoFocus

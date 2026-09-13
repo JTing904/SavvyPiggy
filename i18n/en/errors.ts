@@ -27,6 +27,11 @@ export const errors = {
     newTech: 'New Tech',
   },
   /** Why a trade's money could not move. The sheet usually asks instead of showing these. */
+  goalRemoval: {
+    needsChoice: 'This goal still holds money. Choose where it goes before deleting it.',
+    noDestination: 'There is no other goal to move this money into.',
+    negativeSplit: 'An overspent goal can only hand its shortfall to one goal.',
+  },
   tradeMoney: {
     goalGone: 'The goal this was paid from no longer exists. Choose where the money goes back.',
     rowGone: 'This sale’s entry has been cleared from History, so its split can no longer be undone exactly.',

@@ -72,6 +72,8 @@ interface TradeSheetProps {
   onDone: (message: string) => void;
   /** Opens broker settings (from the fee-mismatch prompt or a "Change" link next to the fees). */
   onEditBroker: () => void;
+  /** Opens goal creation, for a sale that has nowhere to put its money yet. */
+  onCreateGoal?: () => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
@@ -132,6 +134,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   onClose,
   onDone,
   onEditBroker,
+  onCreateGoal,
 }) => {
   const confirm = useConfirm();
   const t = useT();
@@ -385,8 +388,19 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     }
   };
 
+  /**
+   * A sale's money always has to land somewhere the app can see: a goal, or
+   * split like a deposit. "Not into a goal" left it existing nowhere — the
+   * holding shrank and no balance grew. It stays only for a sale recorded
+   * before this rule, whose money may already have been deposited by hand;
+   * forcing it into a goal now would count that money twice.
+   */
+  const legacyNone = !!editing && editing.kind === 'sell' && (!editing.money || editing.money.mode === 'none');
+  const needsChoice = kind === 'sell' && choice.mode === 'none' && !legacyNone;
+  const hasDestination = banks.some((b) => !b.archivedAt);
+
   const blocked = preview && 'problem' in preview.result ? describe(preview.result.problem) : null;
-  const canSave = ready && !busy && !blocked;
+  const canSave = ready && !busy && !blocked && !needsChoice;
 
   const fail = (e: unknown, removing: boolean) => {
     setBusy(false);
@@ -516,7 +530,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     const ids = Object.keys(plan.bankDeltas).filter((id) => banks.some((b) => b.id === id));
     if (choice.mode === 'goal' && !ids.includes(choice.goalId)) ids.unshift(choice.goalId);
     if (choice.mode === 'goal') ids.sort((a, b) => (a === choice.goalId ? -1 : b === choice.goalId ? 1 : 0));
-    if (ids.length === 0) return <Line label={t.invest.yourGoals} value={t.invest.unchanged} />;
+    // A sale with no destination picked yet is not "unchanged" — it cannot be saved at all.
+    if (ids.length === 0) return needsChoice ? null : <Line label={t.invest.yourGoals} value={t.invest.unchanged} />;
     return ids.map((id) => {
       const bank = banks.find((b) => b.id === id);
       const now = toCents(bank?.currentAmount ?? 0);
@@ -782,15 +797,34 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     onClick={() => setChoice({ mode: 'split' })}
                   />
                 )}
-                <ChoiceRow
-                  icon="block"
-                  tone="none"
-                  label={kind === 'buy' ? t.common.notFromGoal : t.invest.notIntoGoal}
-                  sub={kind === 'buy' ? t.invest.notFromGoalSub : t.invest.notIntoGoalSub}
-                  on={choice.mode === 'none'}
-                  onClick={() => setChoice({ mode: 'none' })}
-                />
+                {(kind === 'buy' || legacyNone) && (
+                  <ChoiceRow
+                    icon="block"
+                    tone="none"
+                    label={kind === 'buy' ? t.common.notFromGoal : t.invest.notIntoGoal}
+                    sub={kind === 'buy' ? t.invest.notFromGoalSub : t.invest.notIntoGoalLegacySub}
+                    on={choice.mode === 'none'}
+                    onClick={() => setChoice({ mode: 'none' })}
+                  />
+                )}
               </div>
+              {needsChoice && hasDestination && (
+                <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWhereSaleGoes}</p>
+              )}
+              {needsChoice && !hasDestination && (
+                <div className="mt-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
+                  <p className="text-amber-200/90 text-[11px] font-bold leading-relaxed">{t.invest.noGoalForSale}</p>
+                  {onCreateGoal && (
+                    <button
+                      type="button"
+                      onClick={onCreateGoal}
+                      className="mt-1.5 text-accent text-xs font-black active:scale-95 transition-transform"
+                    >
+                      {t.invest.createGoal}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {outcome && ready && (

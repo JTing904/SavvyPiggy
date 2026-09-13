@@ -37,6 +37,7 @@ import { useQuotes } from './hooks/useQuotes';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
+import type { GoalMoneyChoice } from './services/ledger';
 import { staleAlerts, streakAlert } from './services/alerts';
 import { onNotificationOpen, syncNotifications } from './services/notifications';
 
@@ -308,6 +309,9 @@ const App: React.FC = () => {
   const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
     if (uid) await api.createBank(uid, newGoal);
     setShowCreateGoal(false);
+    // A goal can be started from the investing side (a sale with nowhere to go);
+    // the goals page belongs to saving, so its tab bar has to come with it.
+    setMode('save');
     setActiveTab(Tab.BANKS);
   };
 
@@ -331,8 +335,8 @@ const App: React.FC = () => {
     if (uid) run(() => api.saveStrategy(uid, updated));
   };
 
-  const handleDeleteBank = (id: string) => {
-    if (uid) run(() => api.deleteBank(uid, id));
+  const handleDeleteBank = (id: string, choice: GoalMoneyChoice | null) => {
+    if (uid) run(() => api.deleteBank(uid, banks, id, choice, savings));
   };
 
   const handleDeleteActivity = (id: string) => {
@@ -546,6 +550,7 @@ const App: React.FC = () => {
             banks={activeBanks}
             onUpdateBanks={handleSaveStrategy}
             onDeleteBank={handleDeleteBank}
+            onArchiveBank={handleArchiveBank}
             onAddGoal={() => setShowCreateGoal(true)}
             scheduleCount={schedules.filter((s) => s.enabled).length}
             onOpenAutoDeposits={() => setShowAutoDeposits(true)}
@@ -573,6 +578,7 @@ const App: React.FC = () => {
             savings={savings}
             invest={invest}
             onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
+            onCreateGoal={() => setShowCreateGoal(true)}
             onBack={() => setActiveTab(Tab.HOME)}
           />
         );
@@ -680,6 +686,10 @@ const App: React.FC = () => {
           onClose={() => setTradeDraft(null)}
           onDone={() => undefined}
           onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
+          onCreateGoal={() => {
+            setTradeDraft(null);
+            setShowCreateGoal(true);
+          }}
         />
       )}
 

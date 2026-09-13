@@ -24,7 +24,7 @@ import type { FeeKey, SecurityType, TradeFees } from './services/fees';
  * coming back into them. Neither is spending or saving — the report keeps them
  * on their own lines — and both belong to a trade, which is where they are edited.
  */
-export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest';
+export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer';
 
 export interface Activity {
   id: string;
@@ -51,6 +51,11 @@ export interface Activity {
   tradeId?: string;
   counter?: string;
   units?: number;
+  /**
+   * `transfer`: the name of the goal that was deleted and whose money moved
+   * here. Kept as the name, because the goal itself no longer exists.
+   */
+  fromGoal?: string;
 }
 
 /** Money taken out of the goals that future income is expected to put back. */

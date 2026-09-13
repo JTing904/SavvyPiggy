@@ -26,6 +26,7 @@ export const common = {
     borrow: 'Spent ahead',
     invest: 'Invested',
     divest: 'Sale proceeds',
+    transfer: 'Moved in',
   },
 
   /** Spending categories, by their stored key. */
@@ -45,6 +46,8 @@ export const common = {
   } as Record<string, string>,
 
   dividendNote: (name: string) => `${name} dividend`,
+  /** A History row for money moved out of a goal that was deleted. */
+  movedFrom: (label: string, goal: string) => `${label} · from ${goal}`,
   units: (n: string) => `${n} units`,
   goal: 'goal',
   goals: 'Goals',

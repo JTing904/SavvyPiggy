@@ -184,11 +184,11 @@ export interface Summary {
  * rather than money saved, so it counts neither here nor towards a streak.
  */
 export const inflowCents = (a: Activity) =>
-  a.type === 'divest' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
+  a.type === 'divest' || a.type === 'transfer' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
 
 /** What was spent out of goals. Buying shares is not spending, so it is left out. */
 const outflowCents = (a: Activity) =>
-  a.type === 'invest' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+  a.type === 'invest' || a.type === 'transfer' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
 
 const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
 
@@ -284,6 +284,8 @@ export const summarize = (
       invested += movedCents(a);
       continue;
     }
+    // A deleted goal's money moving into another goal changes nothing overall.
+    if (a.type === 'transfer') continue;
     if (a.type === 'divest') {
       cameBack += movedCents(a) + toCents(a.repaid ?? 0);
       cameBackToGoals += movedCents(a);

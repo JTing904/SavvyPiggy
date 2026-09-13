@@ -17,6 +17,7 @@ interface TradesProps {
   savings: SavingsSettings;
   invest: InvestSettings;
   onEditBroker: () => void;
+  onCreateGoal?: () => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
@@ -60,7 +61,7 @@ const TAG: Record<Trade['kind'], { className: string; amountClass: string }> = {
  * lines, so correcting a wrong number here fixes that line and leaves the
  * rest of the history — and any dividend already worked out from it — alone.
  */
-const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks, loans, savings, invest, onEditBroker }) => {
+const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks, loans, savings, invest, onEditBroker, onCreateGoal }) => {
   const t = useT();
   const [draft, setDraft] = useState<TradeDraft | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -167,6 +168,7 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks,
           onClose={() => setDraft(null)}
           onDone={say}
           onEditBroker={onEditBroker}
+          onCreateGoal={onCreateGoal}
         />
       )}
     </div>

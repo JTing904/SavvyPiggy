@@ -26,6 +26,7 @@ const typeLabels = (): Record<Activity['type'], string> => ({
   borrow: m().common.activity.borrow,
   invest: m().common.activity.invest,
   divest: m().common.activity.divest,
+  transfer: m().common.activity.transfer,
 });
 
 const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
@@ -85,7 +86,13 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
         TYPE_LABEL[a.type] ?? a.type,
         money(a.amount),
         a.repaid ? money(a.repaid) : null,
-        trade ? f.tradeNote(TYPE_LABEL[a.type], a.counter!) : a.note == null ? null : noteText(a.note),
+        trade
+          ? f.tradeNote(TYPE_LABEL[a.type], a.counter!)
+          : a.type === 'transfer' && a.fromGoal
+            ? m().common.movedFrom(TYPE_LABEL[a.type], a.fromGoal)
+            : a.note == null
+              ? null
+              : noteText(a.note),
         a.type === 'withdraw' ? categoryOf(a.category).label : null,
         ...perBank,
         ...(orphaned ? [other === 0 ? null : money(other)] : []),

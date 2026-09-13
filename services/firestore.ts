@@ -31,7 +31,7 @@ import { m as messages } from '../i18n';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
 import { fromCents, splitByPercentage, toCents } from './money';
-import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planWithdrawal, type Movement } from './ledger';
+import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 
 export { isInSplit, isArchived, isFull } from './ledger';
@@ -311,7 +311,43 @@ export const saveStrategy = async (uid: string, banks: PiggyBank[]) => {
 export const updateBank = (uid: string, id: string, patch: Partial<PiggyBank>) =>
   updateDoc(bankRef(uid, id), patch);
 
-export const deleteBank = (uid: string, id: string) => deleteDoc(bankRef(uid, id));
+/**
+ * Deletes a goal and moves whatever it held — see planGoalRemoval. One batch:
+ * the goal, each receiving balance, the handed-on split, and a single
+ * "moved in" History row so the receiving goal's jump in balance can be read.
+ */
+export const deleteBank = async (
+  uid: string,
+  banks: PiggyBank[],
+  id: string,
+  choice: GoalMoneyChoice | null,
+  savings: SavingsSettings = DEFAULT_SAVINGS
+) => {
+  const result = planGoalRemoval(banks, id, choice, savings.overflow);
+  if ('problem' in result) throw new Error(messages().errors.goalRemoval[result.problem]);
+  const { cents, movements, strategy } = result.plan;
+  const target = banks.find((b) => b.id === id);
+
+  const batch = writeBatch(db);
+  for (const bank of strategy) {
+    const before = banks.find((b) => b.id === bank.id);
+    if (before && before.splitPercentage !== bank.splitPercentage) {
+      batch.update(bankRef(uid, bank.id), { splitPercentage: bank.splitPercentage });
+    }
+  }
+  movements.forEach((m) => batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) }));
+  if (cents !== 0) {
+    batch.set(doc(activitiesCol(uid)), {
+      type: 'transfer' satisfies ActivityType,
+      date: new Date().toISOString(),
+      amount: fromCents(Math.abs(cents)),
+      distributions: toDistributions(movements),
+      fromGoal: target?.name ?? '',
+    });
+  }
+  batch.delete(bankRef(uid, id));
+  await batch.commit();
+};
 
 /**
  * Puts a finished goal away. Its money and its history stay exactly where they

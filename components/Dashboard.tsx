@@ -28,6 +28,7 @@ const activityLabel = (t: Messages, type: ActivityType) =>
     borrow: t.common.activity.borrow,
     invest: t.common.activity.invest,
     divest: t.common.activity.divest,
+    transfer: t.common.activity.transfer,
   })[type];
 
 const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoing: boolean }> = {
@@ -37,6 +38,7 @@ const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoi
   borrow: { icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
   invest: { icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
   divest: { icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
+  transfer: { icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
 };
 
 interface DashboardProps {
@@ -554,7 +556,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                   ? activity.counter
                     ? t.home.tradeRow(activityLabel(t, activity.type), activity.counter)
                     : activityLabel(t, activity.type)
-                  : (activity.note && noteText(activity.note)) || activityLabel(t, activity.type);
+                  : activity.type === 'transfer' && activity.fromGoal
+                    ? t.common.movedFrom(activityLabel(t, activity.type), activity.fromGoal)
+                    : (activity.note && noteText(activity.note)) || activityLabel(t, activity.type);
                 return (
                   <div
                     key={activity.id}

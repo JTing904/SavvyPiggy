@@ -26,6 +26,11 @@ export const errors: typeof English = {
     emergencyFund: '应急基金',
     newTech: '新电子产品',
   },
+  goalRemoval: {
+    needsChoice: '这个钱罐里还有钱。删掉之前先选钱要搬去哪里。',
+    noDestination: '没有别的钱罐可以把钱搬过去。',
+    negativeSplit: '超支的钱罐只能把欠的钱转给一个钱罐。',
+  },
   tradeMoney: {
     goalGone: '当初出钱的钱罐已经不在了。请选择钱要退回哪里。',
     rowGone: '这笔卖出的记录已经被清理，没办法准确撤回当时的分配。',
