@@ -289,6 +289,12 @@ export interface SavingsSettings {
   retentionMonths: number | null;
   /** True once the automatic clearing has been shown and accepted. */
   retentionAcknowledged: boolean;
+  /**
+   * ISO date: the window cutoff the Statements screen last showed, with every
+   * month before it listed as about to be cleared. Only records older than
+   * this may be deleted; absent means nothing has been shown yet.
+   */
+  retentionAcknowledgedCutoff?: string;
 }
 
 export interface NotificationPrefs {

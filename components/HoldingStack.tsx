@@ -3,8 +3,7 @@ import type { Holding } from '../types';
 import {
   averageCostCents,
   dayChangeCents,
-  gain,
-  marketValueCents,
+  quoteValueCents,
   type Quotes,
 } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
@@ -60,7 +59,12 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
         // With no price the position is worth what was paid for it, which
         // beats rendering a zero and making money look like it vanished.
         const priceNow = quote?.priceCents ?? Math.round(averageCostCents(holding));
-        const position = gain(holding, priceNow);
+        // Valued in points, so a half-sen price is not rounded down per unit.
+        const valueNow = quote ? quoteValueCents(holding, quote) : holding.costCents;
+        const position = {
+          cents: valueNow - holding.costCents,
+          percent: holding.costCents > 0 ? Math.round(((valueNow - holding.costCents) / holding.costCents) * 1000) / 10 : 0,
+        };
         const day = quote ? dayChangeCents(holding, quote) : 0;
         const color = SLICE_COLORS[index % SLICE_COLORS.length];
 
@@ -124,7 +128,7 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
                   {t.home.stack.marketValue}{quote && day !== 0 ? ` · ${t.home.stack.today(money(day, { signed: true }))}` : ''}
                 </span>
                 <div className="flex-1" />
-                <span className="text-sm font-black">{money(marketValueCents(holding, priceNow))}</span>
+                <span className="text-sm font-black">{money(valueNow)}</span>
               </div>
 
               {open && (

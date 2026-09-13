@@ -45,6 +45,10 @@ export const files = {
   counter: 'Counter',
   units: 'Units',
   perUnit: 'Per unit',
+  /** A trade's three money figures: before fees, the fees, and what actually moved. */
+  tradeValue: 'Value',
+  fees: 'Fees',
+  tradeTotal: 'Total',
   positionsHeading: 'Positions at the end of the period',
   avgCost: 'Avg cost',
   cost: 'Cost',
@@ -63,6 +67,8 @@ export const files = {
   savingsBlock: 'SAVINGS',
   investmentsBlock: 'INVESTMENTS',
   positionsBlock: 'POSITIONS AT MONTH END',
+  positionsPricesAsOf: (date: string) =>
+    `Units and cost are as at month end. Market value and gain use prices as of ${date}, when this file was made — the app keeps no price history.`,
   noRecordsThisMonth: 'No records this month',
   noTradesThisMonth: 'No trades this month',
   name: 'Name',

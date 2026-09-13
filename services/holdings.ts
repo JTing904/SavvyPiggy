@@ -17,6 +17,8 @@ export interface Quote {
   /** The same price in ten-thousandths of a ringgit, which keeps half-sen prices (RM0.345) exact. */
   pricePoints?: number;
   previousCloseCents: number;
+  /** The previous close in points, for the same reason. Absent on quotes cached before it existed. */
+  previousClosePoints?: number;
   /** Epoch ms of the exchange's own timestamp, not of our request. */
   at: number;
 }
@@ -56,6 +58,7 @@ export const parseQuote = (payload: unknown): Quote | null => {
     priceCents: toCents(price),
     pricePoints: Math.round(price * 10_000),
     previousCloseCents: toCents(Number.isFinite(previous) && previous > 0 ? previous : price),
+    previousClosePoints: Math.round((Number.isFinite(previous) && previous > 0 ? previous : price) * 10_000),
     at: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : Date.now(),
   };
 };
@@ -68,6 +71,26 @@ export const averageCostCents = (holding: Pick<Holding, 'units' | 'costCents'>) 
 export const marketValueCents = (holding: Pick<Holding, 'units'>, priceCents: number) =>
   holding.units * priceCents;
 
+/** A quote's price in points, whichever way it was cached. */
+export const quotePricePoints = (quote: Pick<Quote, 'priceCents' | 'pricePoints'>) =>
+  quote.pricePoints ?? quote.priceCents * 100;
+
+/**
+ * What a number of units is worth at a price in points, in whole sen.
+ *
+ * Valuing at `priceCents` rounded every half-sen price down before
+ * multiplying: 1,000 units of a RM0.345 counter showed as RM340, not RM345.
+ * Multiplying in points first keeps it exact, and only the final fraction of
+ * a sen — possible on an odd lot — is dropped. Down, not to the nearest as a
+ * contract note's value is (fees.ts `valueCents`): this is what a holding is
+ * worth, and the app never rounds a worth up.
+ */
+export const pointsValueCents = (units: number, pricePoints: number) => Math.floor((units * pricePoints) / 100);
+
+/** A position's value at a live quote. */
+export const quoteValueCents = (holding: Pick<Holding, 'units'>, quote: Pick<Quote, 'priceCents' | 'pricePoints'>) =>
+  pointsValueCents(holding.units, quotePricePoints(quote));
+
 /** Paper gain against what was actually paid. */
 export const gain = (holding: Pick<Holding, 'units' | 'costCents'>, priceCents: number) => {
   const cents = marketValueCents(holding, priceCents) - holding.costCents;
@@ -79,7 +102,11 @@ export const gain = (holding: Pick<Holding, 'units' | 'costCents'>, priceCents: 
 
 /** Today's move on the position, from the previous close. */
 export const dayChangeCents = (holding: Pick<Holding, 'units'>, quote: Quote) =>
-  holding.units * (quote.priceCents - quote.previousCloseCents);
+  // In points only when both prices have them: a live price in points against
+  // a close cached in sen would invent a move of up to half a sen a unit.
+  quote.pricePoints !== undefined && quote.previousClosePoints !== undefined
+    ? pointsValueCents(holding.units, quote.pricePoints) - pointsValueCents(holding.units, quote.previousClosePoints)
+    : holding.units * (quote.priceCents - quote.previousCloseCents);
 
 /**
  * Buying more of something already held. Units and money paid are simply added
@@ -308,7 +335,15 @@ export const performance = (trades: Trade[], quotes: Quotes): Performance => {
         investedCents += tradeTotalCents(trade);
         position = buyInto(position, trade.units, tradeTotalCents(trade));
       } else if (trade.kind === 'sell') {
-        const after = sellFrom(position, trade.units, tradeTotalCents(trade));
+        /*
+          What the sale really came to: its value less its fees, even when the
+          fees are larger. tradeTotalCents stops a sale's money at zero, which
+          is right for what can be paid into a goal but hid the part of a loss
+          that the fees made — a RM3 sale with RM8 of fees lost RM5 more than
+          it showed. Only the realised figure uses this; the cost that leaves
+          the position depends on units alone, so nothing else moves.
+        */
+        const after = sellFrom(position, trade.units, tradeCents(trade) - totalFees(trade.fees));
         realisedCents += after.realisedCents;
         position = { units: after.units, costCents: after.costCents };
       } else {
@@ -320,7 +355,9 @@ export const performance = (trades: Trade[], quotes: Quotes): Performance => {
     const quote = quotes[symbol];
     // No price means holding it at cost, the same as everywhere else: a
     // missing quote must never read as a loss.
-    valueCents += position.units * (quote ? quote.priceCents : Math.round(averageCostCents(position)));
+    valueCents += quote
+      ? quoteValueCents(position, quote)
+      : position.units * Math.round(averageCostCents(position));
   }
 
   const unrealisedCents = valueCents - costCents;
@@ -367,7 +404,7 @@ export const portfolioTotals = (holdings: Holding[], quotes: Quotes): PortfolioT
       valueCents += holding.costCents;
       continue;
     }
-    valueCents += marketValueCents(holding, quote.priceCents);
+    valueCents += quoteValueCents(holding, quote);
     dayCents += dayChangeCents(holding, quote);
     quotedAt = quotedAt === null ? quote.at : Math.min(quotedAt, quote.at);
   }

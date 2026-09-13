@@ -12,7 +12,7 @@ interface CreateGoalProps {
   onCreate: (goal: Partial<PiggyBank>) => Promise<void> | void;
 }
 
-const ICONS = ['directions_car', 'flight', 'home', 'shopping_bag', 'restaurant', 'devices', 'pets', 'fitness_center', 'movie', 'Celebration', 'School', 'Medical_Services'];
+const ICONS = ['directions_car', 'flight', 'home', 'shopping_bag', 'restaurant', 'devices', 'pets', 'fitness_center', 'movie', 'celebration', 'school', 'medical_services'];
 
 const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
   const t = useT();

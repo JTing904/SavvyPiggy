@@ -91,6 +91,20 @@ const writeCache = (quotes: Quotes) => {
 /** When we last asked, per symbol — kept in memory so it resets with the app. */
 const lastFetched = new Map<string, number>();
 
+/**
+ * Prices that actually came back from Yahoo in this session, with when. The
+ * cache cannot say this: after a fresh install it is empty, and after a week
+ * away it is a week old, and both look like prices. Anything that records a
+ * value for good (the monthly snapshot) asks here instead.
+ */
+const fetchedThisSession = new Map<string, { quote: Quote; at: number }>();
+
+/** A price fetched this session no longer ago than `maxAgeMs`, or null. */
+export const freshQuote = (symbol: string, maxAgeMs: number, now = Date.now()): Quote | null => {
+  const hit = fetchedThisSession.get(symbol);
+  return hit && now - hit.at <= maxAgeMs ? hit.quote : null;
+};
+
 const fetchQuote = async (symbol: string): Promise<Quote | null> => {
   const payload = await getJson(`${CHART}${encodeURIComponent(symbol)}`, { range: '1d', interval: '1d' });
   return payload ? parseQuote(payload) : null;
@@ -122,7 +136,12 @@ export const loadQuotes = async (symbols: string[], force = false): Promise<Quot
   );
 
   const merged = { ...cached };
-  for (const [symbol, quote] of fetched) if (quote) merged[symbol] = quote;
+  const landed = Date.now();
+  for (const [symbol, quote] of fetched) {
+    if (!quote) continue;
+    merged[symbol] = quote;
+    fetchedThisSession.set(symbol, { quote, at: landed });
+  }
 
   writeCache(merged);
   return merged;

@@ -166,6 +166,7 @@ export const plan = {
     setUpHint: 'Answer six questions and pick the counters you would buy.',
     addCounters: "Add counters you'd buy",
     addCountersHint: 'The pick is a comparison, so it needs at least two.',
+    noPick: 'No pick this month yet',
     working: "Working out this month's pick…",
     unavailable: 'Pick unavailable right now',
     unavailableHint: 'Price history could not be downloaded. Tap to try again.',

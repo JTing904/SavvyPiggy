@@ -149,6 +149,7 @@ export const plan: typeof English = {
     setUpHint: '回答六个问题，再挑出你想买的股票。',
     addCounters: '加入你想买的股票',
     addCountersHint: '推荐是比较出来的，至少要两只。',
+    noPick: '这个月暂时没有推荐',
     working: '正在算这个月的推荐…',
     unavailable: '现在算不出推荐',
     unavailableHint: '历史价格下载不了。点一下再试。',

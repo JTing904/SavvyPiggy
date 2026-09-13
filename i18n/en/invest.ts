@@ -62,6 +62,9 @@ export const invest = {
   afterThis: (name: string) => `${name} after this`,
   unitsChange: (before: string, after: string) => `${before} → ${after} units`,
   averageCost: 'Average cost',
+  sellMoreThanHeld: (held: string, units: string, date: string) => `You held ${held} units on ${date}, so you can’t sell ${units}.`,
+  laterSaleShort: (date: string) => `With this change, the sale on ${date} would sell more units than were held then. Correct that sale first.`,
+  deleteLeavesSaleShort: (date: string) => `Deleting this buy would leave the sale on ${date} selling units you didn’t hold. Correct or delete that sale first.`,
   saleChangesNothing: 'Nothing was held on that date, so this sale changes nothing. Check the date.',
   record: {
     buy: 'Record this buy',

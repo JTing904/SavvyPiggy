@@ -1,7 +1,11 @@
 import {
   archivable,
   bucketsFor,
+  clearingPlan,
   currentStreak,
+  goalsChangeCents,
+  shownOlder,
+  streakRun,
   periodRange,
   rangeLabel,
   monthSummary,
@@ -222,6 +226,101 @@ eq('nothing is archivable when everything is kept', archivable(ACTS, NOW, null).
 
   const due = nextToClear(monthsWithRecords(ACTS, [], NOW));
   eq('the oldest month on record is the one to warn about', due?.key, '2025-01');
+
+  // A month before the window's first day is already due; one inside is not.
+  const ages = monthsWithRecords([deposit(at(2025, 8, 20), { car: 1 }), deposit(at(2025, 9, 2), { car: 1 })], [], NOW);
+  eq('a month past the window is marked due, the first kept month is not', ages.map((m) => [m.key, m.due]), [
+    ['2025-09', false],
+    ['2025-08', true],
+  ]);
+  eq('keeping everything marks nothing due',
+    monthsWithRecords([deposit(at(2020, 1, 2), { car: 1 })], [], NOW, null)[0].due, false);
+}
+
+// --- a deleted goal's money moving is neither money in nor money out
+{
+  const mixed: Activity[] = [
+    deposit(at(2026, 9, 2), { car: 100 }),
+    { id: 'tr', type: 'transfer', date: at(2026, 9, 3), amount: 500, distributions: [{ bankId: 'car', amount: 500, percentage: 100 }], fromGoal: 'Old' },
+    { id: 'buy', type: 'invest', date: at(2026, 9, 4), amount: 50, distributions: [{ bankId: 'car', amount: -50, percentage: 100 }] },
+  ];
+  const [sept] = monthsWithRecords(mixed, [], NOW);
+  const s = summarize(mixed, [bank('car')], 'month', NOW);
+  // The Report's "goals grew by".
+  const grewBy = Math.round((s.distributed - s.spent - s.invested + s.cameBackToGoals) * 100) / 100;
+  eq('the month total leaves the transfer out', sept.net, 50);
+  eq('and matches what the Report says the goals grew by', sept.net, grewBy);
+  eq('a transfer counts as nothing, either way', [goalsChangeCents(mixed[1]), goalsChangeCents({ ...mixed[1], distributions: [{ bankId: 'car', amount: -20, percentage: 100 }] })], [0, 0]);
+  eq('the month still counts the transfer as a record', sept.activities, 3);
+}
+
+// --- clearing waits for what has been shown
+{
+  // NOW is 5 Sep 2026; a twelve-month window starts 1 Sep 2025.
+  const cut12 = new Date(2025, 8, 1);
+  const cut6 = new Date(2026, 2, 1);
+  const iso = (d: Date) => d.toISOString();
+
+  const never = clearingPlan(NOW, 12, undefined);
+  eq('never shown: nothing may go, and everything due is unseen',
+    [never.clearBefore, never.unseenFrom?.getTime()], [null, 0]);
+  eq('a cutoff that will not parse counts as never shown', clearingPlan(NOW, 12, 'soon').clearBefore, null);
+
+  const current = clearingPlan(NOW, 12, iso(cut12));
+  eq('shown at this cutoff: everything before it may go, nothing unseen',
+    [current.clearBefore?.getTime(), current.unseenFrom], [cut12.getTime(), null]);
+
+  // Shown last month; a month has aged out since.
+  const lastMonth = new Date(2025, 7, 1);
+  const aged = clearingPlan(NOW, 12, iso(lastMonth));
+  eq('a month aged out since: only what was shown may go',
+    aged.clearBefore?.getTime(), lastMonth.getTime());
+  eq('and the new month is unseen, so the warning comes back',
+    [aged.unseenFrom?.getTime(), aged.cutoff.getTime()], [lastMonth.getTime(), cut12.getTime()]);
+
+  // Shown under twelve months, then the window shrank to six.
+  const shrunk = clearingPlan(NOW, 6, iso(cut12));
+  eq('a shrunken window clears no further than what was shown',
+    [shrunk.clearBefore?.getTime(), shrunk.unseenFrom?.getTime(), shrunk.cutoff.getTime()],
+    [cut12.getTime(), cut12.getTime(), cut6.getTime()]);
+
+  // Shown under six months, then widened to twelve: the window is the limit.
+  const widened = clearingPlan(NOW, 12, iso(cut6));
+  eq('a widened window clears only past its own start',
+    [widened.clearBefore?.getTime(), widened.unseenFrom], [cut12.getTime(), null]);
+
+  eq('keeping everything plans nothing', [clearingPlan(NOW, null, iso(cut12)).clearBefore, clearingPlan(NOW, null, undefined).unseenFrom], [null, null]);
+
+  // What the screen can say it showed.
+  const old = [deposit(at(2025, 6, 3), { car: 1 }), deposit(at(2025, 7, 9), { car: 1 }), deposit(at(2025, 7, 20), { car: 1 })];
+  const whole = shownOlder(old, true, cut12);
+  eq('a complete read shows everything, up to the cutoff', [whole.activities.length, whole.shownCutoff.getTime()], [3, cut12.getTime()]);
+  const partial = shownOlder(old, false, cut12);
+  eq('a full page drops its last month, which may be cut short',
+    partial.activities.map((a) => a.date), [old[0].date]);
+  eq('and acknowledges only up to that month', partial.shownCutoff.getTime(), new Date(2025, 6, 1).getTime());
+  eq('a full page of a single month acknowledges nothing',
+    shownOlder(old.slice(1), false, cut12).activities.length, 0);
+}
+
+// --- a streak longer than the loaded history
+{
+  const daily = (from: Date, to: Date) => {
+    const out: Activity[] = [];
+    for (let d = new Date(from); d <= to; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      out.push(deposit(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).toISOString(), { car: 1 }));
+    }
+    return out;
+  };
+  const firstOfMonth = new Date(2026, 8, 1, 8);
+  const loaded = daily(new Date(2025, 8, 1), new Date(2026, 7, 31));
+  const run = streakRun(loaded, firstOfMonth);
+  eq('a run reaching the window start reads as capped', [run.days, run.capped], [365, true]);
+  eq('given where loading started, the same', streakRun(loaded, firstOfMonth, new Date(2025, 8, 1)).capped, true);
+  eq('a run starting after it is not', streakRun(loaded.slice(1), firstOfMonth, new Date(2025, 8, 1)).capped, false);
+  eq('everything loaded: never capped', streakRun(loaded, firstOfMonth, new Date(0)).capped, false);
+  eq('the report carries it', summarize(loaded, [bank('car')], 'month', firstOfMonth).streakCapped, true);
+  eq('a short streak is not capped', summarize([deposit(at(2026, 9, 5), { car: 1 })], [bank('car')], 'month', NOW).streakCapped, false);
 }
 
 // Only two windows are offered, and neither is "forever": every kept record

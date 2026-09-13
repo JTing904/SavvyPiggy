@@ -4,6 +4,7 @@ import type { Dividend, NotificationPrefs, Schedule, Trade } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
 import { unitsOnExDate } from './holdings';
+import { dividendId, exchangeDay } from './dividends';
 import { formatMoney } from '../services/money';
 import { getLang, m, type Lang } from '../i18n';
 
@@ -87,7 +88,7 @@ const ensureChannel = async () => {
 export type Permission = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
 /** Which screen a tapped notification should land on. */
-export type OpenTarget = 'home' | 'report';
+export type OpenTarget = 'home' | 'report' | 'dividends';
 
 const native = () => Capacitor.isNativePlatform();
 
@@ -190,21 +191,24 @@ export const plannedNotifications = (
    */
   if (prefs.exDates) {
     for (const d of dividends) {
-      const warn = new Date(d.exDate);
+      // Dividend dates are exchange calendar days, not this phone's midnight.
+      const exDay = exchangeDay(d.exDate);
+      const warn = new Date(exDay);
       warn.setDate(warn.getDate() - 2);
       warn.setHours(MORNING, 0, 0, 0);
       if (warn.getTime() <= now.getTime()) continue;
 
-      const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), d.exDate);
+      const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), exDay);
       out.push({
-        id: EX_BASE + slot(`${d.symbol}_${d.exDate}`, SPAN),
+        // Two payments can share an ex-date, so the alarm is keyed like the credit.
+        id: EX_BASE + slot(dividendId(d), SPAN),
         title: words.exTitle(d.symbol),
         body:
           units > 0
             ? words.exBodyHeld(`RM${(d.perUnitPoints / 10_000).toFixed(4)}`, units.toLocaleString('en-US'))
             : words.exBodyNone(`RM${(d.perUnitPoints / 10_000).toFixed(4)}`),
         schedule: { at: warn },
-        extra: { open: 'home' satisfies OpenTarget },
+        extra: { open: 'dividends' satisfies OpenTarget },
       });
     }
   }
@@ -299,7 +303,7 @@ export const onNotificationOpen = (handler: (target: OpenTarget) => void) => {
   if (!native()) return () => {};
   const handle = LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
     const target = action.notification.extra?.open;
-    handler(target === 'report' ? 'report' : 'home');
+    handler(target === 'report' || target === 'dividends' ? target : 'home');
   });
   return () => void handle.then((h) => h.remove());
 };

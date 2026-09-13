@@ -82,6 +82,8 @@ export const report = {
   pacing: 'Pacing & Cadence',
   pacingHint: 'How regularly money is reaching your goals.',
   streakValue: (n: number) => `${n}d`,
+  /** A streak that reaches back past the history the app keeps: at least this long. */
+  streakAtLeast: (n: number) => `${n}d+`,
   streak: 'Streak',
   daysSaved: 'Days saved',
   bestDay: 'Best day',

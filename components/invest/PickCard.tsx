@@ -3,10 +3,11 @@ import type { InvestSettings, PiggyBank } from '../../types';
 import type { Quotes } from '../../services/holdings';
 import { brokerById, securityTypeOf } from '../../services/fees';
 import { formatMoney, fromCents, toCents } from '../../services/money';
+import { readCache as readQuoteCache } from '../../services/quotes';
 import { useAdvisor } from '../../hooks/useAdvisor';
 import { useT } from '../../contexts/LanguageContext';
 import { dateLocale } from '../../i18n';
-import { activeStyles, monthDate, pricePointsOfQuote, sizeBuy, watchSymbols } from './monthlyPlan';
+import { activeStyles, mergeQuotes, monthDate, pricePointsOfQuote, sizeBuy, watchSymbols } from './monthlyPlan';
 
 interface PickCardProps {
   banks: PiggyBank[];
@@ -28,10 +29,17 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
   const c = t.plan.card;
   const symbols = useMemo(() => watchSymbols(invest.watchlist), [invest.watchlist]);
   const mix = invest.style?.mix ?? null;
-  const advisor = useAdvisor({ watchlist: symbols, mix, quotes, enabled: symbols.length >= 2 && !!mix });
+  // The app's quotes only move when the app itself refreshes; the monthly buy
+  // page fetches its own and they land in the phone's quote cache. Taking the
+  // later of the two means both screens score with the same prices and name
+  // the same counter. Still no network from here.
+  const prices = useMemo(() => mergeQuotes(quotes, readQuoteCache()), [quotes]);
+  const advisor = useAdvisor({ watchlist: symbols, mix, quotes: prices, enabled: symbols.length >= 2 && !!mix });
 
   const month = monthDate(advisor.month).toLocaleDateString(dateLocale('en-GB'), { month: 'long' });
   const pick = advisor.status === 'ready' ? advisor.ranked[0] ?? null : null;
+  // Ready with nothing ranked: no counter on the list has the history to be scored.
+  const nothingScored = advisor.status === 'ready' && !pick;
 
   let headline: string;
   let meta: string | null = null;
@@ -48,6 +56,10 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
     headline = c.unavailable;
     why = c.unavailableHint;
     icon = 'cloud_off';
+  } else if (nothingScored) {
+    headline = c.noPick;
+    why = t.plan.noScores;
+    icon = 'hourglass_empty';
   } else if (!pick) {
     headline = c.working;
     icon = 'progress_activity';
@@ -62,7 +74,7 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
     // there is no budget to size against, and the card does not invent one.
     const goal = invest.budgetGoalId ? banks.find((b) => b.id === invest.budgetGoalId && !b.archivedAt) : null;
     const broker = brokerById(invest.brokerId, invest.customRule);
-    const points = pricePointsOfQuote(quotes[pick.symbol]);
+    const points = pricePointsOfQuote(prices[pick.symbol]);
     if (goal && broker && points) {
       const sizing = sizeBuy(
         Math.max(0, toCents(goal.currentAmount)),
@@ -78,7 +90,7 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
     }
   }
 
-  const working = !!mix && symbols.length >= 2 && !pick && advisor.status !== 'unavailable';
+  const working = !!mix && symbols.length >= 2 && !pick && !nothingScored && advisor.status !== 'unavailable';
 
   return (
     <button

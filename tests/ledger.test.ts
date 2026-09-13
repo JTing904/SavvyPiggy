@@ -257,6 +257,12 @@ eq('total debt across open loans', totalDebtCents([loan('a', 1.5), loan('b', 2.2
     const out = plan({ mode: 'goal', goalId: 'a' }, overspent, 'b');
     eq('...but one goal can take it on', 'plan' in out ? out.plan.movements : null, [{ bankId: 'a', cents: -500, percentage: 100 }]);
   }
+  {
+    // A 50 / B 30 / C excluded, holding RM100: A and B take all of it, the unallocated 20% to the bigger.
+    const under = [bank('a', 50, 0), bank('b', 30, 0), { ...bank('c', 0, 100), autoSplit: false }];
+    const out = plan({ mode: 'split' }, under, 'c');
+    eq('auto split under 100% still places all of the money', 'plan' in out ? out.plan.movements.map((m) => [m.bankId, m.cents]) : null, [['a', 7_000], ['b', 3_000]]);
+  }
   eq('the last goal has nowhere to put its money', plan({ mode: 'split' }, [bank('only', 100, 10)], 'only'), { problem: 'noDestination' });
 }
 

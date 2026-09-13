@@ -1,7 +1,9 @@
 import type { Activity, Holding, PiggyBank, Trade } from '../types';
-import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './holdings';
+import { averageCostCents, quoteValueCents, pricePointsOf, tradeCents, tradeTotalCents, type Quotes } from './holdings';
 import { categoryOf } from './categories';
+import { totalFees } from './fees';
 import { fromCents } from './money';
+import { ledgerAmount, unitPrice } from './export';
 import type { Summary } from './analytics';
 import { A4, buildImagePdf, type PdfPage } from './pdf';
 import { formatMoney } from './money';
@@ -342,12 +344,14 @@ export const renderStatement = ({
         const parts = a.distributions.map((d) => `${nameOf(d.bankId)} ${signed(d.amount)}`);
         if (a.repaid) parts.unshift(f.debtRepaidAmount(money(a.repaid)));
         const outgoing = a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest';
+        // Shares and money moved between goals are not spending or saving, so
+        // they are not coloured as either.
+        const neutral = a.type === 'invest' || a.type === 'divest' || a.type === 'transfer';
         const trade = a.type === 'invest' || a.type === 'divest';
         return [
           dateTime(new Date(a.date)),
           TYPE_LABEL[a.type] ?? a.type,
-          // Shares are not spending or saving, so they are not coloured as either.
-          { text: signed(outgoing ? -a.amount : a.amount), color: trade ? INK : outgoing ? RED : GREEN },
+          { text: signed(ledgerAmount(a)), color: neutral ? INK : outgoing ? RED : GREEN },
           parts.join(', ') || '—',
           a.type === 'withdraw' ? categoryOf(a.category).label : '',
           trade && a.counter
@@ -377,30 +381,33 @@ export const renderStatement = ({
       doc.text(f.noTrades, MARGIN, doc.y + 8 * SCALE, MUTED);
       doc.y += 16 * SCALE;
     } else {
-      const fixed = (95 + 80 + 90 + 70 + 90) * SCALE;
+      // Value before fees, the fees, and what actually moved — the last is the
+      // figure the same trade shows in the savings section, so the two agree.
+      const fixed = (64 + 50 + 54 + 60 + 72 + 56 + 72) * SCALE;
       doc.table(
         [
-          { title: f.date, width: 95 * SCALE },
-          { title: f.action, width: 80 * SCALE },
+          { title: f.date, width: 64 * SCALE },
+          { title: f.action, width: 50 * SCALE },
           { title: f.counter, width: contentWidth - fixed },
-          { title: f.units, width: 70 * SCALE, align: 'right' },
-          { title: f.perUnit, width: 90 * SCALE, align: 'right' },
-          { title: f.amount, width: 90 * SCALE, align: 'right' },
+          { title: f.units, width: 54 * SCALE, align: 'right' },
+          { title: f.perUnit, width: 60 * SCALE, align: 'right' },
+          { title: f.tradeValue, width: 72 * SCALE, align: 'right' },
+          { title: f.fees, width: 56 * SCALE, align: 'right' },
+          { title: f.tradeTotal, width: 72 * SCALE, align: 'right' },
         ],
-        inPeriodTrades.map((t) => {
-          const perUnit = t.kind === 'dividend' ? (t.perUnitPoints ?? 0) / 100 : t.priceCents;
-          return [
-            dateTime(new Date(t.tradedAt)).slice(0, 10),
-            TRADE_LABEL[t.kind],
-            `${t.name} (${t.symbol})`,
-            t.units.toLocaleString('en-US'),
-            money(fromCents(perUnit)),
-            {
-              text: money(fromCents(tradeCents(t))),
-              color: t.kind === 'buy' ? INK : GREEN,
-            },
-          ];
-        })
+        inPeriodTrades.map((t) => [
+          dateTime(new Date(t.tradedAt)).slice(0, 10),
+          TRADE_LABEL[t.kind],
+          `${t.name} (${t.symbol})`,
+          t.units.toLocaleString('en-US'),
+          `RM${unitPrice(t.kind === 'dividend' ? (t.perUnitPoints ?? 0) : pricePointsOf(t))}`,
+          money(fromCents(tradeCents(t))),
+          t.kind === 'dividend' ? '—' : money(fromCents(totalFees(t.fees))),
+          {
+            text: money(fromCents(tradeTotalCents(t))),
+            color: t.kind === 'buy' ? INK : GREEN,
+          },
+        ])
       );
     }
 
@@ -410,8 +417,8 @@ export const renderStatement = ({
       let costTotal = 0;
       let valueTotal = 0;
       const rows = holdings.map((h) => {
-        const price = quotes[h.symbol]?.priceCents ?? Math.round(averageCostCents(h));
-        const value = marketValueCents(h, price);
+        const quote = quotes[h.symbol];
+        const value = quote ? quoteValueCents(h, quote) : h.costCents;
         const gain = value - h.costCents;
         costTotal += h.costCents;
         valueTotal += value;

@@ -78,7 +78,9 @@ export interface TradeMoneyPlan {
     | { write: 'none' }
     | { write: 'delete'; id: string }
     | { write: 'create'; draft: ActivityDraft }
-    | { write: 'update'; id: string; draft: ActivityDraft };
+    | { write: 'update'; id: string; draft: ActivityDraft }
+    /** The row this trade wrote is not loaded (older than the kept window): remove it by id, write a fresh one. */
+    | { write: 'replace'; oldId: string; draft: ActivityDraft };
   /** What to store on the trade; `activityId` is filled in by the writer for a new row. */
   money: TradeMoney | null;
 }
@@ -120,23 +122,37 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
         }
       }
     } else if (trade.kind === 'sell') {
-      if (!activity) return { problem: { kind: 'rowGone' } };
-      // Every goal the sale fed gives back exactly what it got. A deleted
-      // goal's share was handed on when it was deleted, so it is taken back
-      // from wherever the person says.
-      for (const d of activity.distributions) {
-        if (exists(banks, d.bankId)) add(bankDeltas, d.bankId, -toCents(d.amount));
-      }
-      const gone = goneShareCents(activity.distributions, banks);
-      if (gone !== 0) {
-        const takeBack = input.takeBack;
-        if (!takeBack) return { problem: { kind: 'saleGoalGone', cents: gone } };
-        if (takeBack.mode === 'goal') {
-          if (!exists(banks, takeBack.goalId)) return { problem: { kind: 'saleGoalGone', cents: gone } };
-          add(bankDeltas, takeBack.goalId, -gone);
+      if (!activity && before.mode === 'goal') {
+        // A sale into one goal put exactly its proceeds there and covered no
+        // debt, so it can be undone from the trade alone.
+        const cents = tradeTotalCents(trade);
+        if (exists(banks, before.goalId)) add(bankDeltas, before.goalId, -cents);
+        else {
+          const takeBack = input.takeBack;
+          if (!takeBack || (takeBack.mode === 'goal' && !exists(banks, takeBack.goalId))) {
+            return { problem: { kind: 'saleGoalGone', cents } };
+          }
+          if (takeBack.mode === 'goal') add(bankDeltas, takeBack.goalId, -cents);
         }
+      } else if (!activity) return { problem: { kind: 'rowGone' } };
+      else {
+        // Every goal the sale fed gives back exactly what it got. A deleted
+        // goal's share was handed on when it was deleted, so it is taken back
+        // from wherever the person says.
+        for (const d of activity.distributions) {
+          if (exists(banks, d.bankId)) add(bankDeltas, d.bankId, -toCents(d.amount));
+        }
+        const gone = goneShareCents(activity.distributions, banks);
+        if (gone !== 0) {
+          const takeBack = input.takeBack;
+          if (!takeBack) return { problem: { kind: 'saleGoalGone', cents: gone } };
+          if (takeBack.mode === 'goal') {
+            if (!exists(banks, takeBack.goalId)) return { problem: { kind: 'saleGoalGone', cents: gone } };
+            add(bankDeltas, takeBack.goalId, -gone);
+          }
+        }
+        for (const r of activity.repayments ?? []) add(loanDeltas, r.loanId, toCents(r.amount));
       }
-      for (const r of activity.repayments ?? []) add(loanDeltas, r.loanId, toCents(r.amount));
     }
   }
 
@@ -144,6 +160,9 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
   let draft: ActivityDraft | null = null;
   let money: TradeMoney | null = null;
   const existingId = previous?.activity?.id ?? null;
+  // A trade older than the loaded History still knows the id of its row.
+  const staleId =
+    !existingId && previous?.trade.money && previous.trade.money.mode !== 'none' ? previous.trade.money.activityId || null : null;
 
   if (next) {
     const { choice, totalCents } = next;
@@ -202,9 +221,11 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
   const activity: TradeMoneyPlan['activity'] = draft
     ? existingId
       ? { write: 'update', id: existingId, draft }
-      : { write: 'create', draft }
-    : existingId
-      ? { write: 'delete', id: existingId }
+      : staleId
+        ? { write: 'replace', oldId: staleId, draft }
+        : { write: 'create', draft }
+    : existingId || staleId
+      ? { write: 'delete', id: (existingId ?? staleId) as string }
       : { write: 'none' };
 
   return { plan: { bankDeltas, loanDeltas, loanOutstanding, activity, money } };

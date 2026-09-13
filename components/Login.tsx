@@ -31,8 +31,6 @@ const friendlyError = (e: unknown, words: Messages['auth']['errors']) => {
       return words.notEnabled;
     case 'auth/unauthorized-domain':
       return words.unauthorizedDomain;
-    case 'auth/network-request-failed':
-      return words.networkProblem;
     default:
       return words.unknown((e as Error)?.message);
   }

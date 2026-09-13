@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useT } from '../contexts/LanguageContext';
 import LanguageSheet from './LanguageSheet';
 import { isArchived, isFull, isInSplit, seedSampleBanks } from '../services/firestore';
-import { currentStreak, summarize } from '../services/analytics';
+import { retentionCutoff, streakRun, summarize } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
 import { APP_VERSION } from '../services/version';
 import { SLICE_COLORS } from './DonutChart';
@@ -124,7 +124,9 @@ const Profile: React.FC<ProfileProps> = ({
   const reached = active.filter(isFull);
 
   const summary = useMemo(() => summarize(activities, banks, 'month', now), [activities, banks]); // eslint-disable-line react-hooks/exhaustive-deps
-  const streak = useMemo(() => currentStreak(activities, now), [activities]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Counted from loaded history only; a streak reaching back to the window start is shown as "at least".
+  const run = useMemo(() => streakRun(activities, now, retentionCutoff(now, savings.retentionMonths)), [activities, savings.retentionMonths]); // eslint-disable-line react-hooks/exhaustive-deps
+  const streak = run.days;
 
   const colorOf = (id: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === id)) % SLICE_COLORS.length];
   const inSplit = active.filter(isInSplit);
@@ -172,7 +174,7 @@ const Profile: React.FC<ProfileProps> = ({
     },
     {
       label: t.profile.streak,
-      value: t.profile.streakValue(streak),
+      value: run.capped ? t.report.streakAtLeast(streak) : t.profile.streakValue(streak),
       hint: streak === 0 ? t.profile.startToday : t.profile.inARow,
       tone: streak > 0 ? 'text-primary' : 'text-slate-500',
     },

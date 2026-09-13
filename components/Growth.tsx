@@ -6,6 +6,7 @@ import {
   costByMonth,
   marketValueCents,
   performance,
+  quoteValueCents,
   type Quotes,
 } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
@@ -208,8 +209,11 @@ const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) =>
                 </p>
                 <div className="space-y-2.5">
                   {holdings.map((holding, index) => {
-                    const price = quotes[holding.symbol]?.priceCents ?? Math.round(averageCostCents(holding));
-                    const value = marketValueCents(holding, price);
+                    // Valued in points, so a half-sen price is not rounded down per unit.
+                    const quote = quotes[holding.symbol];
+                    const value = quote
+                      ? quoteValueCents(holding, quote)
+                      : marketValueCents(holding, Math.round(averageCostCents(holding)));
                     const gainCents = value - holding.costCents;
                     const share = total.valueCents > 0 ? Math.round((value / total.valueCents) * 100) : 0;
                     return (

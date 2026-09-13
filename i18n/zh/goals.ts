@@ -92,6 +92,10 @@ export const goals: typeof English = {
     scheduleSplitWaiting: '现在没有钱罐参与分配——会先等着，设好比例再存',
     confirmEmpty: '删除',
   },
+  archiveSchedules: {
+    title: (name) => `封存「${name}」？`,
+    confirm: '封存',
+  },
   goneShare: {
     takeTitle: (amount) => `${amount} 要从哪个钱罐扣回？`,
     giveTitle: (amount) => `${amount} 要放回哪个钱罐？`,

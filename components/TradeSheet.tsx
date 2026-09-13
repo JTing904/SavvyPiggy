@@ -29,6 +29,7 @@ import {
 import { planTradeMoney, type MoneyChoice, type TradeMoneyProblem } from '../services/tradeMoney';
 import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt';
 import { isInSplit, type GoneShareChoice } from '../services/ledger';
+import { newShortSale, type ShortSale } from '../services/tradeCheck';
 import { fromInputDate, toInputDate } from '../services/calendar';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -76,6 +77,8 @@ interface TradeSheetProps {
   onEditBroker: () => void;
   /** Opens goal creation, for a sale that has nowhere to put its money yet. */
   onCreateGoal?: () => void;
+  /** A save that was already shown as done but the server later refused. */
+  onSyncError?: (e: unknown) => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
@@ -137,6 +140,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   onDone,
   onEditBroker,
   onCreateGoal,
+  onSyncError,
 }) => {
   const confirm = useConfirm();
   const t = useT();
@@ -206,6 +210,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       sstCents: !computed || stored.sstCents !== computed.sstCents,
     };
   });
+
+  /** Fee fields typed into in this sheet, as opposed to stored values carried over. */
+  const [typed, setTyped] = useState<Record<FeeKey, boolean>>({ brokerageCents: false, clearingCents: false, stampCents: false, sstCents: false });
 
   /**
    * Where the money comes from or goes. A correction starts from what the
@@ -296,11 +303,16 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     sstCents: 0,
   };
   for (const key of feeKeys) fees[key] = computed && !edited[key] ? computed[key] : parseFee(feeInput[key]);
-  const feeEdits = feeEditsOf(fees, computed, isReit ? edited : { ...edited, sstCents: false });
+  // A trade from before fees were recorded holds zeros nobody typed. Those
+  // zeros are not a correction of the broker's rates, so they must not count
+  // towards the "your fees don't match" question — only fields typed now do.
+  const editedByHand = editing && !editing.fees ? typed : edited;
+  const feeEdits = feeEditsOf(fees, computed, isReit ? editedByHand : { ...editedByHand, sstCents: false });
   const anyEdited = !!computed && feeKeys.some((k) => edited[k]);
   const ratesName = broker ? (broker.id === CUSTOM_BROKER_ID ? t.invest.yourRates : t.invest.brokerRates(broker.name)) : '';
 
   const typeFee = (key: FeeKey, text: string) => {
+    setTyped((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
     setFeeInput((prev) => ({ ...prev, [key]: cleanFeeInput(text) }));
     setEdited((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
   };
@@ -421,7 +433,23 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const needsChoice = (kind === 'sell' && choice.mode === 'none' && !legacyNone) || !picked;
   const hasDestination = banks.some((b) => !b.archivedAt);
 
-  const blocked = preview && 'problem' in preview.result ? describe(preview.result.problem) : null;
+  /** Every trade in this counter as it stands, and as it would be with this change. */
+  const symbolTrades = useMemo(() => trades.filter((tr) => tr.symbol === symbol), [trades, symbol]);
+  const dayText = (ms: number) => new Date(ms).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short', year: 'numeric' });
+  const describeShort = (short: ShortSale, own: boolean) =>
+    own
+      ? t.invest.sellMoreThanHeld(short.heldUnits.toLocaleString('en-US'), short.trade.units.toLocaleString('en-US'), dayText(short.trade.tradedAt))
+      : t.invest.laterSaleShort(dayText(short.trade.tradedAt));
+  const short =
+    candidate && ready
+      ? newShortSale(symbolTrades, [...symbolTrades.filter((tr) => tr.id !== editing?.id), candidate])
+      : null;
+
+  const blocked = short
+    ? describeShort(short, short.trade === candidate)
+    : preview && 'problem' in preview.result
+      ? describe(preview.result.problem)
+      : null;
   const canSave = ready && !busy && !blocked && !needsChoice;
 
   const fail = (e: unknown, removing: boolean) => {
@@ -462,7 +490,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       feeEdits,
     };
     try {
-      const { id } = await saveTrade(uid, { previous, trade: body, choice, refund, takeBack, banks, loans, savings });
+      const { id, committed } = saveTrade(uid, { previous, trade: body, choice, refund, takeBack, banks, loans, savings });
+      committed.catch((e) => onSyncError?.(e));
       setRefundAsk(null);
       setTakeBackAsk(null);
       onDone(editing ? t.invest.tradeCorrected(name || symbol) : t.invest.tradeRecorded(LABEL[candidate.kind], unitsIn, name || symbol));
@@ -486,7 +515,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     setBusy(true);
     setProblem(null);
     try {
-      await saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, takeBack, banks, loans, savings });
+      const { committed } = saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, takeBack, banks, loans, savings });
+      committed.catch((e) => onSyncError?.(e));
       setRefundAsk(null);
       setTakeBackAsk(null);
       onDone(t.invest.tradeDeleted);
@@ -498,6 +528,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
 
   const remove = async () => {
     if (!editing || busy) return;
+    // Deleting a buy can leave a later sale selling units that were never held.
+    const leftShort = newShortSale(symbolTrades, symbolTrades.filter((tr) => tr.id !== editing.id));
+    if (leftShort) {
+      setProblem(t.invest.deleteLeavesSaleShort(dayText(leftShort.trade.tradedAt)));
+      return;
+    }
     const moved = !!editing.money && editing.money.mode !== 'none';
     const ok = await confirm({
       title: t.invest.deleteTitle,
@@ -936,10 +972,16 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
         </div>
       )}
 
-      {takeBackAsk && previous?.activity && (
+      {takeBackAsk && previous && (
         <div onClick={(e) => e.stopPropagation()}>
           <GoneShareSheet
-            distributions={previous.activity.distributions}
+            distributions={
+              previous.activity?.distributions ??
+              // A sale into one goal whose row is no longer loaded: all of it went there.
+              (previous.trade.money?.mode === 'goal'
+                ? [{ bankId: previous.trade.money.goalId, amount: fromCents(tradeTotalCents(previous.trade)), percentage: 100 }]
+                : [])
+            }
             banks={banks}
             activities={activities}
             busy={busy}

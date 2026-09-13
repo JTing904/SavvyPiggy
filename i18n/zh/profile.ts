@@ -108,6 +108,13 @@ export const profile: typeof English = {
     '每次打开 app 都会读取全部记录，而免费的 Firebase 项目每天只能读取 50,000 次。问题不在空间，而在几千条记录。旧的月份会自动清除，让那一天永远不会到来，所以这里没有「全部保留」的选项。',
   nextToClear: '下一个要清除的',
   nextToClearDetail: (records, date) => `——${records} 条记录，将在 ${date} 清除。想保留的话，先用上面的按钮保存。`,
+  dueBadge: '将被清除',
+  dueDetail: (date) => `${date} 起已超出保留期 · 下次打开 app 时清除`,
+  dueToClearDetail: (records) =>
+    `——${records} 条记录，已经超出你设定的保留期，下次打开 app 时就会清除。想保留的话，现在先用上面的按钮保存。`,
+  olderLoading: '正在查找等待清除的旧月份……',
+  olderFailed: '没能查到等待清除的旧月份。在这里列出来之前，什么都不会被清除，联网后再试一次。',
+  olderPartial: '旧月份太多，一次列不完。这些清除之后，其余的会在这里列出；没有列出过的月份不会被清除。',
   nothingDue: '暂时没有要清除的',
   nothingDueHint: '所有月份都还在你设定的保留期内。',
   moneyUntouched: '你的钱不会被动到。',

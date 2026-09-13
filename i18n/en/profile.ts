@@ -129,6 +129,17 @@ export const profile = {
   /** Follows the month's name. */
   nextToClearDetail: (records: number, date: string) =>
     ` — ${records} record${records === 1 ? '' : 's'}, on ${date}. Save it with the buttons above first if you want to keep it.`,
+  /** A month already outside the window, listed so it can be saved before it goes. */
+  dueBadge: 'will be cleared',
+  dueDetail: (date: string) => `Outside your window since ${date} · cleared the next time the app opens`,
+  /** Follows the month's name, when that month is already outside the window. */
+  dueToClearDetail: (records: number) =>
+    ` — ${records} record${records === 1 ? '' : 's'}, already outside the window you keep. It is cleared the next time the app opens, so save it with the buttons above now if you want to keep it.`,
+  olderLoading: 'Checking for older months waiting to be cleared…',
+  olderFailed:
+    'Could not check for older months waiting to be cleared. Nothing is cleared until they have been listed here, so try again when you are online.',
+  olderPartial:
+    'There are more old months than fit on one visit. The rest are listed here after these have been cleared, and nothing is cleared before it has been listed.',
   nothingDue: 'Nothing due to be cleared',
   nothingDueHint: 'Every month on record is inside the window you keep.',
   moneyUntouched: 'Your money is never touched.',

@@ -55,6 +55,9 @@ export const invest: typeof English = {
   afterThis: (name) => `交易后的 ${name}`,
   unitsChange: (before, after) => `${before} → ${after} 股`,
   averageCost: '均价',
+  sellMoreThanHeld: (held, units, date) => `你在${date}只持有 ${held} 股，不能卖出 ${units} 股。`,
+  laterSaleShort: (date) => `这样改的话，${date}那笔卖出会超过当时持有的股数。请先改那笔卖出。`,
+  deleteLeavesSaleShort: (date) => `删掉这笔买入后，${date}那笔卖出会超过当时持有的股数。请先改或删那笔卖出。`,
   saleChangesNothing: '那天没有持股，这笔卖出不会改变什么。检查一下日期。',
   record: {
     buy: '记录这笔买入',

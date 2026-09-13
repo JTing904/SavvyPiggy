@@ -114,6 +114,21 @@ eq('the same streak never earns twice', streakAlert(week, [{ id: 'streak_7_2026-
 eq('6 days is not a milestone', streakAlert(week.slice(1), [], NOW), null);
 eq('a streak alive from yesterday is keyed the same way', streakAlert(week.slice(0, 6), [], new Date(2026, 8, 5, 8)), null);
 eq('7 days ending yesterday', streakAlert(week, [], new Date(2026, 8, 6, 8))?.id, 'streak_7_2026-08-30');
+eq('a known window start does not stop a real milestone', streakAlert(week, [], NOW, new Date(2025, 8, 1))?.id, 'streak_7_2026-08-30');
+{
+  // A year of daily saving, loaded from the twelve-month window's first day.
+  // On the first of the month it counts to exactly 365 — the cap, not the
+  // streak — and without a guard a new card was minted every month.
+  const year: Activity[] = [];
+  for (let d = new Date(2025, 8, 1); d < new Date(2026, 8, 1); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    year.push(deposit(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).toISOString(), 100));
+  }
+  const firstOfMonth = new Date(2026, 8, 1, 8);
+  eq('a streak capped by the loaded window earns no card', streakAlert(year, [], firstOfMonth), null);
+  eq('nor when the window start is given', streakAlert(year, [], firstOfMonth, new Date(2025, 8, 1)), null);
+  eq('with the whole ledger loaded, the milestone is real',
+    streakAlert(year, [], firstOfMonth, new Date(0))?.id, 'streak_365_2025-09-01');
+}
 
 // --- housekeeping
 const alert = (id: string, date: Date): Alert => ({ id, kind: 'streak', date: date.toISOString(), read: true });

@@ -217,4 +217,20 @@ const invested = (amount: number, goalId = 'stocks'): Activity => ({
   eq('correcting it asks the same, then lands the sale again', edited.bankDeltas, { stocks: 105_967 - 52_984, car: -52_983 });
 }
 
+// --- trades older than the loaded History
+
+{
+  const sale: Trade = { ...buy({ mode: 'goal', goalId: 'car', activityId: 'old' }), kind: 'sell' };
+  const p = plan({ previous: { trade: sale, activity: null } });
+  eq('a sale into one goal whose row is not loaded is undone from the trade itself', p.bankDeltas, { car: -104_968 });
+  eq('and its row is removed by the id the trade kept', p.activity, { write: 'delete', id: 'old' });
+}
+
+{
+  const previous = { trade: buy({ mode: 'goal', goalId: 'stocks', activityId: 'old' }), activity: null };
+  const p = plan({ previous, next: { kind: 'buy', totalCents: 108_032, choice: { mode: 'goal', goalId: 'stocks' }, counter: 'MAYBANK', units: 100 } });
+  eq('correcting a buy whose row is not loaded replaces that row instead of adding a second', p.activity.write === 'replace' ? p.activity.oldId : null, 'old');
+  eq('and still moves the goal only by the difference', p.bankDeltas, { stocks: -1_000 });
+}
+
 report();

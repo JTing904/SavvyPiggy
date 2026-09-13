@@ -4,6 +4,7 @@ import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSetting
 import { useAuth } from '../contexts/AuthContext';
 import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
 import { formatMoney, fromCents, toCents } from '../services/money';
+import { ledgerAmount } from '../services/export';
 import { sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
@@ -162,6 +163,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     setAmount('');
     setNote('');
     setTarget(null);
+    // The next spend starts uncategorised rather than silently reusing this one.
+    setCategory(UNCATEGORISED);
   };
 
   useBackHandler(mode !== null, closeModal);
@@ -578,7 +581,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </div>
                     <p className={`font-black shrink-0 ${style.outgoing ? 'text-slate-400' : 'text-white'}`}>
-                      {formatMoney(activity.amount * (style.outgoing ? -1 : 1), { signed: true })}
+                      {/* A transfer from an overspent goal moved a shortfall, so it reads as minus. */}
+                      {formatMoney(ledgerAmount(activity), { signed: true })}
                     </p>
                   </div>
                 );

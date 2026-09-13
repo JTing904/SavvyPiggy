@@ -1,4 +1,4 @@
-import { parseDividends } from '../../services/dividends';
+import { bursaCode, parseDividends } from '../../services/dividends';
 import type { Dividend } from '../../types';
 
 /**
@@ -44,11 +44,21 @@ const BROWSER_UA =
 const FRESH_MS = 20 * 60 * 60 * 1000;
 const KEY_PREFIX = 'sym:';
 
-/** Bursa codes are four digits; the suffix is how the app writes them. */
-const codeOf = (symbol: string) => {
-  const m = /^(\d{4})(\.KL)?$/i.exec(symbol.trim());
-  return m ? m[1] : null;
-};
+/**
+ * The code KLSE Screener files a counter under: four digits and, for the
+ * likes of KLCC (5235SS) or an ETF (0800EA), a one- or two-letter suffix. The
+ * page lives at that same code, suffix and all, and the app's symbol is it
+ * plus ".KL". Shared with the app so the two can be tested against each other.
+ */
+const codeOf = bursaCode;
+
+/**
+ * At most this many counters per request. Each one can be a fetch to the
+ * source, and the free plan allows 50 subrequests per invocation (the token
+ * check can take one more); the app splits a longer list into batches of this
+ * size (services/dividendApi.ts, which must be kept in step).
+ */
+const MAX_SYMBOLS = 25;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -190,12 +200,13 @@ export default {
     }
 
     // A cap, so one request can never become a burst against the source.
+    // Duplicates are removed before the cap, so a repeated code cannot push a
+    // real one out of it.
     const asked = (url.searchParams.get('symbols') ?? '')
       .split(',')
       .map((s) => codeOf(s))
-      .filter((c): c is string => c !== null)
-      .slice(0, 25);
-    const symbols = [...new Set(asked)];
+      .filter((c): c is string => c !== null);
+    const symbols = [...new Set(asked)].slice(0, MAX_SYMBOLS);
     if (symbols.length === 0) return json({ dividends: [] });
 
     const lists = await Promise.all(symbols.map((code) => load(env, code)));

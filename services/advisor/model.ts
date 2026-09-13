@@ -367,10 +367,39 @@ export interface ScoredCounter {
 }
 
 /**
+ * The month "now" is, as far as the history goes: the month most counters'
+ * histories end in, the later one on a tie.
+ *
+ * Not simply the latest month anyone has. History is kept for a month, so if
+ * it was fetched on the 1st before Bursa opened, everything cached ends last
+ * month — and one counter added later, whose fresh history reaches this
+ * month, would otherwise make every other counter look out of date.
+ */
+export const scoringMonth = (universe: Record<string, MonthlySeries>) => {
+  const counts = new Map<string, number>();
+  for (const s of Object.values(universe)) {
+    if (s.closes.length === 0) continue;
+    const last = monthKey(s.start, s.closes.length - 1);
+    counts.set(last, (counts.get(last) ?? 0) + 1);
+  }
+  let best = '';
+  let most = 0;
+  for (const [key, n] of counts) {
+    if (n > most || (n === most && key > best)) {
+      best = key;
+      most = n;
+    }
+  }
+  return best;
+};
+
+/**
  * Scores the list as it stands now. `livePrices` replaces the latest close
  * with the price on the screen, so the pick moves with the market rather than
  * waiting for the month to end. The comparison is against every counter in
- * the universe that has a price this month, the same way training compared.
+ * the universe that has a price in the scoring month, the same way training
+ * compared; a history that runs past that month is cut back to it, and one
+ * that stops short of it is too old to score.
  */
 export const scoreNow = (
   universe: Record<string, MonthlySeries>,
@@ -378,16 +407,15 @@ export const scoreNow = (
   weights: Record<Style, number[]>,
   livePrices: Record<string, number> = {}
 ): ScoredCounter[] => {
-  const latest = Object.values(universe).reduce((k, s) => {
-    const last = monthKey(s.start, s.closes.length - 1);
-    return last > k ? last : k;
-  }, '');
+  const month = scoringMonth(universe);
 
   const now = Object.entries(universe)
     .map(([symbol, s]) => {
-      if (monthKey(s.start, s.closes.length - 1) !== latest) return null;
+      const i = monthIndex(s.start, month);
+      if (i < 0 || i >= s.closes.length) return null;
+      const upTo = i === s.closes.length - 1 ? s : { ...s, closes: s.closes.slice(0, i + 1), divs: s.divs.slice(0, i + 1) };
       const live = livePrices[symbol];
-      const series = live && live > 0 ? { ...s, closes: [...s.closes.slice(0, -1), live] } : s;
+      const series = live && live > 0 ? { ...upTo, closes: [...upTo.closes.slice(0, -1), live] } : upTo;
       const x = featuresAt(series, series.closes.length - 1);
       return x ? { symbol, x } : null;
     })
@@ -408,6 +436,14 @@ export const scoreNow = (
         const z = zFor(style, row);
         chance[style] = probability(weights[style], z);
         push[style] = Object.fromEntries(FEATURES_FOR[style].map((f, k) => [f, z[k] * weights[style][k + 1]]));
+      }
+      // The steady-dividends model only ever learned from counters that pay:
+      // a counter with no dividend has none to keep. Left to the regression,
+      // its low yield would read as the safest dividend on the list. It gets
+      // no chance and no reasons from that model, as in training.
+      if (!(row.x.dividendsLastYear > 0)) {
+        chance.income = 0;
+        push.income = {};
       }
       return { symbol: row.symbol, x: row.x, chance, push };
     });

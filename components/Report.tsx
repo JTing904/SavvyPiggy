@@ -415,7 +415,12 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
 
           <div className="grid grid-cols-3 gap-2 mt-5">
             {[
-              { value: t.report.streakValue(summary.streak), label: t.report.streak },
+              {
+                // Only a window of history is loaded, so a streak reaching its
+                // first day may be longer than it can be counted to.
+                value: summary.streakCapped ? t.report.streakAtLeast(summary.streak) : t.report.streakValue(summary.streak),
+                label: t.report.streak,
+              },
               { value: `${summary.activeDays}/${summary.range.days}`, label: t.report.daysSaved },
               { value: formatMoney(summary.maxDay, { decimals: 0 }), label: t.report.bestDay },
             ].map((s) => (

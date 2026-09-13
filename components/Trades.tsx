@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
-import { ordered, tradeTotalCents } from '../services/holdings';
+import { ordered, pricePointsOf, tradeTotalCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
 import { useT } from '../contexts/LanguageContext';
@@ -31,7 +31,17 @@ const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
 const rate = (trade: Trade) =>
   trade.kind === 'dividend'
     ? `RM${((trade.perUnitPoints ?? 0) / 10_000).toFixed(4)}`
-    : money(trade.priceCents, { decimals: 2 });
+    : price(pricePointsOf(trade));
+
+/**
+ * A share price to as many places as it has, between two and four. Read from
+ * `priceCents` it was cut to the sen, so a buy at RM0.345 showed as RM0.34 —
+ * a price nobody paid.
+ */
+const price = (points: number) => {
+  const [whole, fraction] = (points / 10_000).toFixed(4).split('.');
+  return `RM${Number(whole).toLocaleString('en-US')}.${fraction.replace(/0{1,2}$/, '')}`;
+};
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();

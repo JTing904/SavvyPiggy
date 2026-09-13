@@ -101,6 +101,14 @@ export const planGoalRemoval = (
   if (cents < 0) return { problem: 'negativeSplit' };
   const movements = planDeposit(cents, strategy, [], null, overflow).movements.filter((m) => m.cents !== 0);
   if (movements.length === 0) return { problem: 'noDestination' };
+  // A strategy under 100% leaves part of a deposit unplaced on purpose, but a
+  // deleted goal's money has to land somewhere: what is left goes to the
+  // biggest share, the same place the odd cent always goes.
+  const placed = movements.reduce((s, m) => s + m.cents, 0);
+  if (placed < cents) {
+    const biggest = movements.reduce((a, b) => (b.percentage > a.percentage ? b : a));
+    biggest.cents += cents - placed;
+  }
   return { plan: { cents, movements, strategy } };
 };
 

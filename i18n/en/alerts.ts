@@ -41,7 +41,7 @@ export const alerts = {
   streakBody: (days: number | string) =>
     `You have put money into your goals every day for ${days} days straight. Keep it going.`,
   housekeepingBody: (months: number | undefined) =>
-    `The app reads your whole history every time it opens, so records older than ${months ?? ''} months are cleared to keep that quick. Nothing has been removed yet. Open Report → Statements to save those months first, or to keep them for longer. Your balances are never affected.`,
+    `The app reads your whole history every time it opens, so records older than ${months ?? ''} months are cleared to keep that quick. Nothing is removed until it has been listed there. Open Report → Statements to save those months first, or to change how long they are kept. Your balances are never affected.`,
   dividendBody: (units: string) =>
     `Worked out on the ${units} units you held on the ex-date and split across your goals like any other deposit. Companies deduct tax and fees, so check the amount that actually landed and correct it in Trades if it differs.`,
 

@@ -5,8 +5,12 @@ import {
   monthSummary,
   monthsWithRecords,
   nextToClear,
+  retentionCutoff,
+  shownOlder,
   type MonthReport,
 } from '../services/analytics';
+import { loadOlderThan } from '../services/ledgerArchive';
+import { useAuth } from '../contexts/AuthContext';
 import { buildHoldings, type Quotes } from '../services/holdings';
 import { buildMonthWorkbook, monthFileName } from '../services/export';
 import { buildStatementPdf } from '../services/statement';
@@ -59,23 +63,79 @@ const Statements: React.FC<StatementsProps> = ({
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const t = useT();
+  const { user } = useAuth();
+  const uid = user?.uid;
   const now = new Date();
+
+  /**
+   * The live feed only reaches back to the window's start, and the records
+   * before it are exactly the ones about to be cleared. They are read here,
+   * once per visit, so those months are listed — and can be saved — too.
+   */
+  const cutoffIso = retentionCutoff(now, savings.retentionMonths).toISOString();
+  const [older, setOlder] = useState<{
+    cutoffIso: string;
+    activities: Activity[];
+    complete: boolean;
+    shownCutoff: string;
+  } | null>(null);
+  const [olderFailed, setOlderFailed] = useState(false);
+
+  useEffect(() => {
+    if (!uid || savings.retentionMonths === null) return;
+    let live = true;
+    setOlderFailed(false);
+    loadOlderThan(uid, new Date(cutoffIso))
+      .then(({ activities: rows, complete }) => {
+        if (!live) return;
+        const shown = shownOlder(rows, complete, new Date(cutoffIso));
+        setOlder({ cutoffIso, activities: shown.activities, complete, shownCutoff: shown.shownCutoff.toISOString() });
+      })
+      .catch(() => {
+        if (live) setOlderFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [uid, cutoffIso]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const everything = useMemo(() => {
+    if (!older || older.activities.length === 0) return activities;
+    const ids = new Set(activities.map((a) => a.id));
+    return [...activities, ...older.activities.filter((a) => !ids.has(a.id))];
+  }, [activities, older]);
 
   // `t` is a dependency so the month names are reworded when the language changes.
   const months = useMemo(
-    () => monthsWithRecords(activities, trades, now, savings.retentionMonths),
-    [activities, trades, savings.retentionMonths, t] // eslint-disable-line react-hooks/exhaustive-deps
+    () => monthsWithRecords(everything, trades, now, savings.retentionMonths),
+    [everything, trades, savings.retentionMonths, t] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const going = useMemo(() => nextToClear(months), [months]);
 
   /**
-   * Seeing this screen is the acknowledgement. Until it has been opened once,
-   * nothing is cleared automatically — the warning alert just keeps pointing
-   * here, where every month sits beside its own download button.
+   * Seeing this screen is the acknowledgement — but only of what it showed.
+   * Once the months before the current cutoff have been read and are on the
+   * screen, that cutoff is recorded, and clearing never reaches past it. A
+   * window that shrinks later, or a month that ages out after this, is not
+   * covered: the warning comes back and nothing more goes until this screen
+   * has listed it.
    */
+  const shownFor = older && older.cutoffIso === cutoffIso ? older.shownCutoff : null;
+  const olderNote =
+    !uid || savings.retentionMonths === null
+      ? null
+      : olderFailed
+        ? t.profile.olderFailed
+        : !older || older.cutoffIso !== cutoffIso
+          ? t.profile.olderLoading
+          : !older.complete
+            ? t.profile.olderPartial
+            : null;
   useEffect(() => {
-    if (!savings.retentionAcknowledged) onSaveSettings({ retentionAcknowledged: true });
-  }, [savings.retentionAcknowledged]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!shownFor || new Date(shownFor).getTime() <= 0) return;
+    if (savings.retentionAcknowledgedCutoff === shownFor && savings.retentionAcknowledged) return;
+    onSaveSettings({ retentionAcknowledged: true, retentionAcknowledgedCutoff: shownFor });
+  }, [shownFor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const say = (text: string) => {
     setNote(text);
@@ -84,7 +144,7 @@ const Statements: React.FC<StatementsProps> = ({
 
   /** Everything that happened inside one month, both halves. */
   const sliceOf = (month: MonthReport) => ({
-    activities: activities.filter((a) => {
+    activities: everything.filter((a) => {
       const d = new Date(a.date);
       return d >= month.start && d < month.end;
     }),
@@ -190,12 +250,23 @@ const Statements: React.FC<StatementsProps> = ({
                         {t.profile.soFar}
                       </span>
                     )}
-                    {clearingSoon(month.clearedOn, now) && (
+                    {month.due && month.activities > 0 ? (
                       <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">
-                        {t.profile.clearing}
+                        {t.profile.dueBadge}
                       </span>
+                    ) : (
+                      clearingSoon(month.clearedOn, now) && (
+                        <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">
+                          {t.profile.clearing}
+                        </span>
+                      )
                     )}
                   </div>
+                  {month.due && month.activities > 0 && month.clearedOn && (
+                    <p className="text-red-400/80 text-[10.5px] font-bold mt-0.5">
+                      {t.profile.dueDetail(longDate(month.clearedOn))}
+                    </p>
+                  )}
                   <p className="text-slate-500 text-[11px] font-bold mt-0.5">
                     {t.profile.records(month.activities)}
                     {month.activities > 0 && (
@@ -219,6 +290,10 @@ const Statements: React.FC<StatementsProps> = ({
               </div>
             ))}
           </div>
+        )}
+
+        {olderNote && (
+          <p className="mt-3 text-slate-500 text-[11px] font-bold leading-relaxed">{olderNote}</p>
         )}
 
         <div className="flex items-center justify-center gap-5 mt-4 text-slate-600 text-[11px] font-bold">
@@ -245,7 +320,9 @@ const Statements: React.FC<StatementsProps> = ({
               <p className="text-amber-300 font-black text-sm">{t.profile.nextToClear}</p>
               <p className="text-amber-200/70 text-[11.5px] font-bold mt-2 leading-relaxed">
                 <span className="text-amber-200">{going.label}</span>
-                {t.profile.nextToClearDetail(going.activities, longDate(going.clearedOn!))}
+                {going.due
+                  ? t.profile.dueToClearDetail(going.activities)
+                  : t.profile.nextToClearDetail(going.activities, longDate(going.clearedOn!))}
               </p>
             </>
           ) : (
@@ -263,9 +340,10 @@ const Statements: React.FC<StatementsProps> = ({
               return (
                 <button
                   key={choice.label}
-                  onClick={() =>
-                    onSaveSettings({ retentionMonths: choice.months, retentionAcknowledged: true })
-                  }
+                  // Choosing a window is not consent to clearing what it newly
+                  // leaves out: the months past the new cutoff are read and
+                  // listed first, and only then acknowledged.
+                  onClick={() => onSaveSettings({ retentionMonths: choice.months })}
                   className={`py-2.5 rounded-2xl text-[11px] font-black transition-colors ${
                     on
                       ? 'bg-amber-400 text-black'

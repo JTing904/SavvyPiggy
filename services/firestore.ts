@@ -28,9 +28,9 @@ import { UNCATEGORISED } from './categories';
 import { dayStart, tradeTotalCents } from './holdings';
 import type { LangChoice } from '../i18n';
 import { m as messages } from '../i18n';
-import { dividendTradeId, type DueDividend } from './dividends';
+import { exchangeDay, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
-import { fromCents, splitByPercentage, toCents } from './money';
+import { fromCents, splitByPercentage, splitProportionally, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type GoneShareChoice, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 
@@ -114,7 +114,15 @@ export const subscribeToBanks = (
 ): Unsubscribe =>
   onSnapshot(
     query(banksCol(uid), orderBy('createdAt', 'asc')),
-    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PiggyBank)),
+    (snap) =>
+      onChange(
+        snap.docs.map((d) => {
+          const bank = { id: d.id, ...d.data() } as PiggyBank;
+          // Goals made with the old capitalised icon names (Celebration, School…)
+          // rendered as words: the icon font only knows lowercase names.
+          return typeof bank.icon === 'string' ? { ...bank, icon: bank.icon.toLowerCase() } : bank;
+        })
+      ),
     onError
   );
 
@@ -365,9 +373,16 @@ export const deleteBank = async (
  * are — only the strategy changes, because the share it was taking is passed
  * to the goals still saving rather than quietly going nowhere.
  */
-export const archiveBank = async (uid: string, banks: PiggyBank[], id: string) => {
+export const archiveBank = async (
+  uid: string,
+  banks: PiggyBank[],
+  id: string,
+  /** Auto deposits aimed at this goal, and where they save from now on (null: auto split). */
+  retarget: { scheduleIds: string[]; target: string | null } | null = null
+) => {
   const next = archiveStrategy(banks, id);
   const batch = writeBatch(db);
+  retarget?.scheduleIds.forEach((sid) => batch.update(scheduleRef(uid, sid), { targetBankId: retarget.target }));
 
   next.forEach((bank) => {
     const before = banks.find((b) => b.id === bank.id)!;
@@ -554,6 +569,22 @@ export const deleteActivity = (
     if (gone !== 0 && !takeBack) throw new Error(messages().errors.goneShare);
     const settleSnap = settle ? await tx.get(settle) : null;
     if (settleSnap && !settleSnap.exists()) throw new Error(messages().errors.goalRemoval.noDestination);
+    // A debt this entry paid down may have been removed since; updating a
+    // missing document would fail the whole undo.
+    const repaidLoans = await Promise.all((activity.repayments ?? []).map((r) => tx.get(loanRef(uid, r.loanId))));
+
+    // Spent ahead that was already covered: that money goes back to the goals.
+    // If the split cannot place all of it (no goal takes a share, or the shares
+    // add up to less than 100), undoing would make it vanish — so refuse first.
+    const coveredPlans = activity.loanId
+      ? covering.flatMap((paid) => {
+          const back = toCents(paid.repayments?.find((r) => r.loanId === activity.loanId)?.amount ?? 0);
+          return back > 0 ? [{ paid, back, plan: planDeposit(back, banks, [], null, savings.overflow) }] : [];
+        })
+      : [];
+    if (coveredPlans.some(({ back, plan }) => plan.movements.reduce((s, m) => s + m.cents, 0) < back)) {
+      throw new Error(messages().errors.coveredNowhere);
+    }
 
     // One write per goal: the picked goal can be one the record also touched,
     // and two updates worked out from the same read would overwrite each other.
@@ -569,19 +600,14 @@ export const deleteActivity = (
     next.forEach((cents, id) => tx.update(bankRef(uid, id), { currentAmount: fromCents(cents) }));
 
     // Undoing a repayment puts the debt back.
-    activity.repayments?.forEach((r) =>
-      tx.update(loanRef(uid, r.loanId), { outstanding: increment(r.amount), settledAt: null })
-    );
+    activity.repayments?.forEach((r, i) => {
+      if (repaidLoans[i]?.exists()) tx.update(loanRef(uid, r.loanId), { outstanding: increment(r.amount), settledAt: null });
+    });
 
     if (activity.loanId) {
-      for (const paid of covering) {
-        const line = paid.repayments?.find((r) => r.loanId === activity.loanId);
-        const back = toCents(line?.amount ?? 0);
-        if (back <= 0) continue;
-
-        // Where that money should have gone. No loans passed: this is the
-        // debt disappearing, not a new deposit arriving to pay one off.
-        const plan = planDeposit(back, banks, [], null, savings.overflow);
+      // Where that money should have gone. No loans passed: this is the
+      // debt disappearing, not a new deposit arriving to pay one off.
+      for (const { paid, back, plan } of coveredPlans) {
         const merged = paid.distributions.map((d) => ({ ...d }));
         for (const m of plan.movements) {
           tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) });
@@ -621,10 +647,21 @@ export const editActivity = (uid: string, activity: Activity, newAmount: number)
       throw new Error(messages().errors.editRepaidDebt);
     }
 
-    const shares = splitByPercentage(
-      toCents(newAmount),
-      activity.distributions.map((d) => ({ item: d, percentage: d.percentage }))
-    );
+    // A deposit that placed all of its amount is re-split in proportion to what
+    // each goal actually got. Its stored percentages are rounded to two places,
+    // so under overflow 33.33% × 3 read as a deliberate 0.01% left unallocated
+    // and every edit shed a few sen.
+    const placedCents = activity.distributions.reduce((s, d) => s + toCents(d.amount), 0);
+    const shares =
+      placedCents === toCents(activity.amount)
+        ? splitProportionally(
+            toCents(newAmount),
+            activity.distributions.map((d) => ({ item: d, weight: toCents(d.amount) }))
+          )
+        : splitByPercentage(
+            toCents(newAmount),
+            activity.distributions.map((d) => ({ item: d, percentage: d.percentage }))
+          );
     const distributions = activity.distributions.map((d) => ({
       ...d,
       amount: fromCents(shares.find((s) => s.item === d)?.cents ?? 0),
@@ -778,8 +815,14 @@ export interface TradeWrite {
  * it lands or none of it: the trade, each goal's balance, any debt a sale
  * covered, and the single History row. Goals move by increments, never by
  * figures worked out from a snapshot.
+ *
+ * Not async: a problem with the money is thrown straight away, and the write
+ * is handed back as `committed` rather than awaited. Offline, a commit only
+ * settles once the server confirms it — awaiting it kept the sheet spinning
+ * with the change already applied on the phone, and a second tap recorded the
+ * trade twice.
  */
-export const saveTrade = async (uid: string, w: TradeWrite) => {
+export const saveTrade = (uid: string, w: TradeWrite) => {
   const next = w.trade;
   const result = planTradeMoney({
     previous: w.previous,
@@ -815,6 +858,14 @@ export const saveTrade = async (uid: string, w: TradeWrite) => {
     case 'delete':
       batch.delete(activityRef(uid, plan.activity.id));
       break;
+    case 'replace': {
+      // Deleting a row that retention already cleared is harmless; updating it would fail the batch.
+      batch.delete(activityRef(uid, plan.activity.oldId));
+      const aRef = doc(activitiesCol(uid));
+      activityId = aRef.id;
+      batch.set(aRef, { ...plan.activity.draft, date: now.toISOString(), tradeId: ref.id });
+      break;
+    }
   }
 
   for (const [bankId, cents] of Object.entries(plan.bankDeltas)) {
@@ -842,8 +893,7 @@ export const saveTrade = async (uid: string, w: TradeWrite) => {
     batch.delete(ref);
   }
 
-  await batch.commit();
-  return { id: ref.id, plan };
+  return { id: ref.id, plan, committed: batch.commit() };
 };
 
 export const createTrade = (uid: string, trade: Omit<Trade, 'id' | 'createdAt'>) =>
@@ -912,7 +962,9 @@ export const creditDividend = async (
   { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
 ) => {
   const { dividend, units, amountCents } = due;
-  const id = dividendTradeId(dividend.symbol, dividend.exDate);
+  // The id comes with the due dividend: a second payment on the same ex-date
+  // carries a suffix, while the first keeps the id it was always paid under.
+  const id = due.id;
   const plan = planDeposit(amountCents, banks, loans, null, savings.overflow);
   // Nowhere for it to go means nothing is recorded, and it stays due: better
   // to credit it late, once there is a goal, than to lose it quietly.
@@ -932,7 +984,7 @@ export const creditDividend = async (
       priceCents: 0,
       perUnitPoints: dividend.perUnitPoints,
       exDate: dividend.exDate,
-      tradedAt: dayStart(dividend.payDate),
+      tradedAt: exchangeDay(dividend.payDate),
       createdAt: Date.now(),
     });
 
@@ -1075,7 +1127,8 @@ export const runDueSchedules = async (
     // Aimed at a goal deleted before deleting asked about auto deposits: the
     // write would fail and take every later schedule down with it. The others
     // post first; this one is still reported once they have.
-    if (schedule.targetBankId && !banks.some((b) => b.id === schedule.targetBankId)) {
+    // An archived goal counts as gone here too: it is put away and takes no new money.
+    if (schedule.targetBankId && !banks.some((b) => b.id === schedule.targetBankId && !b.archivedAt)) {
       aimedAtNothing += 1;
       continue;
     }
@@ -1085,34 +1138,42 @@ export const runDueSchedules = async (
       // Nothing allocated and no debt to clear: wait for a strategy instead.
       if (plan.movements.length === 0 && plan.repayments.length === 0) break;
 
-      const batch = writeBatch(db);
+      // A transaction, not a batch: it re-reads the rule on the server first. Two
+      // devices opening on the same day each saw the rule as not yet run — one
+      // of them from its own out-of-date cache — and both posted the deposit.
       const entry = doc(activitiesCol(uid));
-      batch.set(entry, {
-        type: 'auto-save' satisfies ActivityType,
-        date: when.toISOString(),
-        amount: fromCents(toCents(schedule.amount)),
-        distributions: toDistributions(plan.movements),
-        repaid: fromCents(plan.repaidCents),
-        repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
-      });
-      plan.movements.forEach((m) =>
-        batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
-      );
-      plan.repayments.forEach((r) => {
-        const left = outstandingCents(r.loan) - r.cents;
-        batch.update(loanRef(uid, r.loan.id), {
-          outstanding: increment(-fromCents(r.cents)),
-          settledAt: left === 0 ? when.toISOString() : null,
+      const done = await runTransaction(db, async (tx) => {
+        const fresh = await tx.get(scheduleRef(uid, schedule.id));
+        if (!fresh.exists() || fresh.data().enabled === false) return false;
+        if (new Date(fresh.data().lastRunAt ?? 0).getTime() >= when.getTime()) return false;
+        tx.set(entry, {
+          type: 'auto-save' satisfies ActivityType,
+          date: when.toISOString(),
+          amount: fromCents(toCents(schedule.amount)),
+          distributions: toDistributions(plan.movements),
+          repaid: fromCents(plan.repaidCents),
+          repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
         });
+        plan.movements.forEach((m) =>
+          tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
+        );
+        plan.repayments.forEach((r) => {
+          const left = outstandingCents(r.loan) - r.cents;
+          tx.update(loanRef(uid, r.loan.id), {
+            outstanding: increment(-fromCents(r.cents)),
+            settledAt: left === 0 ? when.toISOString() : null,
+          });
+        });
+        tx.update(scheduleRef(uid, schedule.id), { lastRunAt: when.toISOString() });
+
+        const drafts: AlertDraft[] = [];
+        if (alerts.receipts) drafts.push(receiptAlert(entry.id, toCents(schedule.amount), liveBanks, plan.movements, when));
+        if (alerts.milestones) drafts.push(...milestoneAlerts(liveBanks, plan.movements, when, savings.overflow));
+        drafts.forEach(({ id, ...rest }) => tx.set(alertRef(uid, id), { ...rest, read: false }));
+        return true;
       });
-      batch.update(scheduleRef(uid, schedule.id), { lastRunAt: when.toISOString() });
-
-      const drafts: AlertDraft[] = [];
-      if (alerts.receipts) drafts.push(receiptAlert(entry.id, toCents(schedule.amount), liveBanks, plan.movements, when));
-      if (alerts.milestones) drafts.push(...milestoneAlerts(liveBanks, plan.movements, when, savings.overflow));
-      queueAlerts(batch, uid, drafts);
-
-      await batch.commit();
+      // Another device got there first; this rule is up to date.
+      if (!done) break;
       posted += 1;
 
       openLoans = openLoans.map((loan) => {

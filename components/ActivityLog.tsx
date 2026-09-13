@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Activity, ActivityType, PiggyBank } from '../types';
 import { formatMoney, fromCents, toCents } from '../services/money';
+import { ledgerAmount } from '../services/export';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { SLICE_COLORS } from './DonutChart';
 import { CATEGORIES, categoryOf } from '../services/categories';
@@ -320,7 +321,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             )}
           </div>
           <span className={`text-sm font-black shrink-0 ${style.outgoing ? 'text-slate-400' : 'text-white'}`}>
-            {style.outgoing ? '-' : '+'}
+            {ledgerAmount(activity) < 0 ? '-' : '+'}
             {money(activity.amount)}
           </span>
         </div>

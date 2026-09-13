@@ -94,6 +94,10 @@ export const goals = {
     scheduleSplitWaiting: 'No goal takes a share yet — it waits until one does',
     confirmEmpty: 'Delete',
   },
+  archiveSchedules: {
+    title: (name: string) => `Archive ${name}?`,
+    confirm: 'Archive',
+  },
   /** Undoing a record that touched a goal deleted since. */
   goneShare: {
     takeTitle: (amount: string) => `Where should ${amount} come back from?`,

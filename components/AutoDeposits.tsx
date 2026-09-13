@@ -93,6 +93,8 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
   const targetName = (id: string | null) =>
     id ? (banks.find((b) => b.id === id)?.name ?? t.profile.deletedGoal) : t.profile.splitByStrategy;
+  // Archived goals are named on the rules that still point at them, but take no new rules.
+  const choosable = banks.filter((b) => !b.archivedAt || b.id === targetBankId);
 
   return (
     <div className="flex flex-col h-full bg-bg-dark safe-pt">
@@ -264,7 +266,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                   <button onClick={() => setTargetBankId(null)} className={chip(targetBankId === null)}>
                     {t.profile.splitByStrategy}
                   </button>
-                  {banks.map((b) => (
+                  {choosable.map((b) => (
                     <button key={b.id} onClick={() => setTargetBankId(b.id)} className={chip(targetBankId === b.id)}>
                       {b.name}
                     </button>

@@ -1,5 +1,5 @@
 import type { Activity, Alert, NotificationPrefs, PiggyBank, SavingsSettings } from '../types';
-import { currentStreak, dayKey, inflowCents, startOfDay } from './analytics';
+import { dayKey, startOfDay, streakRun } from './analytics';
 import { isInSplit, type Movement } from './ledger';
 import { getLang, m } from '../i18n';
 import { fromCents, toCents } from './money';
@@ -156,18 +156,26 @@ export const receiptAlert = (
  * A card when the running streak lands exactly on a milestone. The id carries
  * the streak's first day, so a second deposit on the same day changes nothing
  * and a fresh run of the same length, months later, gets its own card.
+ *
+ * Only a window of the ledger is loaded, so a run that reaches back to the
+ * window's first day has an unknown length, not the one counted: the day
+ * before it simply was not read. Without this, a long streak read as exactly
+ * the window's length on the day the window happened to be that long — 365 on
+ * the first of a month — and the moving first day minted a new card each time.
+ * `loadedFrom` is where the loaded ledger starts, when the caller knows it.
  */
-export const streakAlert = (activities: Activity[], existing: Alert[], now: Date): AlertDraft | null => {
-  const days = currentStreak(activities, now);
-  if (!STREAK_MILESTONES.includes(days)) return null;
+export const streakAlert = (
+  activities: Activity[],
+  existing: Alert[],
+  now: Date,
+  loadedFrom?: Date | null
+): AlertDraft | null => {
+  const run = streakRun(activities, now, loadedFrom);
+  if (run.capped || !run.first || !STREAK_MILESTONES.includes(run.days)) return null;
 
-  const saved = new Set(activities.filter((a) => inflowCents(a) > 0).map((a) => dayKey(new Date(a.date))));
-  const last = saved.has(dayKey(startOfDay(now))) ? startOfDay(now) : addDays(startOfDay(now), -1);
-  const first = addDays(last, -(days - 1));
-
-  const id = `streak_${days}_${dayKey(first)}`;
+  const id = `streak_${run.days}_${dayKey(run.first)}`;
   if (existing.some((a) => a.id === id)) return null;
-  return { id, kind: 'streak', date: now.toISOString(), days };
+  return { id, kind: 'streak', date: now.toISOString(), days: run.days };
 };
 
 const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);

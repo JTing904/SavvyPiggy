@@ -21,10 +21,17 @@ import { dayStart, replay, tradeCents, unitsOnExDate } from './holdings';
  */
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const DAY_MS = 86_400_000;
 
 /**
- * "12 Mar 2026" as the local midnight of that day, or null. Dates on the
- * exchange are days, not instants, and the app compares them as days.
+ * "12 Mar 2026" as that calendar day, stamped at UTC midnight, or null.
+ *
+ * Dates on the exchange are days, not instants. The Worker that parses them
+ * runs in UTC, so the number it has always handed the app is UTC midnight —
+ * and that number is baked into every credited dividend's id. It is built
+ * with Date.UTC on purpose, so the same page gives the same number wherever
+ * this runs, and the phone turns it back into its own local day with
+ * `exchangeDay` before comparing it with anything.
  */
 export const parseDay = (text: string): number | null => {
   const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})\s*$/.exec(text);
@@ -33,10 +40,44 @@ export const parseDay = (text: string): number | null => {
   const day = Number(m[1]);
   const year = Number(m[3]);
   if (month < 0 || day < 1 || day > 31) return null;
-  const date = new Date(year, month, day);
+  const date = new Date(Date.UTC(year, month, day));
   // Rejects the likes of "31 Feb 2026", which JavaScript would roll forward.
-  if (date.getMonth() !== month || date.getDate() !== day) return null;
-  return dayStart(date.getTime());
+  if (date.getUTCMonth() !== month || date.getUTCDate() !== day) return null;
+  return date.getTime();
+};
+
+/**
+ * The local midnight, on this device, of the calendar day an exchange date
+ * names.
+ *
+ * Announcements arrive stamped at UTC midnight (see parseDay), which in
+ * Malaysia is eight in the morning. Compared as instants against the phone's
+ * own midnight, a pay date was not "today" until the day after, and an
+ * ex-date only counted as passed a day late. Comparing calendar days fixes
+ * that without touching the stored number, which the ids are built from.
+ *
+ * Older data may carry local midnights instead. A local midnight only lands
+ * exactly on a UTC midnight where the offset is zero, and there the two are
+ * the same day anyway, so the test below reads either correctly.
+ */
+export const exchangeDay = (ms: number) => {
+  if (ms % DAY_MS !== 0) return dayStart(ms);
+  const d = new Date(ms);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime();
+};
+
+/**
+ * A Bursa counter's code as KLSE Screener names it: four digits, plus the one
+ * or two letters some securities carry — KLCC's stapled 5235SS, ETFs such as
+ * 0800EA. Null for anything else. The app writes codes with Yahoo's ".KL".
+ *
+ * Only plain four-digit codes used to be accepted, so a REIT like KLCC was
+ * dropped before it was ever looked up and the screen said nothing had been
+ * announced.
+ */
+export const bursaCode = (symbol: string) => {
+  const m = /^(\d{4}(?:[A-Z]{1,2})?)(?:\.KL)?$/i.exec(symbol.trim());
+  return m ? m[1].toUpperCase() : null;
 };
 
 /** "0.3300" as ten-thousandths of a ringgit, so RM0.0125 survives intact. */
@@ -46,6 +87,19 @@ export const parsePoints = (text: string): number | null => {
   const value = Number(cleaned);
   if (!Number.isFinite(value) || value <= 0) return null;
   return Math.round(value * 10_000);
+};
+
+/**
+ * An announcement as the Worker sends it. `slot` tells apart dividends that
+ * share a counter and an ex-date — 0 (and absent) for the first on the page,
+ * 1, 2… for any others — so each can be credited once under its own id.
+ */
+export type AnnouncedDividend = Dividend & { slot?: number };
+
+/** A dividend's slot, treating anything missing or malformed as the first. */
+export const slotOf = (dividend: Dividend) => {
+  const slot = (dividend as AnnouncedDividend).slot;
+  return typeof slot === 'number' && Number.isInteger(slot) && slot > 0 ? slot : 0;
 };
 
 const strip = (html: string) =>
@@ -65,7 +119,7 @@ const strip = (html: string) =>
  * transfers as dividends. Rows without both dates, or that announce something
  * other than cash, are dropped.
  */
-export const parseDividends = (html: string, symbol: string): Dividend[] => {
+export const parseDividends = (html: string, symbol: string): AnnouncedDividend[] => {
   const marker = html.indexOf('EX Date');
   if (marker < 0) return [];
 
@@ -83,7 +137,7 @@ export const parseDividends = (html: string, symbol: string): Dividend[] => {
   const announcedAt = headings.indexOf('announced');
   if (exAt < 0 || payAt < 0 || amountAt < 0) return [];
 
-  const out: Dividend[] = [];
+  const out: AnnouncedDividend[] = [];
   for (const row of table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
     const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => strip(m[1]));
     // Year separators are a single spanning cell; the heading row has none.
@@ -108,18 +162,55 @@ export const parseDividends = (html: string, symbol: string): Dividend[] => {
     });
   }
 
-  // Newest first, and one row per ex-date: a re-announcement is not a second
-  // payment.
+  /*
+    Newest first, and one row per payment.
+
+    This used to keep one row per ex-date, so an interim and a special
+    dividend going ex on the same day collapsed into one and the second was
+    never paid. A payment is now the ex-date, the amount and the kind of
+    dividend together; a row repeated word for word is still the same payment
+    and is still dropped. So is an "amended" row beside its original even if
+    the amount differs — it corrects that payment rather than adding one, and
+    counting both would invent money. The first on the page stands, as before.
+
+    The sort is stable, so rows sharing an ex-date stay in page order — which
+    is what the old filter relied on too: the first of them on the page is
+    the one it kept, and the one already-paid dividends were credited for.
+    That row keeps slot 0 and so the exact id it always had. Only the rows the
+    old filter threw away get a slot, and with it a new id.
+  */
   const seen = new Set<string>();
+  // Per ex-date and kind: whether any row kept for it was an amendment.
+  const kinds = new Map<string, boolean>();
+  const perDay = new Map<number, number>();
   return out
     .sort((a, b) => b.exDate - a.exDate)
     .filter((d) => {
-      const key = String(d.exDate);
+      const kind = `${d.exDate}|${subjectKey(d.subject)}`;
+      const key = `${kind}|${d.perUnitPoints}`;
+      const amended = AMENDED.test(d.subject);
       if (seen.has(key)) return false;
+      if (kinds.has(kind) && (amended || kinds.get(kind))) return false;
       seen.add(key);
+      kinds.set(kind, amended || (kinds.get(kind) ?? false));
       return true;
+    })
+    .map((d) => {
+      const slot = perDay.get(d.exDate) ?? 0;
+      perDay.set(d.exDate, slot + 1);
+      // Slot 0 is left off entirely, so a lone dividend looks exactly as it did.
+      return slot === 0 ? d : { ...d, slot };
     });
 };
+
+const AMENDED = /\b(amended|amendment|revised|revision|corrected|correction)\b/i;
+
+/** A subject reduced to what names the payment, so "Interim Dividend (Amended)" matches its original. */
+const subjectKey = (subject: string) =>
+  subject
+    .toLowerCase()
+    .replace(new RegExp(AMENDED.source, 'gi'), '')
+    .replace(/[^a-z0-9]/g, '');
 
 /* ------------------------------------------------------------------ money */
 
@@ -130,11 +221,24 @@ export const parseDividends = (html: string, symbol: string): Dividend[] => {
 export const dividendCents = (units: number, perUnitPoints: number) =>
   Math.floor((units * perUnitPoints) / 100);
 
-/** The trade log's own id for a credited dividend: one per counter per ex-date. */
-export const dividendTradeId = (symbol: string, exDate: number) =>
-  `div_${symbol.replace(/[^A-Za-z0-9.]/g, '')}_${exDate}`;
+/**
+ * The trade log's own id for a credited dividend: one per counter per ex-date,
+ * and for a second dividend on the same ex-date a suffix after it.
+ *
+ * The first dividend on an ex-date (slot 0) gets exactly the id it always
+ * had, built from the stored ex-date number as-is — that id is the key of the
+ * "already paid" marker, and changing it would pay everything again.
+ */
+export const dividendTradeId = (symbol: string, exDate: number, slot = 0) =>
+  `div_${symbol.replace(/[^A-Za-z0-9.]/g, '')}_${exDate}${slot > 0 ? `_${slot + 1}` : ''}`;
+
+/** The id a particular announcement is credited under. */
+export const dividendId = (dividend: Dividend) =>
+  dividendTradeId(dividend.symbol, dividend.exDate, slotOf(dividend));
 
 export interface DueDividend {
+  /** The id it is credited under — see dividendId. */
+  id: string;
   dividend: Dividend;
   /** Units held at the close of the day before the ex-date. */
   units: number;
@@ -163,18 +267,22 @@ export const dueDividends = (
   const recorded = new Set(credited);
 
   return dividends
-    .filter((d) => d.payDate <= today)
-    .filter((d) => !recorded.has(dividendTradeId(d.symbol, d.exDate)))
-    .map((d) => {
-      const units = unitsOnExDate(
-        trades.filter((t) => t.symbol === d.symbol),
-        d.exDate
-      );
-      return { dividend: d, units, amountCents: dividendCents(units, d.perUnitPoints) };
-    })
+    // As calendar days: a pay date stamped 08:00 Malaysia time is still today.
+    .filter((d) => exchangeDay(d.payDate) <= today)
+    .filter((d) => !recorded.has(dividendId(d)))
+    .map((d) => owed(d, trades))
     // Nothing held then, nothing owed — and a sub-sen amount is not money.
     .filter((due) => due.units > 0 && due.amountCents > 0)
-    .sort((a, b) => a.dividend.payDate - b.dividend.payDate);
+    .sort((a, b) => a.dividend.payDate - b.dividend.payDate || slotOf(a.dividend) - slotOf(b.dividend));
+};
+
+/** What one announcement comes to on the units held the day before its ex-date. */
+const owed = (d: Dividend, trades: Trade[]): DueDividend => {
+  const units = unitsOnExDate(
+    trades.filter((t) => t.symbol === d.symbol),
+    exchangeDay(d.exDate)
+  );
+  return { id: dividendId(d), dividend: d, units, amountCents: dividendCents(units, d.perUnitPoints) };
 };
 
 /**
@@ -204,6 +312,7 @@ export const yieldOnCost = (trades: Trade[], symbol: string, now = Date.now()) =
 
   return { paidCents: paid, costCents, percent: Math.round((paid / costCents) * 1000) / 10 };
 };
+
 export interface DeclaredRow extends DueDividend {
   /**
    * The ex-date has arrived, so these units are already entitled: selling
@@ -232,11 +341,11 @@ export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Dat
   const horizon = new Date(start.getFullYear() + 1, start.getMonth(), start.getDate()).getTime();
 
   const rows: DeclaredRow[] = upcomingDividends(dividends, trades, now)
-    .filter((r) => r.dividend.payDate < horizon)
+    .filter((r) => exchangeDay(r.dividend.payDate) < horizon)
     // Nothing held on the ex-date, nothing owed — the same rule dueDividends
     // applies, so the two lists never disagree about a counter.
     .filter((r) => r.units > 0 && r.amountCents > 0)
-    .map((r) => ({ ...r, locked: r.dividend.exDate <= today }));
+    .map((r) => ({ ...r, locked: exchangeDay(r.dividend.exDate) <= today }));
 
   const sum = (only: boolean) =>
     rows.filter((r) => r.locked === only).reduce((total, r) => total + r.amountCents, 0);
@@ -253,13 +362,7 @@ export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Dat
 export const upcomingDividends = (dividends: Dividend[], trades: Trade[], now = Date.now()) => {
   const today = dayStart(now);
   return dividends
-    .filter((d) => d.payDate >= today)
-    .map((d) => {
-      const units = unitsOnExDate(
-        trades.filter((t) => t.symbol === d.symbol),
-        d.exDate
-      );
-      return { dividend: d, units, amountCents: dividendCents(units, d.perUnitPoints) };
-    })
-    .sort((a, b) => a.dividend.payDate - b.dividend.payDate);
+    .filter((d) => exchangeDay(d.payDate) >= today)
+    .map((d) => owed(d, trades))
+    .sort((a, b) => a.dividend.payDate - b.dividend.payDate || slotOf(a.dividend) - slotOf(b.dividend));
 };

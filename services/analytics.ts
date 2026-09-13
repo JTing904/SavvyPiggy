@@ -172,6 +172,11 @@ export interface Summary {
   buckets: Bucket[];
   /** Consecutive days with money reaching a goal, up to today or yesterday. */
   streak: number;
+  /**
+   * The streak runs back to the first day of the loaded history, so it is at
+   * least `streak` long and possibly longer — the app keeps only a window.
+   */
+  streakCapped: boolean;
   /** Days in the period with money reaching a goal. */
   activeDays: number;
   maxDay: number;
@@ -192,6 +197,19 @@ const outflowCents = (a: Activity) =>
 
 const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
 
+/**
+ * How much one entry changed what the goals hold, on the Report's definition
+ * of "goals grew by": saved, less spent, less moved into shares, plus sale
+ * proceeds that reached a goal. A deleted goal's money moving into another
+ * goal changes nothing overall, so a transfer counts as zero.
+ */
+export const goalsChangeCents = (a: Activity) => {
+  if (a.type === 'transfer') return 0;
+  if (a.type === 'invest') return -movedCents(a);
+  if (a.type === 'divest') return movedCents(a);
+  return inflowCents(a) - outflowCents(a);
+};
+
 const percent = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
 export const firstActivityDate = (activities: Activity[]): Date | null => {
@@ -203,8 +221,32 @@ export const firstActivityDate = (activities: Activity[]): Date | null => {
   return first;
 };
 
-/** Consecutive days with inflow, counted back from today (or yesterday, if today is still empty). */
-export const currentStreak = (activities: Activity[], now: Date) => {
+export interface StreakRun {
+  days: number;
+  /** The run's first day; null when there is no run. */
+  first: Date | null;
+  /**
+   * The run reaches the first day of the history that was loaded, so the day
+   * before it is unknown rather than empty and the real streak may be longer.
+   */
+  capped: boolean;
+}
+
+/**
+ * Whether a run starting on `first` could be cut short by the loaded window.
+ *
+ * With `loadedFrom` — the first moment the live ledger was read from — that is
+ * simply reaching it. Without it the window is not known, so a run that starts
+ * exactly on the day any offered window starts on is treated as reaching it:
+ * the day before it was never loaded, so the run may well go on past it.
+ */
+export const streakCapped = (first: Date, now: Date, loadedFrom?: Date | null) =>
+  loadedFrom
+    ? loadedFrom.getTime() > 0 && startOfDay(first) <= startOfDay(loadedFrom)
+    : RETENTION_CHOICES.some((c) => dayKey(retentionCutoff(now, c.months)) === dayKey(first));
+
+/** The current run of saving days, counted back from today (or yesterday, if today is still empty). */
+export const streakRun = (activities: Activity[], now: Date, loadedFrom?: Date | null): StreakRun => {
   const days = new Set<string>();
   for (const a of activities) if (inflowCents(a) > 0) days.add(dayKey(new Date(a.date)));
 
@@ -216,8 +258,13 @@ export const currentStreak = (activities: Activity[], now: Date) => {
     streak += 1;
     cursor = addDays(cursor, -1);
   }
-  return streak;
+  if (streak === 0) return { days: 0, first: null, capped: false };
+  const first = addDays(cursor, 1);
+  return { days: streak, first, capped: streakCapped(first, now, loadedFrom) };
 };
+
+/** Consecutive days with inflow, counted back from today (or yesterday, if today is still empty). */
+export const currentStreak = (activities: Activity[], now: Date) => streakRun(activities, now).days;
 
 /** Slices the period into the bars the cadence chart draws. */
 export const bucketsFor = (period: Period, range: PeriodRange): { label: string; range: DateRange }[] => {
@@ -367,6 +414,8 @@ export const summarize = (
     }
   }
 
+  const run = streakRun(activities, now);
+
   return {
     range,
     distributed: fromCents(distributed),
@@ -383,7 +432,8 @@ export const summarize = (
     collective,
     banks: bankStats,
     buckets,
-    streak: currentStreak(activities, now),
+    streak: run.days,
+    streakCapped: run.capped,
     activeDays: byDay.size,
     maxDay: fromCents(Math.max(0, ...byDay.values())),
     forecast,
@@ -496,13 +546,22 @@ export interface MonthReport {
   /** Exclusive. */
   end: Date;
   activities: number;
-  /** Net into the goals that month, in whole ringgit as the ledger stores it. */
+  /**
+   * What the goals grew by that month, in ringgit as the ledger stores it —
+   * the same figure the Report calls "goals grew by", so a deleted goal's money
+   * moving between goals is not counted as money in.
+   */
   net: number;
   trades: number;
   /** The month still running, whose figures are not final. */
   current: boolean;
   /** The date this month's records are cleared, if a window is set. */
   clearedOn: Date | null;
+  /**
+   * Already outside the window: its records are waiting to be cleared the next
+   * time the app opens (once the Statements screen has shown them).
+   */
+  due: boolean;
 }
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -520,6 +579,7 @@ export const monthsWithRecords = (
   now: Date = new Date(),
   months: number | null = RETENTION_MONTHS
 ): MonthReport[] => {
+  // Net is summed in cents, so no float tail builds up over a busy month.
   const seen = new Map<string, { start: Date; activities: number; net: number; trades: number }>();
 
   const touch = (d: Date) => {
@@ -536,12 +596,14 @@ export const monthsWithRecords = (
   for (const a of activities) {
     const entry = touch(new Date(a.date));
     entry.activities += 1;
-    // What actually reached the goals, so a withdrawal reads as the minus it is.
-    entry.net += a.distributions.reduce((sum, d) => sum + d.amount, 0);
+    // What the goals grew by, so a withdrawal reads as the minus it is and a
+    // transfer between goals reads as nothing.
+    entry.net += goalsChangeCents(a);
   }
   for (const t of trades) touch(new Date(t.tradedAt)).trades += 1;
 
   const thisMonth = monthKey(now);
+  const cutoff = retentionCutoff(now, months);
 
   return [...seen.entries()]
     .map(([key, e]) => ({
@@ -550,7 +612,7 @@ export const monthsWithRecords = (
       start: e.start,
       end: new Date(e.start.getFullYear(), e.start.getMonth() + 1, 1),
       activities: e.activities,
-      net: e.net,
+      net: fromCents(e.net),
       trades: e.trades,
       current: key === thisMonth,
       // Cleared on the first of the month once it falls outside the window.
@@ -558,6 +620,7 @@ export const monthsWithRecords = (
         months === null
           ? null
           : new Date(e.start.getFullYear(), e.start.getMonth() + months + 1, 1),
+      due: months !== null && e.start < cutoff,
     }))
     .sort((a, b) => b.key.localeCompare(a.key));
 };
@@ -593,3 +656,71 @@ export const nextToClear = (months: MonthReport[]) =>
   [...months]
     .filter((m) => m.clearedOn !== null && m.activities > 0)
     .sort((a, b) => a.key.localeCompare(b.key))[0] ?? null;
+
+/* -------------------------------------------------------------- clearing */
+
+/**
+ * What clearing may do on this app open, given what the user has been shown.
+ *
+ * `acknowledged` is the cutoff the Statements screen last showed: every record
+ * older than it was listed there, marked as about to be cleared, beside its
+ * download buttons. Only records older than both that and the current window's
+ * start may go. Anything between the two (the window shrank, or a month has
+ * aged out since) was never shown as going, so it waits and the warning is
+ * raised again.
+ *
+ * An acknowledgement from before this was recorded carries no cutoff and counts
+ * for nothing: those users were never shown the months pending.
+ */
+export interface ClearingPlan {
+  /** The first moment still kept by the window. */
+  cutoff: Date;
+  /** Records strictly older than this may be deleted; null when none may. */
+  clearBefore: Date | null;
+  /**
+   * Records from here up to `cutoff` are due but were never shown as due; if
+   * any exist, warn. Null when there is no such stretch.
+   */
+  unseenFrom: Date | null;
+}
+
+const parseDate = (iso: string | null | undefined) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+export const clearingPlan = (
+  now: Date,
+  months: number | null,
+  acknowledged: string | null | undefined
+): ClearingPlan => {
+  const cutoff = retentionCutoff(now, months);
+  if (months === null) return { cutoff, clearBefore: null, unseenFrom: null };
+  const seen = parseDate(acknowledged);
+  if (!seen || seen.getTime() <= 0) return { cutoff, clearBefore: null, unseenFrom: new Date(0) };
+  if (seen >= cutoff) return { cutoff, clearBefore: cutoff, unseenFrom: null };
+  return { cutoff, clearBefore: seen, unseenFrom: seen };
+};
+
+/**
+ * The records past the window worth listing, and the cutoff the Statements
+ * screen can honestly say it showed.
+ *
+ * They are read oldest first, and at most a page of them. When the page came
+ * back full, its last month may be cut short, so that month is left off the
+ * screen and the acknowledgement stops at its first day: that month, and
+ * anything after it, waits for a later visit.
+ */
+export const shownOlder = (
+  older: Activity[],
+  complete: boolean,
+  cutoff: Date
+): { activities: Activity[]; shownCutoff: Date } => {
+  if (complete) return { activities: older, shownCutoff: cutoff };
+  if (older.length === 0) return { activities: [], shownCutoff: new Date(0) };
+  const last = new Date(older.reduce((max, a) => (a.date > max ? a.date : max), older[0].date));
+  const monthStart = new Date(last.getFullYear(), last.getMonth(), 1);
+  const shownCutoff = monthStart < cutoff ? monthStart : cutoff;
+  return { activities: older.filter((a) => new Date(a.date) < shownCutoff), shownCutoff };
+};

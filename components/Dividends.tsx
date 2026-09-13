@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { Dividend, Trade } from '../types';
-import { declaredIncome, upcomingDividends, yieldOnCost } from '../services/dividends';
+import { declaredIncome, exchangeDay, upcomingDividends, yieldOnCost } from '../services/dividends';
 import { isDividendApiConfigured } from '../services/dividendApi';
 import { tradeCents, unitsOnExDate } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
@@ -174,8 +174,9 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, known, o
           </div>
         ) : (
           <div className="space-y-3">
-            {upcoming.map(({ dividend, units, amountCents }) => (
-              <div key={`${dividend.symbol}_${dividend.exDate}`} className="rounded-3xl glass p-5">
+            {upcoming.map(({ id, dividend, units, amountCents }) => (
+              // The dividend's own id: two can share a counter and an ex-date.
+              <div key={id} className="rounded-3xl glass p-5">
                 <div className="flex items-baseline gap-3">
                   {/* The counter code never truncates: a "1155" shortened to
                       "115" names a different company. The subject gives way. */}
@@ -185,8 +186,9 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, known, o
                   </span>
                 </div>
                 <div className="mt-4 space-y-2.5">
-                  <Row label={t.invest.exDate} value={day(dividend.exDate)} />
-                  <Row label={t.invest.payDate} value={day(dividend.payDate)} />
+                  {/* As calendar days: west of Greenwich a UTC-midnight stamp would read as the day before. */}
+                  <Row label={t.invest.exDate} value={day(exchangeDay(dividend.exDate))} />
+                  <Row label={t.invest.payDate} value={day(exchangeDay(dividend.payDate))} />
                   <Row label={t.invest.perUnit} value={rate(dividend.perUnitPoints)} />
                   <Row label={t.invest.unitsOnExDate} value={units.toLocaleString('en-US')} />
                 </div>

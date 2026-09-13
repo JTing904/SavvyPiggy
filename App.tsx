@@ -19,6 +19,7 @@ import Trades from './components/Trades';
 import Dividends from './components/Dividends';
 import Growth from './components/Growth';
 import TradeSheet, { type TradeDraft } from './components/TradeSheet';
+import ArchiveSchedulesSheet from './components/ArchiveSchedulesSheet';
 import type { Mode } from './components/Navigation';
 import LanguagePicker from './components/LanguagePicker';
 import MonthlyBuy from './components/invest/MonthlyBuy';
@@ -34,12 +35,14 @@ import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
 import { useSnapshots } from './hooks/useSnapshots';
 import { useQuotes } from './hooks/useQuotes';
+import { cachedRecords } from './hooks/useAdvisor';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
 import type { GoalMoneyChoice, GoneShareChoice } from './services/ledger';
 import { staleAlerts, streakAlert } from './services/alerts';
-import { onNotificationOpen, syncNotifications } from './services/notifications';
+import { retentionCutoff } from './services/analytics';
+import { checkPermission, onNotificationOpen, requestPermission, syncNotifications } from './services/notifications';
 
 const Splash: React.FC<{ label: string }> = ({ label }) => (
   <div className="h-full flex flex-col items-center justify-center gap-4">
@@ -79,6 +82,14 @@ const App: React.FC = () => {
    */
   const [setup, setSetup] = useState<{ step: 'style' | 'broker'; pending: TradeDraft | null; editing?: boolean } | null>(null);
 
+  // A tab belongs to one half of the app, so the bar follows it. Screens reached
+  // from Profile or an alert (the split, the report) used to open under the
+  // investing bar with nothing lit.
+  useEffect(() => {
+    if ([Tab.LOG, Tab.BANKS, Tab.STATS].includes(activeTab)) setMode('save');
+    else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
+  }, [activeTab]);
+
   const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, invest, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
@@ -91,6 +102,11 @@ const App: React.FC = () => {
     [trades, invest.watchlist]
   );
   const { quotes } = useQuotes(symbols);
+  // The quiz shows each style's record only if this month's run already exists; it never starts one.
+  const quizRecords = useMemo(
+    () => (setup?.step === 'style' ? cachedRecords(invest.watchlist.map((w) => w.symbol)) : null),
+    [setup?.step, invest.watchlist]
+  );
   const {
     dividends,
     busy: dividendsBusy,
@@ -114,7 +130,9 @@ const App: React.FC = () => {
   // missed while the app was shut is posted when it comes back into view.
   const catchingUp = useRef(false);
   useEffect(() => {
-    if (!uid || dataLoading || schedules.length === 0) return;
+    // Posting checks the rule on the server first, which cannot happen offline;
+    // the catch-up runs again as soon as the app is back online.
+    if (!uid || dataLoading || offline || schedules.length === 0) return;
 
     const catchUp = async () => {
       if (catchingUp.current || document.visibilityState !== 'visible') return;
@@ -135,15 +153,16 @@ const App: React.FC = () => {
     void catchUp();
     document.addEventListener('visibilitychange', catchUp);
     return () => document.removeEventListener('visibilitychange', catchUp);
-  }, [uid, dataLoading, schedules, banks, loans, prefs, savings]);
+  }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings]);
 
   // A streak milestone is judged on the live ledger rather than at deposit
   // time, so a catch-up run that lands on day 30 earns its card too.
   useEffect(() => {
     if (!uid || dataLoading || !prefs.milestones) return;
-    const draft = streakAlert(activities, alerts, new Date());
+    const now = new Date();
+    const draft = streakAlert(activities, alerts, now, retentionCutoff(now, savings.retentionMonths));
     if (draft) run(() => api.addAlert(uid, draft));
-  }, [uid, dataLoading, activities, alerts, prefs.milestones]);
+  }, [uid, dataLoading, activities, alerts, prefs.milestones, savings.retentionMonths]);
 
   // Alerts are disposable: anything older than the retention window goes,
   // once per session, without asking.
@@ -186,12 +205,27 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!uid || dataLoading) return;
 
-    const sync = () => {
-      if (document.visibilityState === 'visible') void syncNotifications(prefs, schedules, dividends, trades).catch(() => {});
+    const sync = async () => {
+      if (document.visibilityState !== 'visible') return;
+      // The monthly digest and ex-date warnings start switched on, but Android 13+
+      // delivers nothing until the phone is asked — and it was only ever asked
+      // when a switch was flipped. Ask once, the first time something is on.
+      if ((prefs.reminder || prefs.digest || prefs.exDates) && (await checkPermission()) === 'prompt') {
+        let asked = false;
+        try {
+          asked = localStorage.getItem('savvypiggy.notifyAsked') === '1';
+          localStorage.setItem('savvypiggy.notifyAsked', '1');
+        } catch {
+          // No storage: asking again next time is harmless.
+        }
+        if (!asked) await requestPermission().catch(() => undefined);
+      }
+      await syncNotifications(prefs, schedules, dividends, trades).catch(() => {});
     };
-    sync();
-    document.addEventListener('visibilitychange', sync);
-    return () => document.removeEventListener('visibilitychange', sync);
+    const onVisible = () => void sync();
+    onVisible();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
     // The language is in the list because every alarm's words are: switching
     // re-arms each one in the new language.
   }, [uid, dataLoading, prefs, schedules, dividends, trades, lang]);
@@ -236,11 +270,21 @@ const App: React.FC = () => {
   useEffect(
     () =>
       onNotificationOpen((target) => {
+        // Everything open on top is closed, or the screen the notification
+        // points at would change behind a sheet that is still covering it.
         setSelectedGoalId(null);
         setShowProfile(false);
         setShowAlerts(false);
-        setMode('save');
-        setActiveTab(target === 'report' ? Tab.STATS : Tab.HOME);
+        setShowStatements(false);
+        setShowMonthlyBuy(false);
+        setShowCreateGoal(false);
+        setShowAutoDeposits(false);
+        setShowQuickPick(false);
+        setQuickAction(null);
+        setTradeDraft(null);
+        setSetup(null);
+        setMode(target === 'dividends' ? 'invest' : 'save');
+        setActiveTab(target === 'report' ? Tab.STATS : target === 'dividends' ? Tab.DIVIDENDS : Tab.HOME);
       }),
     []
   );
@@ -251,6 +295,18 @@ const App: React.FC = () => {
     () => banks.reduce((sum, bank) => sum + bank.currentAmount, 0),
     [banks]
   );
+  // "Today" moves at midnight even if nothing else changes; resuming the app
+  // the next morning used to keep showing yesterday's figure.
+  const [dayStamp, setDayStamp] = useState(() => new Date().toDateString());
+  useEffect(() => {
+    const check = () => setDayStamp(new Date().toDateString());
+    document.addEventListener('visibilitychange', check);
+    const timer = setInterval(check, 60_000);
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+      clearInterval(timer);
+    };
+  }, []);
   const savingsToday = useMemo(() => {
     const today = new Date().toLocaleDateString();
     // What actually reached the goals today. A deposit's headline amount can be
@@ -263,7 +319,7 @@ const App: React.FC = () => {
       .filter((a) => new Date(a.date).toLocaleDateString() === today)
       .flatMap((a) => a.distributions)
       .reduce((sum, d) => sum + d.amount, 0);
-  }, [activities]);
+  }, [activities, dayStamp]);
 
   /**
    * Every write goes through here.
@@ -320,8 +376,12 @@ const App: React.FC = () => {
     if (uid) run(() => api.saveSavings(uid, patch));
   };
 
+  /** A goal being archived that auto deposits still save into: they are asked about first. */
+  const [archiving, setArchiving] = useState<string | null>(null);
   const handleArchiveBank = (id: string) => {
-    if (uid) run(() => api.archiveBank(uid, banks, id));
+    if (!uid) return;
+    if (schedules.some((s) => s.targetBankId === id)) setArchiving(id);
+    else run(() => api.archiveBank(uid, banks, id));
   };
 
   const handleSavePrefs = (patch: Partial<NotificationPrefs>) => {
@@ -480,8 +540,9 @@ const App: React.FC = () => {
             setShowAlerts(true);
           }}
           onOpenReport={() => {
+            // The row reads "Statements & exports", so that is where it goes.
             setShowProfile(false);
-            setActiveTab(Tab.STATS);
+            setShowStatements(true);
           }}
           onOpenHoldings={() => {
             setShowProfile(false);
@@ -497,7 +558,7 @@ const App: React.FC = () => {
       return (
         <AutoDeposits
           schedules={schedules}
-          banks={activeBanks}
+          banks={banks}
           onCancel={() => setShowAutoDeposits(false)}
           onCreate={handleCreateSchedule}
           onUpdate={(id, patch) => uid && run(() => api.updateSchedule(uid, id, patch))}
@@ -692,6 +753,7 @@ const App: React.FC = () => {
           onClose={() => setTradeDraft(null)}
           onDone={() => undefined}
           onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
+          onSyncError={fail}
           onCreateGoal={() => {
             setTradeDraft(null);
             setShowCreateGoal(true);
@@ -703,6 +765,7 @@ const App: React.FC = () => {
       {setup?.step === 'style' && uid && (
         <StyleQuiz
           initial={invest.style}
+          records={quizRecords}
           required={!!setup.pending}
           startOnMix={!!setup.editing && !!invest.style}
           onDone={(style) => {
@@ -715,6 +778,20 @@ const App: React.FC = () => {
             }
           }}
           onClose={() => setSetup(null)}
+        />
+      )}
+      {archiving && uid && banks.some((b) => b.id === archiving) && (
+        <ArchiveSchedulesSheet
+          bank={banks.find((b) => b.id === archiving)!}
+          banks={banks}
+          aimed={schedules.filter((s) => s.targetBankId === archiving).length}
+          onConfirm={(target) => {
+            const id = archiving;
+            const scheduleIds = schedules.filter((s) => s.targetBankId === id).map((s) => s.id);
+            setArchiving(null);
+            run(() => api.archiveBank(uid, banks, id, { scheduleIds, target }));
+          }}
+          onClose={() => setArchiving(null)}
         />
       )}
       {setup?.step === 'broker' && uid && (

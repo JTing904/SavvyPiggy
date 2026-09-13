@@ -19,7 +19,8 @@ export const errors: typeof English = {
   enterSpendAmount: '请输入开销金额。',
   editRepaidDebt: '这笔记录补回过预支，不能修改。请删除后重新记录。',
   editDeletedGoal: '这笔记录存入的钱罐有一个已被删除，无法修改。',
-  scheduleGoalGone: (count) => `有 ${count} 条自动存入还指向已删除的钱罐，没有存入。请到「自动存入」里给它换一个钱罐。`,
+  scheduleGoalGone: (count) => `有 ${count} 条自动存入还指向已删除或封存的钱罐，没有存入。请到「自动存入」里给它换一个钱罐。`,
+  coveredNowhere: '这笔预支已经被存入补回了。删掉它，那笔钱要放回钱罐——但现在分配比例加起来不到 100%，钱会没地方放。请先把分配比例设好。',
   goneShare: '这笔记录有一部分经过了一个已删除的钱罐。请选择这部分从哪里扣回或放回。',
 
   newGoal: '新钱罐',

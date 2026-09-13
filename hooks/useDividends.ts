@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dividend, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Trade } from '../types';
-import { dueDividends } from '../services/dividends';
+import { dividendTradeId, dueDividends, slotOf } from '../services/dividends';
 import { loadDividends, readCache } from '../services/dividendApi';
 import { creditDividend, subscribeToCreditedDividends } from '../services/firestore';
 
@@ -99,7 +99,20 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
   useEffect(() => {
     if (!uid || !ready || running.current || dividends.length === 0 || banks.length === 0) return;
 
-    const due = dueDividends(dividends, trades, credited);
+    const paid = new Set(credited);
+    const due = dueDividends(dividends, trades, credited).filter(
+      /*
+        A second dividend on the same ex-date waits until the first is
+        recorded as paid. The first keeps the id every earlier version used,
+        so it must be the one that claims it: were the second credited first
+        under that id, the first would then look paid when it was not. The
+        effect runs again as soon as the marker arrives, so the wait is
+        seconds.
+      */
+      (item) =>
+        slotOf(item.dividend) === 0 ||
+        paid.has(dividendTradeId(item.dividend.symbol, item.dividend.exDate))
+    );
     if (due.length === 0) return;
 
     running.current = true;

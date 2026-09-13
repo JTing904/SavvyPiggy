@@ -8,10 +8,13 @@ import {
   monthKey,
   probability,
   reasonsFor,
+  scoreNow,
+  scoringMonth,
   type MonthlySeries,
   type ScoredCounter,
+  type Style,
 } from '../services/advisor/model';
-import { parseHistory } from '../services/advisor/history';
+import { loadHistory, parseHistory, UNIVERSE, type HistoryCache } from '../services/advisor/history';
 import { eq, report } from './harness';
 
 // A counter priced at RM10 that pays 30 sen every March and September.
@@ -47,6 +50,32 @@ const steady = (months: number, start = '2020-01', late = false): MonthlySeries 
   eq('a missing close carries the last one forward', s.closes, [10.1235, 10.1235, 10.1235, 10.5]);
   eq('a dividend lands in the month it was paid', s.divs, [0, 0, 0, 0.33]);
   eq('an empty answer is no history', parseHistory({ chart: { result: [] } }), null);
+}
+
+{
+  // As Yahoo really sends Bursa: each monthly bar at midnight on the 1st in
+  // Kuala Lumpur, which is 16:00 UTC the day before, then this month's live
+  // point stamped at the last trade. Dividends are stamped during the day.
+  const bar = (y: number, m: number) => Date.UTC(y, m - 1, 1) / 1000 - 8 * 3600;
+  const payload = {
+    chart: {
+      result: [
+        {
+          meta: { gmtoffset: 28_800 },
+          timestamp: [bar(2026, 6), bar(2026, 7), bar(2026, 8), bar(2026, 9), Date.UTC(2026, 8, 12, 8, 59) / 1000],
+          indicators: { quote: [{ close: [1.1, 1.2, 1.3, 1.35, 1.4] }] },
+          events: { dividends: { a: { date: Date.UTC(2026, 7, 14, 1) / 1000, amount: 0.05 } } },
+        },
+      ],
+    },
+  };
+  const s = parseHistory(payload)!;
+  eq('a bar stamped 16:00 UTC on 31 May is June', s.start, '2026-06');
+  eq("this month's live point takes this month's place instead of adding a month", s.closes, [1.1, 1.2, 1.3, 1.4]);
+  eq('a dividend paid on 14 August is August', s.divs, [0, 0, 0.05, 0]);
+
+  const noOffset = { chart: { result: [{ ...payload.chart.result[0], meta: {} }] } };
+  eq('without an offset in the payload, Bursa time is assumed', parseHistory(noOffset)!.start, '2026-06');
 }
 
 // --- months
@@ -148,6 +177,110 @@ const counter = (symbol: string, income: number, cash: number, price: number): S
   ]);
   eq('and the biggest thing against it', why.against.map((a) => a.feature), ['yield12']);
 }
+
+// --- scoring today
+
+{
+  // 48 months to Sep 2026 at a near-flat price, paying `div` every March and September.
+  const flat = (price: number, div: number, months = 48, start = '2022-10'): MonthlySeries => {
+    const closes = Array.from({ length: months }, (_, i) => price * (1 + ((i * 37) % 7) / 200));
+    const divs = closes.map((_, i) => ([3, 9].includes(Number(monthKey(start, i).slice(5))) ? div : 0));
+    return { start, closes, divs };
+  };
+  const zeros = (n: number) => new Array(n).fill(0);
+  // A steady-dividends model that, like the real one, leans against high yields.
+  const weights: Record<Style, number[]> = { income: [0, -3, ...zeros(6)], cash: zeros(8), price: zeros(7) };
+  const universe = { PAY1: flat(10, 0.3), PAY2: flat(20, 0.2), PAY3: flat(5, 0.25), PAY4: flat(8, 0.1), NONE: flat(9, 0) };
+  const scored = scoreNow(universe, Object.keys(universe), weights);
+  const none = scored.find((c) => c.symbol === 'NONE')!;
+  eq('a counter that pays nothing has no chance of keeping its dividend', none.chance.income, 0);
+  const ranked = blend(scored, { income: 100, cash: 0, price: 0 });
+  eq('so on all steady dividends it never out-ranks a payer', ranked[ranked.length - 1].symbol, 'NONE');
+  eq('and nothing in the blend is NaN', ranked.every((c) => Number.isFinite(c.score) && Number.isFinite(c.match)), true);
+  eq('and the dividend model gives it no reasons', reasonsFor(none, { income: 100, cash: 0, price: 0 }), { forIt: [], against: [] });
+  eq('a payer still gets its chance', scored.find((c) => c.symbol === 'PAY1')!.chance.income > 0, true);
+}
+
+{
+  const flat = (months: number, start = '2022-10'): MonthlySeries => ({
+    start,
+    closes: Array.from({ length: months }, (_, i) => 10 + ((i * 13) % 5) / 10),
+    divs: Array.from({ length: months }, (_, i) => (i % 6 === 0 ? 0.2 : 0)),
+  });
+  const zeros = (n: number) => new Array(n).fill(0);
+  const weights: Record<Style, number[]> = { income: zeros(8), cash: zeros(8), price: [0, 1, ...zeros(5)] };
+  // Cached on 1 Sep before Bursa opened, so everything ends in August; then a
+  // counter added later, whose history already has September.
+  const universe: Record<string, MonthlySeries> = { A: flat(47), B: flat(47), C: flat(47), D: flat(47), NEW: flat(48), OLD: flat(46) };
+  eq('the scoring month is the one most histories end in', scoringMonth(universe), '2026-08');
+  const scored = scoreNow(universe, Object.keys(universe), weights);
+  eq('a newer history does not knock the rest out', scored.map((c) => c.symbol).sort(), ['A', 'B', 'C', 'D', 'NEW']);
+  const cut = { ...universe.NEW, closes: universe.NEW.closes.slice(0, 47), divs: universe.NEW.divs.slice(0, 47) };
+  eq('it is scored as of the same month as the rest', scored.find((c) => c.symbol === 'NEW')!.x, featuresAt(cut, 46));
+  eq('a tie goes to the later month', scoringMonth({ A: flat(47), B: flat(48) }), '2026-09');
+}
+
+// --- keeping history on the phone
+
+await (async () => {
+  const now = new Date(2026, 8, 13, 10);
+  const one: MonthlySeries = { start: '2020-01', closes: [1], divs: [0] };
+  const store = (initial: HistoryCache | null) => {
+    const box = { value: initial, writes: 0 };
+    const cache = {
+      read: () => box.value,
+      write: (c: HistoryCache) => {
+        box.value = c;
+        box.writes++;
+      },
+    };
+    return { box, cache };
+  };
+
+  // Offline on the first open of a new month.
+  const lastMonth = store({ month: '2026-08', series: { A: one, B: one } });
+  const offline = await loadHistory([], () => {}, now, () => false, async () => null, lastMonth.cache);
+  eq("offline in a new month: last month's history is used", [offline.month, Object.keys(offline.series)], ['2026-08', ['A', 'B']]);
+  eq('and the cache on the phone is not replaced with an empty one', [lastMonth.box.writes, lastMonth.box.value!.month], [0, '2026-08']);
+
+  // A new month, and one counter Yahoo will not give.
+  const fresh = store(null);
+  const asked: string[] = [];
+  const fetcher = async (s: string) => {
+    asked.push(s);
+    return s === 'GONE.KL' ? null : one;
+  };
+  await loadHistory(['GONE.KL'], () => {}, now, () => false, fetcher, fresh.cache);
+  eq('everything else is kept', Object.keys(fresh.box.value!.series).length, UNIVERSE.length);
+  eq('the one that failed is noted for the day', fresh.box.value!.failed, { 'GONE.KL': '2026-09-13' });
+
+  asked.length = 0;
+  const again = await loadHistory(['GONE.KL'], () => {}, now, () => false, fetcher, fresh.cache);
+  eq('opening again the same day asks for nothing and writes nothing', [asked, fresh.box.writes], [[], 1]);
+  eq('and the rest is still there', Object.keys(again.series).length, UNIVERSE.length);
+
+  asked.length = 0;
+  await loadHistory(['GONE.KL'], () => {}, new Date(2026, 8, 14, 10), () => false, fetcher, fresh.cache);
+  eq('the next day it is tried once more, without a rewrite', [asked, fresh.box.writes], [['GONE.KL'], 1]);
+
+  // The connection drops part way: what arrived is kept, and nothing is
+  // written off as failing, so the next open picks up the rest.
+  const dropped = store(null);
+  let calls = 0;
+  await loadHistory([], () => {}, now, () => false, async () => (++calls <= 8 ? one : null), dropped.cache);
+  eq('a connection that dropped keeps what arrived', Object.keys(dropped.box.value!.series).length, 8);
+  eq('and marks nothing as failing', dropped.box.value!.failed, {});
+
+  // Stopped part way (the screen was left): no further batch is fetched.
+  const stopped = store(null);
+  let fetched = 0;
+  const count = async () => {
+    fetched++;
+    return one;
+  };
+  await loadHistory([], () => {}, now, () => fetched >= 4, count, stopped.cache);
+  eq('a stopped download fetches no further batch', fetched, 4);
+})();
 
 // --- the questions
 

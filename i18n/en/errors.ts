@@ -19,7 +19,8 @@ export const errors = {
   editRepaidDebt: 'This one repaid a debt. Delete it and record it again instead.',
   editDeletedGoal: 'One of the goals this went into has been deleted, so it cannot be corrected.',
   scheduleGoalGone: (count: number) =>
-    `${count} auto deposit${count === 1 ? '' : 's'} still point${count === 1 ? 's' : ''} at a deleted goal and ${count === 1 ? 'was' : 'were'} not posted. Choose another goal for ${count === 1 ? 'it' : 'them'} in Auto deposits.`,
+    `${count} auto deposit${count === 1 ? '' : 's'} still point${count === 1 ? 's' : ''} at a deleted or archived goal and ${count === 1 ? 'was' : 'were'} not posted. Choose another goal for ${count === 1 ? 'it' : 'them'} in Auto deposits.`,
+  coveredNowhere: 'This spent ahead was already covered by a deposit, and undoing it would put that money back — but no goal takes a full share of deposits right now. Set your split to 100% first.',
   goneShare: 'Part of this went through a goal that has since been deleted. Choose where that part is settled.',
 
   /** Names written into new goals, in the language chosen when they were made. */

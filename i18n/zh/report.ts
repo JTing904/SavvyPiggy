@@ -66,6 +66,7 @@ export const report: typeof English = {
   pacing: '存钱节奏',
   pacingHint: '看看钱多规律地存进你的钱罐。',
   streakValue: (n) => `${n}天`,
+  streakAtLeast: (n) => `${n}天+`,
   streak: '连续天数',
   daysSaved: '存钱天数',
   bestDay: '存最多的一天',
