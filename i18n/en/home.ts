@@ -44,6 +44,8 @@ export const home = {
 
   recentActivity: 'Recent Activity',
   noRecentActivity: 'No recent activity.',
+  /** A row money moved on for a trade: "Invested · MAYBANK". */
+  tradeRow: (label: string, counter: string) => `${label} · ${counter}`,
 
   noCounters: 'No counters yet',
   noCountersHint: 'Record a buy with the button below and it will be priced and tracked here.',

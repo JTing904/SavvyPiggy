@@ -76,13 +76,16 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
         .filter((x) => !banks.some((b) => b.id === x.bankId))
         .reduce((s, x) => s + x.amount, 0);
 
+      // Money moved for a trade names its counter, so the row reads as shares
+      // bought or sold rather than as a deposit or spending.
+      const trade = (a.type === 'invest' || a.type === 'divest') && a.counter;
       return [
         localDate(d),
         localTime(d),
         TYPE_LABEL[a.type] ?? a.type,
         money(a.amount),
         a.repaid ? money(a.repaid) : null,
-        a.note == null ? null : noteText(a.note),
+        trade ? f.tradeNote(TYPE_LABEL[a.type], a.counter!) : a.note == null ? null : noteText(a.note),
         a.type === 'withdraw' ? categoryOf(a.category).label : null,
         ...perBank,
         ...(orphaned ? [other === 0 ? null : money(other)] : []),

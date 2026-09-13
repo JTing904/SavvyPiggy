@@ -256,20 +256,29 @@ export const renderStatement = ({
     { label: f.debtRepaid, value: money(summary.repaid), color: INK },
     { label: f.spentAhead, value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
   ];
+  // Money that changed form, never counted as saved or spent. Only shown when
+  // it happened, on a second row so the savings figures keep their width.
+  const sharePanels = [
+    ...(summary.invested > 0 ? [{ label: f.movedIntoShares, value: money(summary.invested), color: INK }] : []),
+    ...(summary.cameBack > 0 ? [{ label: f.cameBackFromShares, value: money(summary.cameBack), color: INK }] : []),
+  ];
   const gap = 8 * SCALE;
   const panelWidth = (contentWidth - gap * (panels.length - 1)) / panels.length;
   const panelHeight = 52 * SCALE;
   doc.y += 8 * SCALE;
-  panels.forEach((p, i) => {
-    const x = MARGIN + i * (panelWidth + gap);
-    doc.ctx.fillStyle = PANEL;
-    doc.ctx.fillRect(x, doc.y, panelWidth, panelHeight);
-    doc.font(8, 600);
-    doc.text(p.label.toUpperCase(), x + 10 * SCALE, doc.y + 16 * SCALE, MUTED);
-    doc.font(16, 800);
-    doc.text(p.value, x + 10 * SCALE, doc.y + 40 * SCALE, p.color);
-  });
-  doc.y += panelHeight + 12 * SCALE;
+  for (const row of sharePanels.length > 0 ? [panels, sharePanels] : [panels]) {
+    row.forEach((p, i) => {
+      const x = MARGIN + i * (panelWidth + gap);
+      doc.ctx.fillStyle = PANEL;
+      doc.ctx.fillRect(x, doc.y, panelWidth, panelHeight);
+      doc.font(8, 600);
+      doc.text(p.label.toUpperCase(), x + 10 * SCALE, doc.y + 16 * SCALE, MUTED);
+      doc.font(16, 800);
+      doc.text(p.value, x + 10 * SCALE, doc.y + 40 * SCALE, p.color);
+    });
+    doc.y += panelHeight + gap;
+  }
+  doc.y += 12 * SCALE - gap;
   doc.font(9.5, 400);
   doc.text(
     f.summaryLine(money(summary.dailyAverage), summary.transactions, summary.range.days, summary.activeDays),
@@ -331,14 +340,16 @@ export const renderStatement = ({
       inPeriod.map((a) => {
         const parts = a.distributions.map((d) => `${nameOf(d.bankId)} ${signed(d.amount)}`);
         if (a.repaid) parts.unshift(f.debtRepaidAmount(money(a.repaid)));
-        const outgoing = a.type === 'withdraw' || a.type === 'borrow';
+        const outgoing = a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest';
+        const trade = a.type === 'invest' || a.type === 'divest';
         return [
           dateTime(new Date(a.date)),
           TYPE_LABEL[a.type] ?? a.type,
-          { text: signed(outgoing ? -a.amount : a.amount), color: outgoing ? RED : GREEN },
+          // Shares are not spending or saving, so they are not coloured as either.
+          { text: signed(outgoing ? -a.amount : a.amount), color: trade ? INK : outgoing ? RED : GREEN },
           parts.join(', ') || '—',
           a.type === 'withdraw' ? categoryOf(a.category).label : '',
-          noteText(a.note ?? ''),
+          trade && a.counter ? f.tradeNote(TYPE_LABEL[a.type], a.counter) : noteText(a.note ?? ''),
         ];
       })
     );

@@ -20,6 +20,20 @@ export const history = {
   spentAheadAmount: (amount: string) => `spent ahead ${amount}`,
   toDebt: (amount: string) => `${amount} to debt`,
 
+  /**
+   * A trade's row. Buying shares is not spending and a sale is not saving, so
+   * these read as money changing form: "Invested · MAYBANK", "100 units · from Stocks".
+   */
+  tradeTitle: (label: string, counter: string) => `${label} · ${counter}`,
+  fromGoal: (goal: string) => `from ${goal}`,
+  intoGoal: (goal: string) => `into ${goal}`,
+  /** Only ever more than one goal. */
+  splitAcross: (n: number) => `split across ${n} goals`,
+  coveredSpentAhead: (amount: string) => `covered spent ahead ${amount}`,
+  /** A day's money moved for shares, kept apart from saved and spent: "shares −RM799.24 / +RM1,070.00". */
+  sharesMoved: (moves: string) => `shares ${moves}`,
+  openTrade: 'Open the trade',
+
   noGoalTouched: 'No goal was touched — your next deposits cover this before anything reaches them.',
   deletedGoal: 'Deleted goal',
 

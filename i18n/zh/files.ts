@@ -13,6 +13,9 @@ export const files: typeof English = {
   savedIntoGoals: '存入钱罐',
   spentFromGoals: '钱罐开销',
   debtRepaid: '补回预支',
+  movedIntoShares: '转去买股',
+  cameBackFromShares: '卖股转回',
+  tradeNote: (label, counter) => `${label} · ${counter}`,
   spentAhead: '预支',
   summaryLine: (average, transactions, days, activeDays) =>
     `日均 ${average}  ·  ${transactions} 笔记录  ·  ${days} 天  ·  ${activeDays} 天有存入`,

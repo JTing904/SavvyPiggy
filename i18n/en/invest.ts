@@ -69,6 +69,86 @@ export const invest = {
     dividend: 'Record this dividend',
   },
   deleteTrade: 'Delete this trade',
+  deleteMoneyBack: 'Any money it moved in your goals is put back as well.',
+  prefilledIntro: 'Filled in for you. Change anything to match your contract note.',
+
+  /** The small tag beside a trade's title, by security type. Tapping it corrects the type. */
+  securityType: {
+    EQUITY: 'Share',
+    REIT: 'REIT',
+  },
+  securityTypeHint: 'Tap if this is wrong',
+
+  // Fees on the trade sheet
+  fees: 'Fees',
+  /** Short, for the small boxes under the price. */
+  feeBox: {
+    brokerageCents: 'Brokerage',
+    clearingCents: 'Clearing',
+    stampCents: 'Stamp',
+    sstCents: 'SST 8%',
+  },
+  /** Full names, for headings. */
+  feeName: {
+    brokerageCents: 'Brokerage',
+    clearingCents: 'Clearing fee',
+    stampCents: 'Stamp duty',
+    sstCents: 'SST',
+  },
+  /** Inside a sentence. */
+  feeInSentence: {
+    brokerageCents: 'brokerage',
+    clearingCents: 'clearing fee',
+    stampCents: 'stamp duty',
+    sstCents: 'SST',
+  },
+  brokerRates: (broker: string) => `${broker} rates`,
+  yourRates: 'Your own rates',
+  feesEdited: 'edited',
+  changeBroker: 'Change',
+  noBroker: 'No broker chosen yet, so nothing is filled in. Type the fees from your contract note.',
+  chooseBroker: 'Choose your broker',
+
+  // Where a trade's money comes from or goes
+  paidFrom: 'Paid from',
+  depositTo: 'Deposit to',
+  notFromGoalSub: 'Only records the trade — no goal changes',
+  notIntoGoal: 'Not into a goal',
+  notIntoGoalSub: 'Only records the trade',
+  autoSplitSub: 'Like a deposit: spent ahead first, then your %',
+  archived: 'Archived',
+  sale: 'Sale',
+  totalPaid: 'Total paid',
+  totalReceived: 'You receive',
+  goalAfter: (goal: string) => `${goal} after this`,
+  yourGoals: 'Your goals',
+  unchanged: 'Unchanged',
+  coversSpentAhead: 'Covers spent ahead',
+  splitShare: (goal: string, percent: string) => `${goal} · ${percent}%`,
+  averageCostWithFees: 'Average cost, fees in',
+  insufficient: (goal: string, available: string, needed: string) =>
+    `${goal} holds ${available}, and this buy needs ${needed}. Buy fewer units, or pay from another goal.`,
+  aGoal: 'That goal',
+  rowGone: 'This sale’s entry has been cleared from History, so where its money went can no longer be undone exactly.',
+  nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
+  refundLater: 'The goal this buy was paid from has been deleted. When you save, you’ll be asked where its money goes back.',
+
+  // When the goal a buy was paid from is gone
+  refundTitle: (amount: string) => `Where should ${amount} go back?`,
+  refundBody: 'This buy was paid from a goal you’ve since deleted. Undoing it gives the money back — pick where it lands.',
+  refundSplitSub: 'Spent ahead first, then your %',
+  refundNone: 'Don’t put it back',
+  refundNoneSub: 'Only the shares change',
+
+  // When the contract notes keep disagreeing with the rates
+  mismatchTitle: (rates: string) => `Your contract notes don’t match ${rates}`,
+  mismatchBody: (fee: string, rates: string, lower: boolean) =>
+    `You changed the ${fee} on your last 3 trades, each time to ${lower ? 'less' : 'more'} than ${rates} give. If your broker has changed what it charges, update the rates and future trades will fill in correctly.`,
+  mismatchSavedRates: 'your saved rates',
+  youEntered: 'You entered',
+  mismatchNote: 'Only future trades use new rates. These three keep the fees you entered.',
+  updateRates: 'Update my rates',
+  notNow: 'Not now',
 
   // Dividends
   dividendsTitle: 'Dividends',

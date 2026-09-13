@@ -27,14 +27,33 @@ interface ActivityLogProps {
   onEditActivity: (id: string, newAmount: number) => void;
   /** Re-labelling what a withdrawal was for. Moves no money. */
   onSetCategory: (id: string, category: string) => void;
+  /**
+   * A trade's row belongs to the trade: correcting or deleting it has to move
+   * the goal money and the holding together, so tapping it opens the trade
+   * instead of this list's own edit and delete.
+   */
+  onOpenTrade?: (tradeId: string) => void;
 }
 
 /** Callers put the sign on themselves, so this only ever renders the size. */
 const money = (n: number) => formatMoney(Math.abs(n));
 
-/** What actually reached the goals, and what left them, in cents. */
-const inflow = (a: Activity) => a.distributions.reduce((s, d) => (d.amount > 0 ? s + toCents(d.amount) : s), 0);
-const outflow = (a: Activity) => a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
+/** What actually reached the goals, in cents, whatever brought it there. */
+const credited = (a: Activity) => a.distributions.reduce((s, d) => (d.amount > 0 ? s + toCents(d.amount) : s), 0);
+
+/** Money moved for shares: neither saving nor spending, only a change of form. */
+const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
+
+/** What was saved and what was spent, in cents. A sale's proceeds are shares
+    coming back rather than saving, and a purchase is not spending. */
+const inflow = (a: Activity) => (a.type === 'divest' ? 0 : credited(a));
+const outflow = (a: Activity) =>
+  a.type === 'invest' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
+
+/** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
+const sharesCents = (a: Activity) =>
+  a.distributions.reduce((s, d) => s + Math.abs(toCents(d.amount)), 0) +
+  (a.type === 'divest' ? toCents(a.repaid ?? 0) : 0);
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
@@ -59,6 +78,9 @@ interface Day {
   spent: number;
   borrowed: number;
   repaid: number;
+  /** Paid out of goals for shares, and a sale's proceeds back in. */
+  sharesOut: number;
+  sharesIn: number;
 }
 
 const ActivityLog: React.FC<ActivityLogProps> = ({
@@ -67,6 +89,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   onDeleteActivity,
   onEditActivity,
   onSetCategory,
+  onOpenTrade,
 }) => {
   const t = useT();
   const confirm = useConfirm();
@@ -126,13 +149,18 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
           spent: 0,
           borrowed: 0,
           repaid: 0,
+          sharesOut: 0,
+          sharesIn: 0,
         } as Day);
 
       day.entries.push(a);
       day.saved += inflow(a);
       day.spent += outflow(a);
       if (a.type === 'borrow') day.borrowed += toCents(a.amount);
-      day.repaid += toCents(a.repaid ?? 0);
+      if (a.type === 'invest') day.sharesOut += sharesCents(a);
+      else if (a.type === 'divest') day.sharesIn += sharesCents(a);
+      // Spent ahead covered by a sale is part of the shares coming back, not a deposit's.
+      else day.repaid += toCents(a.repaid ?? 0);
       out.set(key, day);
     }
     // Activities arrive newest first, so each day's entries already are too.
@@ -141,7 +169,30 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
 
   /** Only a plain split can be re-derived from its percentages. Anything that
       moved money out, or paid down a loan, has to be deleted and redone. */
-  const canEdit = (activity: Activity) => !STYLES[activity.type].outgoing && !activity.repaid;
+  const canEdit = (activity: Activity) => !isTrade(activity) && !STYLES[activity.type].outgoing && !activity.repaid;
+
+  /** How a trade's row opens its trade, or null when it cannot be opened from here. */
+  const tradeOpener = (activity: Activity) => {
+    const { tradeId } = activity;
+    return isTrade(activity) && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : null;
+  };
+
+  const nameOf = (bankId: string) => banks.find((b) => b.id === bankId)?.name ?? t.history.deletedGoal;
+
+  /** "100 units · from Stocks", or "100 units · split across 5 goals · covered spent ahead RM50.00". */
+  const tradeDetail = (activity: Activity) => {
+    const parts: string[] = [];
+    if (activity.units) parts.push(t.common.units(activity.units.toLocaleString('en-US')));
+    const goals = activity.distributions;
+    if (activity.type === 'invest') {
+      if (goals.length > 0) parts.push(t.history.fromGoal(nameOf(goals[0].bankId)));
+    } else {
+      if (goals.length === 1) parts.push(t.history.intoGoal(nameOf(goals[0].bankId)));
+      else if (goals.length > 1) parts.push(t.history.splitAcross(goals.length));
+      if ((activity.repaid ?? 0) > 0) parts.push(t.history.coveredSpentAhead(money(activity.repaid ?? 0)));
+    }
+    return parts.join(' · ');
+  };
 
   const handleSaveEdit = (id: string) => {
     const val = parseFloat(editValue);
@@ -180,9 +231,11 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
 
   /** Where one entry's money went, as coloured rows carrying their share. */
   const splitRows = (activity: Activity) => {
-    const total = inflow(activity);
+    const total = credited(activity);
     // Borrowing is money from outside, so it touches no goal at all.
     if (activity.distributions.length === 0) {
+      // A sale that only covered spent ahead already says so on its own row.
+      if (isTrade(activity)) return null;
       return (
         <p className="text-slate-500 text-xs font-medium py-2 leading-relaxed">
           {t.history.noGoalTouched}
@@ -220,6 +273,13 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
    */
   const entryRow = (activity: Activity, boxed: boolean) => {
     const style = STYLES[activity.type];
+    const trade = isTrade(activity);
+    const label = t.common.activity[style.label];
+    const title =
+      trade && activity.counter
+        ? t.history.tradeTitle(label, activity.counter)
+        : (activity.note && noteText(activity.note)) || label;
+    const detail = trade ? tradeDetail(activity) : '';
     return (
       <div className={boxed ? '' : 'pt-3 mt-1 border-t border-white/5'}>
         <div className="flex items-center gap-3">
@@ -227,7 +287,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             <span className="material-symbols-rounded text-base">{style.icon}</span>
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-slate-300 text-xs font-bold truncate">{(activity.note && noteText(activity.note)) || t.common.activity[style.label]}</p>
+            <p className="text-slate-300 text-xs font-bold truncate">{title}</p>
+            {detail && <p className="text-slate-500 text-[10px] font-bold mt-0.5 truncate">{detail}</p>}
             {activity.type === 'withdraw' && (
               <button
                 onClick={() => setPickingFor(activity.id)}
@@ -251,10 +312,16 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
         <div className="flex items-center gap-2 mt-1.5 pl-11">
           <p className="text-slate-600 text-[10px] font-medium truncate flex-1">
             {new Date(activity.date).toLocaleTimeString(dateLocale('en-US'), { hour: 'numeric', minute: '2-digit' })}
-            {activity.repaid ? ` · ${t.history.toDebt(money(activity.repaid))}` : ''}
+            {activity.repaid && !trade ? ` · ${t.history.toDebt(money(activity.repaid))}` : ''}
           </p>
 
-          {editingId === activity.id ? (
+          {trade ? (
+            // Corrected or removed only through the trade itself, so the shares
+            // and the goal money never disagree.
+            tradeOpener(activity) && (
+              <span className="material-symbols-rounded text-base text-slate-600 shrink-0">chevron_right</span>
+            )
+          ) : editingId === activity.id ? (
             <>
               <input
                 autoFocus
@@ -360,15 +427,43 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             <div className="space-y-3">
               {days.map((day) => {
                 const open = openDay === day.key;
-                const net = day.saved - day.spent;
-                const tint =
-                  day.borrowed > 0
+                const hasShares = day.sharesOut > 0 || day.sharesIn > 0;
+                // A day that only moved money for shares has no saving or
+                // spending to headline, so it headlines what the shares moved.
+                const sharesOnly =
+                  hasShares && day.saved === 0 && day.spent === 0 && day.borrowed === 0 && day.repaid === 0;
+                const net = sharesOnly ? day.sharesIn - day.sharesOut : day.saved - day.spent;
+                const tint = sharesOnly
+                  ? 'bg-accent/10 text-accent'
+                  : day.borrowed > 0
                     ? 'bg-amber-500/10 text-amber-400'
                     : net < 0
                       ? 'bg-slate-500/10 text-slate-400'
                       : 'bg-primary/10 text-primary';
-                const icon = day.borrowed > 0 ? 'account_balance' : net < 0 ? 'north_east' : 'savings';
+                const icon = sharesOnly
+                  ? 'candlestick_chart'
+                  : day.borrowed > 0
+                    ? 'account_balance'
+                    : net < 0
+                      ? 'north_east'
+                      : 'savings';
                 const single = day.entries.length === 1;
+                const notes: { text: string; tint?: string }[] = [];
+                if (day.saved > 0) notes.push({ text: t.history.savedAmount(money(fromCents(day.saved))) });
+                if (day.spent > 0) notes.push({ text: t.history.spentAmount(money(fromCents(day.spent))) });
+                if (day.repaid > 0) {
+                  notes.push({ text: t.history.toDebt(money(fromCents(day.repaid))), tint: 'text-amber-400' });
+                }
+                if (day.borrowed > 0) {
+                  notes.push({ text: t.history.spentAheadAmount(money(fromCents(day.borrowed))), tint: 'text-amber-400' });
+                }
+                if (hasShares) {
+                  const moves = [
+                    day.sharesOut > 0 ? `-${money(fromCents(day.sharesOut))}` : '',
+                    day.sharesIn > 0 ? `+${money(fromCents(day.sharesIn))}` : '',
+                  ].filter(Boolean);
+                  notes.push({ text: t.history.sharesMoved(moves.join(' / ')), tint: 'text-accent' });
+                }
 
                 return (
                   <div key={day.key} className="relative pl-14">
@@ -394,17 +489,14 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                             {net < 0 ? '-' : '+'}
                             {money(fromCents(net))}
                           </p>
-                          {(day.spent > 0 || day.borrowed > 0 || day.repaid > 0) && (
+                          {(day.spent > 0 || day.borrowed > 0 || day.repaid > 0 || hasShares) && (
                             <p className="text-slate-500 text-[11px] font-bold mt-1">
-                              {day.saved > 0 && t.history.savedAmount(money(fromCents(day.saved)))}
-                              {day.saved > 0 && day.spent > 0 && ' · '}
-                              {day.spent > 0 && t.history.spentAmount(money(fromCents(day.spent)))}
-                              {day.repaid > 0 && (
-                                <span className="text-amber-400"> · {t.history.toDebt(money(fromCents(day.repaid)))}</span>
-                              )}
-                              {day.borrowed > 0 && (
-                                <span className="text-amber-400"> · {t.history.spentAheadAmount(money(fromCents(day.borrowed)))}</span>
-                              )}
+                              {notes.map((note, i) => (
+                                <React.Fragment key={i}>
+                                  {i > 0 && ' · '}
+                                  <span className={note.tint}>{note.text}</span>
+                                </React.Fragment>
+                              ))}
                             </p>
                           )}
                         </div>
@@ -420,17 +512,46 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                           {single ? (
                             <>
                               <div className="divide-y divide-white/5">{splitRows(day.entries[0])}</div>
-                              {entryRow(day.entries[0], false)}
+                              {(() => {
+                                const openTrade = tradeOpener(day.entries[0]);
+                                return openTrade ? (
+                                  <button
+                                    onClick={openTrade}
+                                    aria-label={t.history.openTrade}
+                                    className="w-full text-left active:opacity-70"
+                                  >
+                                    {entryRow(day.entries[0], false)}
+                                  </button>
+                                ) : (
+                                  entryRow(day.entries[0], false)
+                                );
+                              })()}
                             </>
                           ) : (
                             <div className="space-y-2">
                               {day.entries.map((entry) => {
                                 const shown = openEntry === entry.id;
+                                const openTrade = tradeOpener(entry);
                                 return (
                                   <div key={entry.id} className="rounded-2xl bg-white/5 p-3">
-                                    <button onClick={() => setOpenEntry(shown ? null : entry.id)} className="w-full text-left">
-                                      {entryRow(entry, true)}
-                                    </button>
+                                    {isTrade(entry) ? (
+                                      // Its own row already says where the money went.
+                                      openTrade ? (
+                                        <button
+                                          onClick={openTrade}
+                                          aria-label={t.history.openTrade}
+                                          className="w-full text-left active:opacity-70"
+                                        >
+                                          {entryRow(entry, true)}
+                                        </button>
+                                      ) : (
+                                        entryRow(entry, true)
+                                      )
+                                    ) : (
+                                      <button onClick={() => setOpenEntry(shown ? null : entry.id)} className="w-full text-left">
+                                        {entryRow(entry, true)}
+                                      </button>
+                                    )}
                                     {shown && (
                                       <div className="mt-2 pt-2 border-t border-white/5 divide-y divide-white/5">
                                         {splitRows(entry)}
@@ -456,6 +577,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
           why it needs no confirmation and no reversal. */}
       {pickingFor && (() => {
         const current = activities.find((a) => a.id === pickingFor);
+        // Only spending has a category; a trade's row never does.
+        if (current && isTrade(current)) return null;
         return (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"

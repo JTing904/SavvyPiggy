@@ -14,6 +14,11 @@ export const files = {
   savedIntoGoals: 'Saved into goals',
   spentFromGoals: 'Spent from goals',
   debtRepaid: 'Debt repaid',
+  /** Money that changed form, shown beside the savings but never counted as saved or spent. */
+  movedIntoShares: 'Moved into shares',
+  cameBackFromShares: 'Came back from shares',
+  /** A trade's ledger row: "Invested · MAYBANK". */
+  tradeNote: (label: string, counter: string) => `${label} · ${counter}`,
   spentAhead: 'Spent ahead',
   summaryLine: (average: string, transactions: number, days: number, activeDays: number) =>
     `Daily average ${average}  ·  ${transactions} transactions  ·  ${days} days  ·  ${activeDays} days with savings`,

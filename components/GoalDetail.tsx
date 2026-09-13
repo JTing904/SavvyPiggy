@@ -30,6 +30,8 @@ interface GoalDetailProps {
   onChangePhoto: (imageUrl: string) => Promise<void> | void;
   onArchive: () => void;
   onUnarchive: () => void;
+  /** A trade's row is corrected through its trade, so tapping one opens it. */
+  onOpenTrade?: (tradeId: string) => void;
 }
 
 const GoalDetail: React.FC<GoalDetailProps> = ({
@@ -42,6 +44,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   onChangePhoto,
   onArchive,
   onUnarchive,
+  onOpenTrade,
 }) => {
   const t = useT();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -266,30 +269,60 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           ) : (
             entries.map(({ activity, amount }) => {
               const style = STYLES[activity.type];
-              return (
-                <div
-                  key={activity.id}
-                  className="flex items-center justify-between gap-3 p-4 rounded-2xl glass"
-                >
+              // Money moved for shares reads as the trade it was, and opens it.
+              const trade = activity.type === 'invest' || activity.type === 'divest';
+              const { tradeId } = activity;
+              const openTrade = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : null;
+              const when = new Date(activity.date).toLocaleDateString(deviceDateLocale(), {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              // The goal is this page, so a trade's line names only what else it did.
+              const meta = trade
+                ? [
+                    activity.units ? t.common.units(activity.units.toLocaleString('en-US')) : '',
+                    activity.type === 'divest' && activity.distributions.length > 1
+                      ? t.history.splitAcross(activity.distributions.length)
+                      : '',
+                    when,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                : when;
+              const title =
+                trade && activity.counter
+                  ? t.history.tradeTitle(style.label(t), activity.counter)
+                  : (activity.note && noteText(activity.note)) || style.label(t);
+              const content = (
+                <>
                   <div className="flex items-center gap-4 min-w-0">
                     <div className={`size-11 shrink-0 rounded-2xl flex items-center justify-center ${style.tint}`}>
                       <span className="material-symbols-rounded">{style.icon}</span>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-white font-bold text-sm truncate">{(activity.note && noteText(activity.note)) || style.label(t)}</p>
-                      <p className="text-slate-500 text-[10px] font-medium">
-                        {new Date(activity.date).toLocaleDateString(deviceDateLocale(), {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
+                      <p className="text-white font-bold text-sm truncate">{title}</p>
+                      <p className="text-slate-500 text-[10px] font-medium truncate">{meta}</p>
                     </div>
                   </div>
                   <p className={`font-black shrink-0 tabular-nums ${amount < 0 ? 'text-slate-400' : 'text-white'}`}>
                     {formatMoney(amount, { signed: true })}
                   </p>
+                </>
+              );
+              return openTrade ? (
+                <button
+                  key={activity.id}
+                  onClick={openTrade}
+                  aria-label={t.history.openTrade}
+                  className="w-full flex items-center justify-between gap-3 p-4 rounded-2xl glass text-left active:scale-[0.99] transition-transform"
+                >
+                  {content}
+                </button>
+              ) : (
+                <div key={activity.id} className="flex items-center justify-between gap-3 p-4 rounded-2xl glass">
+                  {content}
                 </div>
               );
             })

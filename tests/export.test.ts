@@ -65,6 +65,43 @@ eq('a deposit has no category at all', rows[1][6], null);
   eq('a key this version does not know still totals as Other', unknown[1][6], 'Other');
 }
 
+// --- money moved for shares
+{
+  const TRADES: Activity[] = [
+    {
+      id: 'inv',
+      type: 'invest',
+      date: new Date(2026, 8, 6, 10, 0).toISOString(),
+      amount: 799.24,
+      distributions: [{ bankId: 'b', amount: -799.24, percentage: 100 }],
+      tradeId: 't1',
+      counter: 'RHBBANK',
+      units: 100,
+    },
+    {
+      id: 'div',
+      type: 'divest',
+      date: new Date(2026, 8, 7, 10, 0).toISOString(),
+      amount: 1070.32,
+      distributions: [{ bankId: 'a', amount: 1020.32, percentage: 100 }],
+      repaid: 50,
+      tradeId: 't2',
+      counter: 'MAYBANK',
+      units: 100,
+    },
+  ];
+  const sheet = savingsRows([...ACTS, ...TRADES], BANKS);
+  const [buy, sale] = [sheet[3], sheet[4]];
+  eq('a purchase is typed as invested', buy[2], 'Invested');
+  eq('and names its counter', buy[5], 'Invested · RHBBANK');
+  eq('a sale names its counter too', sale[5], 'Sale proceeds · MAYBANK');
+  eq('shares carry no category', [buy[6], sale[6]], [null, null]);
+  eq('the goal a purchase was paid from goes down', buy.slice(7), [null, -799.24, null]);
+  eq('a sale shows what cleared spent ahead and what reached a goal', [sale[3], sale[4], ...sale.slice(7)], [1070.32, 50, 1020.32, null, null]);
+  const noCounter = savingsRows([{ ...TRADES[0], counter: undefined, note: 'kept' }], BANKS);
+  eq('a row without a counter keeps its own note', noCounter[1][5], 'kept');
+}
+
 // --- the month, both halves
 {
   const sheet = monthRows({

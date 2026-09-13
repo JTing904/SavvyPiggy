@@ -136,6 +136,40 @@ eq('streak alive when today is empty', currentStreak([deposit(at(2026, 9, 4), { 
 eq('streak broken by a gap', currentStreak([deposit(at(2026, 9, 5), { car: 1 }), deposit(at(2026, 9, 3), { car: 1 })], NOW), 1);
 eq('withdrawals do not extend a streak', currentStreak([{ id: 'w', type: 'withdraw', date: at(2026, 9, 5), amount: 1, distributions: [{ bankId: 'car', amount: -1, percentage: 100 }] }], NOW), 0);
 
+// --- money moved for shares: neither saving nor spending
+{
+  const bought: Activity = {
+    id: 'inv', type: 'invest', date: at(2026, 9, 4), amount: 799.24,
+    distributions: [{ bankId: 'car', amount: -799.24, percentage: 100 }],
+    tradeId: 't1', counter: 'RHBBANK', units: 100,
+  };
+  // A split sale: RM50 cleared spent ahead, the rest reached two goals.
+  const sold: Activity = {
+    id: 'div', type: 'divest', date: at(2026, 9, 5), amount: 1070.32,
+    distributions: [{ bankId: 'car', amount: 600.2, percentage: 60 }, { bankId: 'fun', amount: 420.12, percentage: 40 }],
+    repaid: 50, repayments: [{ loanId: 'l1', amount: 50 }],
+    tradeId: 't2', counter: 'MAYBANK', units: 100,
+  };
+  const base = summarize(ACTS, BANKS, 'month', NOW);
+  const withShares = summarize([...ACTS, bought, sold], BANKS, 'month', NOW);
+  eq('a purchase is money moved into shares', withShares.invested, 799.24);
+  eq('a sale is money coming back, spent ahead included', withShares.cameBack, 1070.32);
+  eq('only what reached goals counts as back in the goals', withShares.cameBackToGoals, 1020.32);
+  eq('saving, spending and debt are untouched',
+    [withShares.distributed, withShares.spent, withShares.repaid, withShares.borrowed],
+    [base.distributed, base.spent, base.repaid, base.borrowed]);
+  eq('no goal is credited by a sale', withShares.banks.map((b) => b.credited), base.banks.map((b) => b.credited));
+  eq('cadence and active days are deposits only',
+    [withShares.buckets.map((b) => b.amount), withShares.activeDays, withShares.maxDay],
+    [base.buckets.map((b) => b.amount), base.activeDays, base.maxDay]);
+  eq('the goals grew by saving less spending, less shares, plus what came back to them',
+    Math.round((withShares.distributed - withShares.spent - withShares.invested + withShares.cameBackToGoals) * 100) / 100,
+    Math.round((150.05 - 20 - 799.24 + 1020.32) * 100) / 100);
+  eq('nothing moved for shares reads as zero', [base.invested, base.cameBack, base.cameBackToGoals], [0, 0, 0]);
+  eq('a sale on its own does not extend a streak', currentStreak([sold], NOW), 0);
+  eq('nor does a sale bridge a gap', currentStreak([deposit(at(2026, 9, 5), { car: 1 }), { ...sold, date: at(2026, 9, 4) }, deposit(at(2026, 9, 3), { car: 1 })], NOW), 1);
+}
+
 // --- archive
 const asDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 

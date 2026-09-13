@@ -84,6 +84,12 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
   // Spending is both kinds — out of a goal, and on credit against future
   // deposits. Splitting them is the point; hiding either is not.
   const outgoings = summary.spent + summary.borrowed;
+  // Sale proceeds that cleared spent ahead came back from shares without
+  // reaching a goal, so they are taken off before the goals' total.
+  const sharesToDebt = Math.max(0, fromCents(Math.round((summary.cameBack - summary.cameBackToGoals) * 100)));
+  const grewBy = fromCents(
+    Math.round((summary.distributed - summary.spent - summary.invested + summary.cameBackToGoals) * 100)
+  );
   const spending = useMemo(
     () => spendingByCategory(activities, summary.range, now),
     [activities, summary.range] // eslint-disable-line react-hooks/exhaustive-deps
@@ -223,8 +229,29 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
               </>
             )}
 
-            <Line label={t.report.goalsGrewBy} value={summary.distributed - summary.spent} rule strong />
+            {/* Shares are neither spending nor saving, so they get lines of
+                their own; the money still left and reached the goals, so it
+                still counts towards what they grew by. */}
+            {summary.invested > 0 && <Line label={t.report.movedIntoShares} value={-summary.invested} />}
+            {summary.cameBack > 0 && (
+              <>
+                <Line label={t.report.cameBackFromShares} value={summary.cameBack} />
+                {sharesToDebt > 0 && (
+                  <div className="pl-4 space-y-2">
+                    <Line label={t.report.coveredEarlier} value={-sharesToDebt} muted small />
+                  </div>
+                )}
+              </>
+            )}
+
+            <Line label={t.report.goalsGrewBy} value={grewBy} rule strong />
           </div>
+
+          {(summary.invested > 0 || summary.cameBack > 0) && (
+            <p className="text-slate-500 text-[11px] font-medium mt-4 leading-relaxed">
+              {t.report.sharesNote}
+            </p>
+          )}
 
           {summary.borrowed > 0 && (
             <p className="text-slate-500 text-[11px] font-medium mt-4 leading-relaxed">

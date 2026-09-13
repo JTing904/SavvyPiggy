@@ -1,6 +1,6 @@
 
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings } from '../types';
+import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings, InvestSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
 import { formatMoney, fromCents, toCents } from '../services/money';
@@ -11,6 +11,7 @@ import Avatar from './Avatar';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
+import PickCard from './invest/PickCard';
 import type { Mode as NavMode } from './Navigation';
 import { CATEGORIES, UNCATEGORISED } from '../services/categories';
 import { useT } from '../contexts/LanguageContext';
@@ -66,6 +67,11 @@ interface DashboardProps {
   /** Set from the nav's round button; cleared once the sheet is open. */
   quickAction: 'deposit' | 'withdraw' | null;
   onQuickActionHandled: () => void;
+  /** For this month's pick card; without it (or the opener) the card is not shown. */
+  investSettings?: InvestSettings;
+  onOpenMonthlyBuy?: () => void;
+  /** A trade's money row opens that trade, which is the only place it is edited. */
+  onOpenTrade?: (tradeId: string) => void;
 }
 
 /** "2 min ago" — how stale the worst price on screen is. */
@@ -110,6 +116,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   unreadAlerts,
   quickAction,
   onQuickActionHandled,
+  investSettings,
+  onOpenMonthlyBuy,
+  onOpenTrade,
 }) => {
   const { user } = useAuth();
   const t = useT();
@@ -536,14 +545,29 @@ const Dashboard: React.FC<DashboardProps> = ({
             ) : (
               activities.slice(0, 4).map((activity) => {
                 const style = ACTIVITY_STYLES[activity.type];
+                const trade = activity.type === 'invest' || activity.type === 'divest';
+                const { tradeId } = activity;
+                const openTrade = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : undefined;
+                // Buying shares is not spending and a sale is not saving, so a
+                // trade's row is named for the trade, never for a note.
+                const title = trade
+                  ? activity.counter
+                    ? t.home.tradeRow(activityLabel(t, activity.type), activity.counter)
+                    : activityLabel(t, activity.type)
+                  : (activity.note && noteText(activity.note)) || activityLabel(t, activity.type);
                 return (
-                  <div key={activity.id} className="flex items-center justify-between gap-3 p-4 rounded-2xl glass transition-all active:bg-white/5">
+                  <div
+                    key={activity.id}
+                    onClick={openTrade}
+                    role={openTrade ? 'button' : undefined}
+                    className={`flex items-center justify-between gap-3 p-4 rounded-2xl glass transition-all active:bg-white/5 ${openTrade ? 'cursor-pointer' : ''}`}
+                  >
                     <div className="flex items-center gap-4 min-w-0">
                       <div className={`size-12 shrink-0 rounded-2xl flex items-center justify-center ${style.tint}`}>
                         <span className="material-symbols-rounded">{style.icon}</span>
                       </div>
                       <div className="min-w-0">
-                        <p className="text-white font-bold text-sm truncate">{(activity.note && noteText(activity.note)) || activityLabel(t, activity.type)}</p>
+                        <p className="text-white font-bold text-sm truncate">{title}</p>
                         <p className="text-slate-500 text-[10px] font-medium">
                           {new Date(activity.date).toLocaleDateString(deviceDateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </p>
@@ -562,6 +586,11 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Clears the floating nav bar, which otherwise cuts the last button. */}
       <div className={`px-6 mt-4 pb-32 ${navMode === 'invest' ? '' : 'hidden'}`}>
+          {investSettings && onOpenMonthlyBuy && (
+            <div className="mb-6">
+              <PickCard banks={banks} invest={investSettings} quotes={quotes} onOpen={onOpenMonthlyBuy} />
+            </div>
+          )}
           {holdings.length === 0 ? (
             <div className="text-center py-14">
               <span className="material-symbols-rounded text-slate-700 text-6xl">candlestick_chart</span>

@@ -21,6 +21,9 @@ import Growth from './components/Growth';
 import TradeSheet, { type TradeDraft } from './components/TradeSheet';
 import type { Mode } from './components/Navigation';
 import LanguagePicker from './components/LanguagePicker';
+import MonthlyBuy from './components/invest/MonthlyBuy';
+import StyleQuiz from './components/invest/StyleQuiz';
+import BrokerPicker from './components/invest/BrokerPicker';
 import { useLanguage, useT } from './contexts/LanguageContext';
 import { getChoice, hasChosenLanguage, onLangChange, setLang } from './i18n';
 import { useAuth } from './contexts/AuthContext';
@@ -67,13 +70,25 @@ const App: React.FC = () => {
   const [showQuickPick, setShowQuickPick] = useState(false);
   const [quickAction, setQuickAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [showMonthlyBuy, setShowMonthlyBuy] = useState(false);
+  /**
+   * The two questions a first buy has to answer — style, then broker — and
+   * the buy waiting behind them. Also used to edit either on its own, with no
+   * buy waiting.
+   */
+  const [setup, setSetup] = useState<{ step: 'style' | 'broker'; pending: TradeDraft | null; editing?: boolean } | null>(null);
 
-  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, invest, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
   // position still matters, because its last dividend can pay weeks later.
-  const symbols = useMemo(() => [...new Set(trades.map((t) => t.symbol))], [trades]);
+  // Counters on the watchlist are priced too, so the monthly pick can size a
+  // buy of something not held yet.
+  const symbols = useMemo(
+    () => [...new Set([...trades.map((t) => t.symbol), ...invest.watchlist.map((w) => w.symbol)])],
+    [trades, invest.watchlist]
+  );
   const { quotes } = useQuotes(symbols);
   const {
     dividends,
@@ -186,6 +201,24 @@ const App: React.FC = () => {
   useEffect(listenForBack, []);
   useBackHandler(showQuickPick, () => setShowQuickPick(false));
   useBackHandler(tradeDraft !== null, () => setTradeDraft(null));
+
+  /**
+   * Opening a trade. A first buy is held back until the style questions and
+   * the broker are answered, in that order; a sale never is — someone who has
+   * sold has to be able to write it down.
+   */
+  const openTrade = (draft: TradeDraft) => {
+    if (draft.mode === 'new' && draft.kind === 'buy') {
+      if (!invest.style) return setSetup({ step: 'style', pending: draft });
+      if (!invest.brokerId) return setSetup({ step: 'broker', pending: draft });
+    }
+    setTradeDraft(draft);
+  };
+
+  const openTradeById = (tradeId: string) => {
+    const trade = trades.find((t) => t.id === tradeId);
+    if (trade) setTradeDraft({ mode: 'edit', trade });
+  };
   useBackHandler(true, () => {
     if (showStatements) setShowStatements(false);
     else if (showCreateGoal) setShowCreateGoal(false);
@@ -358,6 +391,7 @@ const App: React.FC = () => {
             setSelectedGoalId(null);
             setActiveTab(Tab.BANKS);
           }}
+          onOpenTrade={openTradeById}
         />
       );
     }
@@ -374,6 +408,22 @@ const App: React.FC = () => {
             setShowAlerts(false);
             setActiveTab(Tab.BANKS);
           }}
+        />
+      );
+    }
+
+    if (showMonthlyBuy && uid) {
+      return (
+        <MonthlyBuy
+          uid={uid}
+          banks={activeBanks}
+          trades={trades}
+          invest={invest}
+          quotes={quotes}
+          onBack={() => setShowMonthlyBuy(false)}
+          onRecordBuy={(d) => openTrade({ mode: 'new', kind: 'buy', ...d })}
+          onEditStyle={() => setSetup({ step: 'style', pending: null, editing: true })}
+          onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
         />
       );
     }
@@ -464,9 +514,10 @@ const App: React.FC = () => {
             onOpenAlerts={() => setShowAlerts(true)}
             mode={mode}
             onModeChange={setMode}
-            onTrade={(holding, kind) =>
-              setTradeDraft({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })
-            }
+            onTrade={(holding, kind) => openTrade({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })}
+            investSettings={invest}
+            onOpenMonthlyBuy={() => setShowMonthlyBuy(true)}
+            onOpenTrade={openTradeById}
             onOpenTrades={() => setActiveTab(Tab.TRADES)}
             holdings={holdings}
             trades={trades}
@@ -506,10 +557,23 @@ const App: React.FC = () => {
             onDeleteActivity={handleDeleteActivity}
             onEditActivity={handleEditActivity}
             onSetCategory={(id, category) => uid && run(() => api.setActivityCategory(uid, id, category))}
+            onOpenTrade={openTradeById}
           />
         );
       case Tab.TRADES:
-        return <Trades uid={uid!} trades={trades} onBack={() => setActiveTab(Tab.HOME)} />;
+        return (
+          <Trades
+            uid={uid!}
+            trades={trades}
+            activities={activities}
+            banks={banks}
+            loans={loans}
+            savings={savings}
+            invest={invest}
+            onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
+            onBack={() => setActiveTab(Tab.HOME)}
+          />
+        );
       case Tab.DIVIDENDS:
         return (
           <Dividends
@@ -605,9 +669,48 @@ const App: React.FC = () => {
         <TradeSheet
           uid={uid}
           trades={trades}
+          activities={activities}
+          banks={banks}
+          loans={loans}
+          savings={savings}
+          invest={invest}
           draft={tradeDraft}
           onClose={() => setTradeDraft(null)}
           onDone={() => undefined}
+          onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
+        />
+      )}
+
+      {/* After the Buy sheet in the tree, so the broker picker it opens lands on top of it. */}
+      {setup?.step === 'style' && uid && (
+        <StyleQuiz
+          initial={invest.style}
+          required={!!setup.pending}
+          startOnMix={!!setup.editing && !!invest.style}
+          onDone={(style) => {
+            void api.saveInvest(uid, { style }).catch(fail);
+            const pending = setup.pending;
+            if (pending && !invest.brokerId) setSetup({ step: 'broker', pending });
+            else {
+              setSetup(null);
+              if (pending) setTradeDraft(pending);
+            }
+          }}
+          onClose={() => setSetup(null)}
+        />
+      )}
+      {setup?.step === 'broker' && uid && (
+        <BrokerPicker
+          brokerId={invest.brokerId}
+          customRule={invest.customRule}
+          firstTime={!!setup.pending}
+          onPick={(brokerId, customRule) => {
+            void api.saveInvest(uid, { brokerId, customRule }).catch(fail);
+            const pending = setup.pending;
+            setSetup(null);
+            if (pending) setTradeDraft(pending);
+          }}
+          onClose={() => setSetup(null)}
         />
       )}
 
@@ -643,7 +746,7 @@ const App: React.FC = () => {
                     setShowProfile(false);
                     setShowAlerts(false);
                     if (option.key === 'buy' || option.key === 'sell') {
-                      setTradeDraft({ mode: 'new', kind: option.key });
+                      openTrade({ mode: 'new', kind: option.key });
                       return;
                     }
                     setActiveTab(Tab.HOME);
@@ -676,7 +779,7 @@ const App: React.FC = () => {
 
   return shell(
     renderContent(),
-    !showCreateGoal && !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !dataLoading
+    !showCreateGoal && !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !dataLoading
   );
 };
 

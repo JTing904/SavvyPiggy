@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import type { Trade } from '../types';
-import { ordered, tradeCents } from '../services/holdings';
+import type { Activity, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
+import { ordered, tradeTotalCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
 import { useT } from '../contexts/LanguageContext';
@@ -10,6 +10,13 @@ interface TradesProps {
   uid: string;
   trades: Trade[];
   onBack: () => void;
+  /** Passed through to the trade sheet, which moves goal money with a trade. */
+  activities: Activity[];
+  banks: PiggyBank[];
+  loans: Loan[];
+  savings: SavingsSettings;
+  invest: InvestSettings;
+  onEditBroker: () => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
@@ -53,7 +60,7 @@ const TAG: Record<Trade['kind'], { className: string; amountClass: string }> = {
  * lines, so correcting a wrong number here fixes that line and leaves the
  * rest of the history — and any dividend already worked out from it — alone.
  */
-const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
+const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks, loans, savings, invest, onEditBroker }) => {
   const t = useT();
   const [draft, setDraft] = useState<TradeDraft | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -127,9 +134,10 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
                           {rate(trade)}
                         </p>
                       </div>
+                      {/* The money that actually moved: a buy with its fees, a sale after them. */}
                       <p className={`text-[13px] font-black shrink-0 ${tag.amountClass}`}>
                         {trade.kind === 'buy' ? '' : '+'}
-                        {money(tradeCents(trade))}
+                        {money(tradeTotalCents(trade))}
                       </p>
                     </button>
                   );
@@ -150,9 +158,15 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
         <TradeSheet
           uid={uid}
           trades={trades}
+          activities={activities}
+          banks={banks}
+          loans={loans}
+          savings={savings}
+          invest={invest}
           draft={draft}
           onClose={() => setDraft(null)}
           onDone={say}
+          onEditBroker={onEditBroker}
         />
       )}
     </div>

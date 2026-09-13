@@ -41,6 +41,7 @@ export const home: typeof English = {
 
   recentActivity: '最近记录',
   noRecentActivity: '暂无最近记录。',
+  tradeRow: (label, counter) => `${label} · ${counter}`,
 
   noCounters: '还没有股票',
   noCountersHint: '用下面的按钮记录一笔买入，这里就会为它报价和追踪。',
