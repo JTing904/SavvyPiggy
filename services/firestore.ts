@@ -25,6 +25,7 @@ import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
 import { dayStart } from './holdings';
 import type { LangChoice } from '../i18n';
+import { m as messages } from '../i18n';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
 import { fromCents, splitByPercentage, toCents } from './money';
@@ -273,7 +274,7 @@ export const saveLanguage = (uid: string, choice: LangChoice) =>
 /* ------------------------------------------------------------------- banks */
 
 export const createBank = async (uid: string, goal: Partial<PiggyBank>) => {
-  const name = goal.name || 'New Goal';
+  const name = goal.name || messages().errors.newGoal;
   const bank: Omit<PiggyBank, 'id'> = {
     name,
     targetAmount: Math.max(0, goal.targetAmount ?? 1000),
@@ -355,7 +356,7 @@ export const deposit = async (
 ) => {
   const plan = planDeposit(toCents(amount), banks, loans, targetBankId, savings.overflow);
   if (plan.movements.length === 0 && plan.repayments.length === 0) {
-    throw new Error('Nothing to deposit into.');
+    throw new Error(messages().errors.nothingToDepositInto);
   }
 
   const now = new Date();
@@ -412,7 +413,7 @@ export const withdraw = async (
   category: string = UNCATEGORISED
 ) => {
   const movements = planWithdrawal(toCents(amount), sourceBankId);
-  if (movements.length === 0) throw new Error('Enter an amount to withdraw.');
+  if (movements.length === 0) throw new Error(messages().errors.enterWithdrawAmount);
 
   const batch = writeBatch(db);
   batch.set(doc(activitiesCol(uid)), {
@@ -435,7 +436,7 @@ export const withdraw = async (
  */
 export const borrow = async (uid: string, amount: number, note = '') => {
   const cents = toCents(amount);
-  if (cents <= 0) throw new Error('Enter an amount to spend.');
+  if (cents <= 0) throw new Error(messages().errors.enterSpendAmount);
 
   const loan = await addDoc(loansCol(uid), {
     amount: fromCents(cents),
@@ -552,7 +553,7 @@ export const deleteActivity = (
 export const editActivity = (uid: string, activity: Activity, newAmount: number) =>
   runTransaction(db, async (tx) => {
     if (activity.repaid || (activity.repayments?.length ?? 0) > 0) {
-      throw new Error('This one repaid a debt. Delete it and record it again instead.');
+      throw new Error(messages().errors.editRepaidDebt);
     }
 
     const shares = splitByPercentage(
@@ -569,7 +570,7 @@ export const editActivity = (uid: string, activity: Activity, newAmount: number)
 
     const missing = snaps.findIndex((snap) => !snap.exists());
     if (missing >= 0) {
-      throw new Error('One of the goals this went into has been deleted, so it cannot be corrected.');
+      throw new Error(messages().errors.editDeletedGoal);
     }
 
     snaps.forEach((snap, i) => {
@@ -938,16 +939,17 @@ export const runDueSchedules = async (
 
 /* ------------------------------------------------------------ sample data */
 
-const SAMPLE_BANKS = [
-  { name: 'Vacation', targetAmount: 5000, splitPercentage: 30, icon: 'beach_access' },
-  { name: 'Emergency Fund', targetAmount: 10000, splitPercentage: 50, icon: 'shield_with_heart' },
-  { name: 'New Tech', targetAmount: 2000, splitPercentage: 20, icon: 'devices' },
+// Named in the language chosen when they are created; after that they are the person's to rename.
+const sampleBanks = () => [
+  { name: messages().errors.sampleGoals.vacation, targetAmount: 5000, splitPercentage: 30, icon: 'beach_access' },
+  { name: messages().errors.sampleGoals.emergencyFund, targetAmount: 10000, splitPercentage: 50, icon: 'shield_with_heart' },
+  { name: messages().errors.sampleGoals.newTech, targetAmount: 2000, splitPercentage: 20, icon: 'devices' },
 ];
 
 /** Three empty starter goals adding up to 100%, for trying the app out. */
 export const seedSampleBanks = async (uid: string) => {
   const batch = writeBatch(db);
-  SAMPLE_BANKS.forEach((b, i) =>
+  sampleBanks().forEach((b, i) =>
     batch.set(doc(banksCol(uid)), {
       ...b,
       currentAmount: 0,

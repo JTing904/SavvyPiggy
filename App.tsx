@@ -21,7 +21,7 @@ import Growth from './components/Growth';
 import TradeSheet, { type TradeDraft } from './components/TradeSheet';
 import type { Mode } from './components/Navigation';
 import LanguagePicker from './components/LanguagePicker';
-import { useLanguage } from './contexts/LanguageContext';
+import { useLanguage, useT } from './contexts/LanguageContext';
 import { getChoice, hasChosenLanguage, onLangChange, setLang } from './i18n';
 import { useAuth } from './contexts/AuthContext';
 import { usePiggyData } from './hooks/usePiggyData';
@@ -50,6 +50,7 @@ const App: React.FC = () => {
   // Firestore reads only start once an invite has unlocked the account.
   const uid = isMember ? user?.uid : undefined;
   const { lang } = useLanguage();
+  const t = useT();
   const [languageChosen, setLanguageChosen] = useState(hasChosenLanguage);
   useEffect(() => onLangChange(() => setLanguageChosen(true)), []);
 
@@ -316,19 +317,19 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    if (dataLoading) return <Splash label="Syncing your savings" />;
+    if (dataLoading) return <Splash label={t.app.splash.syncing} />;
 
     if (error) {
       return (
         <div className="h-full flex flex-col items-center justify-center gap-3 px-10 text-center">
           <span className="material-symbols-rounded text-red-400 text-4xl">cloud_off</span>
-          <p className="text-white font-bold">Could not reach Firestore</p>
+          <p className="text-white font-bold">{t.app.couldNotReach}</p>
           <p className="text-slate-500 text-xs font-medium leading-relaxed">{error}</p>
           <button
             onClick={retry}
             className="mt-4 px-8 h-12 rounded-2xl bg-primary text-black font-black active:scale-95 transition-transform"
           >
-            Try again
+            {t.app.tryAgain}
           </button>
         </div>
       );
@@ -530,7 +531,7 @@ const App: React.FC = () => {
           />
         );
       default:
-        return <div className="flex items-center justify-center h-full text-white/50">Feature coming soon</div>;
+        return <div className="flex items-center justify-center h-full text-white/50">{t.app.comingSoon}</div>;
     }
   };
 
@@ -557,7 +558,7 @@ const App: React.FC = () => {
           <div className="max-w-md mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
             <span className="material-symbols-rounded text-amber-300 text-lg shrink-0">cloud_off</span>
             <p className="text-amber-200 text-[11px] font-black">
-              Offline — showing what was last synced to this phone
+              {t.app.offline}
             </p>
           </div>
         </div>
@@ -573,7 +574,7 @@ const App: React.FC = () => {
           >
             <span className="material-symbols-rounded text-red-400 text-xl shrink-0">error</span>
             <div className="min-w-0">
-              <p className="text-red-300 text-xs font-black">That did not save</p>
+              <p className="text-red-300 text-xs font-black">{t.app.didNotSave}</p>
               <p className="text-red-200/80 text-[11px] font-bold mt-0.5 leading-relaxed">{failure}</p>
             </div>
           </div>
@@ -615,17 +616,17 @@ const App: React.FC = () => {
           >
             {/* The same button, two jobs: which one follows the card on Home. */}
             <h3 className="text-white text-2xl font-black">
-              {mode === 'save' ? 'Move money' : 'Record a trade'}
+              {mode === 'save' ? t.app.quick.moveMoney : t.app.quick.recordTrade}
             </h3>
             <div className="grid grid-cols-2 gap-3 mt-5">
               {(mode === 'save'
                 ? ([
-                    { key: 'deposit', label: 'Deposit', icon: 'south_west', tint: 'text-primary' },
-                    { key: 'withdraw', label: 'Spend', icon: 'north_east', tint: 'text-slate-400' },
+                    { key: 'deposit', label: t.app.quick.deposit, icon: 'south_west', tint: 'text-primary' },
+                    { key: 'withdraw', label: t.app.quick.spend, icon: 'north_east', tint: 'text-slate-400' },
                   ] as const)
                 : ([
-                    { key: 'buy', label: 'Buy', icon: 'trending_up', tint: 'text-accent' },
-                    { key: 'sell', label: 'Sell', icon: 'trending_down', tint: 'text-slate-400' },
+                    { key: 'buy', label: t.app.quick.buy, icon: 'trending_up', tint: 'text-accent' },
+                    { key: 'sell', label: t.app.quick.sell, icon: 'trending_down', tint: 'text-slate-400' },
                   ] as const)
               ).map((option) => (
                 <button
@@ -651,8 +652,8 @@ const App: React.FC = () => {
             </div>
             <p className="text-slate-500 text-xs font-medium leading-relaxed mt-5">
               {mode === 'save'
-                ? 'Spending without picking a goal is recorded as spent ahead — your next deposits cover it before anything reaches your goals.'
-                : 'Every trade keeps the day it was done. That date is what decides which dividends are yours, so enter the day you dealt, not the day you typed it in.'}
+                ? t.app.quick.saveHint
+                : t.app.quick.tradeHint}
             </p>
           </div>
         </div>
@@ -662,9 +663,9 @@ const App: React.FC = () => {
 
   if (!isFirebaseConfigured) return shell(<SetupNotice />);
   if (!languageChosen) return shell(<LanguagePicker />);
-  if (authLoading) return shell(<Splash label="Starting up" />);
+  if (authLoading) return shell(<Splash label={t.app.splash.startingUp} />);
   if (!user) return shell(<Login />);
-  if (isMember === null) return shell(<Splash label="Checking your invite" />);
+  if (isMember === null) return shell(<Splash label={t.app.splash.checkingInvite} />);
   if (!isMember) return shell(<RedeemInvite user={user} />);
 
   return shell(

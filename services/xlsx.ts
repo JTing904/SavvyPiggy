@@ -17,6 +17,8 @@
  * no deflate implementation to go wrong.
  */
 
+import { m } from '../i18n';
+
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text);
 
@@ -201,7 +203,7 @@ const workbookXml = (sheetName: string) =>
   '</workbook>';
 
 /** One sheet, which is all a monthly statement needs. */
-export const buildXlsx = (rows: Cell[][], sheetName = 'Statement', now: Date = new Date()) =>
+export const buildXlsx = (rows: Cell[][], sheetName: string = m().files.sheetName, now: Date = new Date()) =>
   zip(
     [
       { name: '[Content_Types].xml', data: bytes(CONTENT_TYPES) },

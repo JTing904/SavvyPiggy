@@ -1,4 +1,5 @@
 import type { Frequency, Schedule } from '../types';
+import { m } from '../i18n';
 
 /** Guards against a runaway loop if a schedule was left dormant for years. */
 const MAX_CATCH_UP = 60;
@@ -54,34 +55,40 @@ export const nextOccurrence = (s: Schedule, now = new Date()): Date | null => {
   return null;
 };
 
+// English names, kept for anything that wants the raw list. On screen the
+// weekday and month come from the dictionary, in the current language.
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
-const ordinal = (n: number) => {
-  const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
-  return `${n}${suffix}`;
-};
-
-/** Plain-English summary of when a rule fires, for the schedule list. */
+/** Plain-language summary of when a rule fires, for the schedule list. */
 export const describe = (s: Pick<Schedule, 'frequency' | 'weekday' | 'dayOfMonth' | 'month'>) => {
+  const words = m().profile.describe;
   switch (s.frequency) {
     case 'daily':
-      return 'Every day';
+      return words.daily;
     case 'weekly':
-      return `Every ${WEEKDAYS[s.weekday]}`;
+      return words.weekly(s.weekday);
     case 'monthly':
-      return `The ${ordinal(s.dayOfMonth)} of each month`;
+      return words.monthly(s.dayOfMonth);
     case 'yearly':
-      return `${MONTHS[s.month - 1]} ${ordinal(s.dayOfMonth)} each year`;
+      return words.yearly(s.month, s.dayOfMonth);
   }
 };
 
+/** Labels are read in the current language each time they are shown. */
+const frequency = (value: Frequency): { value: Frequency; label: string } => ({
+  value,
+  get label() {
+    return m().profile.frequencies[value];
+  },
+});
+
 export const FREQUENCIES: { value: Frequency; label: string }[] = [
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
+  frequency('daily'),
+  frequency('weekly'),
+  frequency('monthly'),
+  frequency('yearly'),
 ];
 
 export const WEEKDAY_LABELS = WEEKDAYS;

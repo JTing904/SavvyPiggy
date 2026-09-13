@@ -5,6 +5,7 @@ import { fromCents } from './money';
 import type { Summary } from './analytics';
 import { A4, buildImagePdf, type PdfPage } from './pdf';
 import { formatMoney } from './money';
+import { m, noteText } from '../i18n';
 
 /**
  * Draws the statement onto A4-shaped canvases with the browser's own text
@@ -26,18 +27,15 @@ const GREEN = '#15803d';
 const RED = '#b91c1c';
 const PANEL = '#f1f5f9';
 
-const TYPE_LABEL: Record<Activity['type'], string> = {
-  'auto-save': 'Scheduled deposit',
-  manual: 'Deposit',
-  withdraw: 'Withdrawal',
-  borrow: 'Spent ahead',
-};
+// Read at render time, so the statement comes out in the language chosen now.
+const typeLabels = (): Record<Activity['type'], string> => ({
+  'auto-save': m().common.activity.autoSave,
+  manual: m().common.activity.manual,
+  withdraw: m().files.withdrawal,
+  borrow: m().common.activity.borrow,
+});
 
-const TRADE_LABEL: Record<Trade['kind'], string> = {
-  buy: 'Buy',
-  sell: 'Sell',
-  dividend: 'Dividend',
-};
+const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
 
 const money = (n: number) => formatMoney(n);
 const signed = (n: number) => formatMoney(n, { signed: true });
@@ -67,7 +65,7 @@ class Doc {
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas is not available.');
+    if (!ctx) throw new Error(m().errors.canvasUnavailable);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
     ctx.textBaseline = 'alphabetic';
@@ -196,7 +194,7 @@ class Doc {
       ctx.textAlign = 'left';
       ctx.fillText(label, MARGIN, H - FOOTER);
       ctx.textAlign = 'right';
-      ctx.fillText(`Page ${i + 1} of ${this.pages.length}`, W - MARGIN, H - FOOTER);
+      ctx.fillText(m().files.page(i + 1, this.pages.length), W - MARGIN, H - FOOTER);
     });
   }
 }
@@ -230,6 +228,9 @@ export const renderStatement = ({
   holdings = [],
   quotes = {},
 }: StatementInput) => {
+  const f = m().files;
+  const TYPE_LABEL = typeLabels();
+  const TRADE_LABEL = tradeLabels();
   const doc = new Doc();
   const contentWidth = W - MARGIN * 2;
 
@@ -237,10 +238,10 @@ export const renderStatement = ({
   doc.font(11, 800);
   doc.text('SAVVYPIGGY', MARGIN, doc.y + 10 * SCALE, GREEN);
   doc.font(24, 800);
-  doc.text('Statement', MARGIN, doc.y + 38 * SCALE);
+  doc.text(f.statement, MARGIN, doc.y + 38 * SCALE);
   doc.font(9.5, 400);
   doc.text(owner, W - MARGIN, doc.y + 12 * SCALE, MUTED, 'right');
-  doc.text(`Generated ${dateTime(now)}`, W - MARGIN, doc.y + 26 * SCALE, MUTED, 'right');
+  doc.text(f.generated(dateTime(now)), W - MARGIN, doc.y + 26 * SCALE, MUTED, 'right');
   doc.text(summary.range.label, W - MARGIN, doc.y + 40 * SCALE, INK, 'right');
   doc.y += 52 * SCALE;
   doc.rule(doc.y, INK);
@@ -248,10 +249,10 @@ export const renderStatement = ({
 
   // Summary panels
   const panels = [
-    { label: 'Saved into goals', value: money(summary.distributed), color: GREEN },
-    { label: 'Spent from goals', value: money(summary.spent), color: INK },
-    { label: 'Debt repaid', value: money(summary.repaid), color: INK },
-    { label: 'Spent ahead', value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
+    { label: f.savedIntoGoals, value: money(summary.distributed), color: GREEN },
+    { label: f.spentFromGoals, value: money(summary.spent), color: INK },
+    { label: f.debtRepaid, value: money(summary.repaid), color: INK },
+    { label: f.spentAhead, value: money(summary.borrowed), color: summary.borrowed > 0 ? RED : INK },
   ];
   const gap = 8 * SCALE;
   const panelWidth = (contentWidth - gap * (panels.length - 1)) / panels.length;
@@ -269,7 +270,7 @@ export const renderStatement = ({
   doc.y += panelHeight + 12 * SCALE;
   doc.font(9.5, 400);
   doc.text(
-    `Daily average ${money(summary.dailyAverage)}  ·  ${summary.transactions} transactions  ·  ${summary.range.days} days  ·  ${summary.activeDays} days with savings`,
+    f.summaryLine(money(summary.dailyAverage), summary.transactions, summary.range.days, summary.activeDays),
     MARGIN,
     doc.y + 4 * SCALE,
     MUTED
@@ -277,30 +278,30 @@ export const renderStatement = ({
   doc.y += 14 * SCALE;
 
   // Goals
-  doc.heading('Goals');
+  doc.heading(f.goals);
   const goalCol = contentWidth - (104 + 92 + 92 + 60) * SCALE;
   doc.table(
     [
-      { title: 'Goal', width: goalCol },
-      { title: 'Credited', width: 104 * SCALE, align: 'right' },
-      { title: 'Balance', width: 92 * SCALE, align: 'right' },
-      { title: 'Target', width: 92 * SCALE, align: 'right' },
-      { title: 'Funded', width: 60 * SCALE, align: 'right' },
+      { title: f.goal, width: goalCol },
+      { title: f.credited, width: 104 * SCALE, align: 'right' },
+      { title: f.balance, width: 92 * SCALE, align: 'right' },
+      { title: f.target, width: 92 * SCALE, align: 'right' },
+      { title: f.funded, width: 60 * SCALE, align: 'right' },
     ],
     summary.banks.map((b) => [
       b.name,
       money(b.credited),
       { text: money(b.current), color: b.current < 0 ? RED : INK },
-      b.target > 0 ? money(b.target) : 'Open-ended',
+      b.target > 0 ? money(b.target) : f.openEnded,
       b.funded === null ? '—' : `${b.funded}%`,
     ])
   );
   doc.font(8.5, 400);
-  doc.text('Balances are live as of the moment this statement was generated.', MARGIN, doc.y + 6 * SCALE, MUTED);
+  doc.text(f.balancesLive, MARGIN, doc.y + 6 * SCALE, MUTED);
   doc.y += 12 * SCALE;
 
   // Transactions
-  const nameOf = (id: string) => banks.find((b) => b.id === id)?.name ?? 'Deleted goal';
+  const nameOf = (id: string) => banks.find((b) => b.id === id)?.name ?? f.deletedGoal;
   const inPeriod = activities
     .filter((a) => {
       const d = new Date(a.date);
@@ -308,26 +309,26 @@ export const renderStatement = ({
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  doc.heading(`Transactions (${inPeriod.length})`);
+  doc.heading(f.transactionsHeading(inPeriod.length));
   if (inPeriod.length === 0) {
     doc.font(9.5, 400);
-    doc.text('No transactions in this period.', MARGIN, doc.y + 8 * SCALE, MUTED);
+    doc.text(f.noTransactions, MARGIN, doc.y + 8 * SCALE, MUTED);
     doc.y += 16 * SCALE;
   } else {
     const fixed = (95 + 90 + 90) * SCALE;
     const flexible = contentWidth - fixed;
     doc.table(
       [
-        { title: 'Date', width: 95 * SCALE },
-        { title: 'Type', width: 90 * SCALE },
-        { title: 'Amount', width: 90 * SCALE, align: 'right' },
-        { title: 'Goals', width: Math.round(flexible * 0.5) },
-        { title: 'Category', width: Math.round(flexible * 0.22) },
-        { title: 'Note', width: flexible - Math.round(flexible * 0.5) - Math.round(flexible * 0.22) },
+        { title: f.date, width: 95 * SCALE },
+        { title: f.type, width: 90 * SCALE },
+        { title: f.amount, width: 90 * SCALE, align: 'right' },
+        { title: f.goals, width: Math.round(flexible * 0.5) },
+        { title: f.category, width: Math.round(flexible * 0.22) },
+        { title: f.note, width: flexible - Math.round(flexible * 0.5) - Math.round(flexible * 0.22) },
       ],
       inPeriod.map((a) => {
         const parts = a.distributions.map((d) => `${nameOf(d.bankId)} ${signed(d.amount)}`);
-        if (a.repaid) parts.unshift(`Debt repaid ${money(a.repaid)}`);
+        if (a.repaid) parts.unshift(f.debtRepaidAmount(money(a.repaid)));
         const outgoing = a.type === 'withdraw' || a.type === 'borrow';
         return [
           dateTime(new Date(a.date)),
@@ -335,7 +336,7 @@ export const renderStatement = ({
           { text: signed(outgoing ? -a.amount : a.amount), color: outgoing ? RED : GREEN },
           parts.join(', ') || '—',
           a.type === 'withdraw' ? categoryOf(a.category).label : '',
-          a.note ?? '',
+          noteText(a.note ?? ''),
         ];
       })
     );
@@ -351,22 +352,22 @@ export const renderStatement = ({
     .sort((a, b) => a.tradedAt - b.tradedAt);
 
   if (inPeriodTrades.length > 0 || holdings.length > 0) {
-    doc.heading(`Investments (${inPeriodTrades.length} trade${inPeriodTrades.length === 1 ? '' : 's'})`);
+    doc.heading(f.investmentsHeading(inPeriodTrades.length));
 
     if (inPeriodTrades.length === 0) {
       doc.font(9.5, 400);
-      doc.text('No trades in this period.', MARGIN, doc.y + 8 * SCALE, MUTED);
+      doc.text(f.noTrades, MARGIN, doc.y + 8 * SCALE, MUTED);
       doc.y += 16 * SCALE;
     } else {
       const fixed = (95 + 80 + 90 + 70 + 90) * SCALE;
       doc.table(
         [
-          { title: 'Date', width: 95 * SCALE },
-          { title: 'Action', width: 80 * SCALE },
-          { title: 'Counter', width: contentWidth - fixed },
-          { title: 'Units', width: 70 * SCALE, align: 'right' },
-          { title: 'Per unit', width: 90 * SCALE, align: 'right' },
-          { title: 'Amount', width: 90 * SCALE, align: 'right' },
+          { title: f.date, width: 95 * SCALE },
+          { title: f.action, width: 80 * SCALE },
+          { title: f.counter, width: contentWidth - fixed },
+          { title: f.units, width: 70 * SCALE, align: 'right' },
+          { title: f.perUnit, width: 90 * SCALE, align: 'right' },
+          { title: f.amount, width: 90 * SCALE, align: 'right' },
         ],
         inPeriodTrades.map((t) => {
           const perUnit = t.kind === 'dividend' ? (t.perUnitPoints ?? 0) / 100 : t.priceCents;
@@ -386,7 +387,7 @@ export const renderStatement = ({
     }
 
     if (holdings.length > 0) {
-      doc.heading('Positions at the end of the period');
+      doc.heading(f.positionsHeading);
       const fixed = (70 + 90 + 92 + 92 + 88) * SCALE;
       let costTotal = 0;
       let valueTotal = 0;
@@ -407,7 +408,7 @@ export const renderStatement = ({
       });
       const total = valueTotal - costTotal;
       rows.push([
-        'Total',
+        f.total,
         '',
         '',
         money(fromCents(costTotal)),
@@ -417,18 +418,18 @@ export const renderStatement = ({
 
       doc.table(
         [
-          { title: 'Counter', width: contentWidth - fixed },
-          { title: 'Units', width: 70 * SCALE, align: 'right' },
-          { title: 'Avg cost', width: 90 * SCALE, align: 'right' },
-          { title: 'Cost', width: 92 * SCALE, align: 'right' },
-          { title: 'Value', width: 92 * SCALE, align: 'right' },
-          { title: 'Gain', width: 88 * SCALE, align: 'right' },
+          { title: f.counter, width: contentWidth - fixed },
+          { title: f.units, width: 70 * SCALE, align: 'right' },
+          { title: f.avgCost, width: 90 * SCALE, align: 'right' },
+          { title: f.cost, width: 92 * SCALE, align: 'right' },
+          { title: f.value, width: 92 * SCALE, align: 'right' },
+          { title: f.gain, width: 88 * SCALE, align: 'right' },
         ],
         rows
       );
       doc.font(8.5, 400);
       doc.text(
-        'Prices are the last seen when this statement was made. Investments are reported alongside the savings and are not part of the savings balance.',
+        f.pricesNote,
         MARGIN,
         doc.y + 6 * SCALE,
         MUTED

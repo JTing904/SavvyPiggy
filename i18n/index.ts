@@ -79,7 +79,13 @@ export const messagesFor = (lang: Lang): Messages => (lang === 'zh' ? zh : en);
  * "SEP 8" in one place, "8 Sep 2026" in another — and Chinese reads the
  * Chinese way everywhere: 9月8日.
  */
-export const dateLocale = (english: 'en-US' | 'en-GB' = 'en-GB') => (getLang() === 'zh' ? 'zh-CN' : english);
+export const dateLocale = (english: 'en-US' | 'en-GB') => (getLang() === 'zh' ? 'zh-CN' : english);
+
+/**
+ * For the few places that always followed the phone's own locale in English:
+ * Chinese still reads the Chinese way, English stays exactly as the phone had it.
+ */
+export const deviceDateLocale = () => (getLang() === 'zh' ? 'zh-CN' : undefined);
 
 /**
  * Notes the app wrote itself, in English, before the app spoke anything else.

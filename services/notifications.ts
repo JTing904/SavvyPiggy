@@ -5,6 +5,7 @@ import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
 import { unitsOnExDate } from './holdings';
 import { formatMoney } from '../services/money';
+import { getLang, m, type Lang } from '../i18n';
 
 /**
  * System notifications without a server: the phone itself holds the alarms.
@@ -58,23 +59,28 @@ const MORNING = 9;
  */
 export const CHANNEL_ID = 'savvypiggy-reminders';
 
-let channelReady = false;
+/**
+ * The language the channel was last named in. Creating a channel that already
+ * exists only renames it, so switching language re-creates it in the new one.
+ */
+let channelReady: Lang | null = null;
 const ensureChannel = async () => {
-  if (!native() || channelReady) return;
+  const lang = getLang();
+  if (!native() || channelReady === lang) return;
   try {
     await LocalNotifications.createChannel({
       id: CHANNEL_ID,
-      name: 'Reminders',
-      description: 'Savings reminders, auto-deposit nudges and ex-dividend dates.',
+      name: m().alerts.notify.channelName,
+      description: m().alerts.notify.channelDescription,
       importance: 4,
       visibility: 1,
       vibration: true,
     });
-    channelReady = true;
+    channelReady = lang;
   } catch {
     // Channels only exist on Android 8+; elsewhere the notification posts fine
     // without one.
-    channelReady = true;
+    channelReady = lang;
   }
 };
 
@@ -136,13 +142,16 @@ export const plannedNotifications = (
   now = new Date()
 ): LocalNotificationSchema[] => {
   const out: LocalNotificationSchema[] = [];
+  // Written in the current language; a change of language changes the plan's
+  // fingerprint, so the phone's copies are re-armed in the new one.
+  const words = m().alerts.notify;
 
   if (prefs.reminder) {
     const { hour, minute } = parseTime(prefs.reminderTime);
     out.push({
       id: REMINDER_ID,
-      title: 'Time to save',
-      body: 'Put a little aside today and keep your streak alive.',
+      title: words.reminderTitle,
+      body: words.reminderBody,
       schedule: { on: { hour, minute } },
       extra: { open: 'home' satisfies OpenTarget },
     });
@@ -151,8 +160,8 @@ export const plannedNotifications = (
   if (prefs.digest) {
     out.push({
       id: DIGEST_ID,
-      title: 'Your monthly report is ready',
-      body: 'See where last month’s deposits went and how fast you saved.',
+      title: words.digestTitle,
+      body: words.digestBody,
       schedule: { on: { day: 1, hour: MORNING, minute: 0 } },
       extra: { open: 'report' satisfies OpenTarget },
     });
@@ -166,8 +175,8 @@ export const plannedNotifications = (
     day.setHours(MORNING, 0, 0, 0);
     out.push({
       id: DUE_BASE + slot(s.id, SPAN),
-      title: `Auto deposit of ${formatMoney(s.amount)} due today`,
-      body: 'Open SavvyPiggy to post it to your goals.',
+      title: words.dueTitle(formatMoney(s.amount)),
+      body: words.dueBody,
       schedule: { at: day },
       extra: { open: 'home' satisfies OpenTarget },
     });
@@ -189,11 +198,11 @@ export const plannedNotifications = (
       const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), d.exDate);
       out.push({
         id: EX_BASE + slot(`${d.symbol}_${d.exDate}`, SPAN),
-        title: `${d.symbol} goes ex-dividend in 2 days`,
+        title: words.exTitle(d.symbol),
         body:
           units > 0
-            ? `RM${(d.perUnitPoints / 10_000).toFixed(4)} a unit. You hold ${units.toLocaleString('en-US')}.`
-            : `RM${(d.perUnitPoints / 10_000).toFixed(4)} a unit. Buy before the ex-date to qualify.`,
+            ? words.exBodyHeld(`RM${(d.perUnitPoints / 10_000).toFixed(4)}`, units.toLocaleString('en-US'))
+            : words.exBodyNone(`RM${(d.perUnitPoints / 10_000).toFixed(4)}`),
         schedule: { at: warn },
         extra: { open: 'home' satisfies OpenTarget },
       });

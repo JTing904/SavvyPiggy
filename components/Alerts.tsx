@@ -10,6 +10,8 @@ import {
 } from '../services/notifications';
 import { formatMoney } from '../services/money';
 import TimeField from './TimeField';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale, type Messages } from '../i18n';
 
 interface AlertsProps {
   alerts: Alert[];
@@ -22,11 +24,12 @@ interface AlertsProps {
 
 type Filter = 'all' | 'deposits' | 'milestones' | 'streaks';
 
-const FILTERS: { key: Filter; label: string; kinds: AlertKind[] }[] = [
-  { key: 'all', label: 'All', kinds: ['receipt', 'milestone', 'reached', 'streak', 'dividend', 'housekeeping'] },
-  { key: 'deposits', label: 'Deposits', kinds: ['receipt', 'dividend'] },
-  { key: 'milestones', label: 'Milestones', kinds: ['milestone', 'reached'] },
-  { key: 'streaks', label: 'Streaks', kinds: ['streak'] },
+// Labels are looked up by key at render, so they follow the language.
+const FILTERS: { key: Filter; kinds: AlertKind[] }[] = [
+  { key: 'all', kinds: ['receipt', 'milestone', 'reached', 'streak', 'dividend', 'housekeeping'] },
+  { key: 'deposits', kinds: ['receipt', 'dividend'] },
+  { key: 'milestones', kinds: ['milestone', 'reached'] },
+  { key: 'streaks', kinds: ['streak'] },
 ];
 
 
@@ -34,19 +37,19 @@ const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 /** "Today" / "Yesterday" / "Sep 3", for grouping the timeline. */
-const dayLabel = (d: Date, now: Date) => {
-  if (sameDay(d, now)) return 'Today';
+const dayLabel = (d: Date, now: Date, t: Messages) => {
+  if (sameDay(d, now)) return t.common.today;
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  if (sameDay(d, yesterday)) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+  if (sameDay(d, yesterday)) return t.common.yesterday;
+  return d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
 };
 
 /** "10m ago" within the hour, otherwise the clock time. */
-const timeLabel = (d: Date, now: Date) => {
+const timeLabel = (d: Date, now: Date, t: Messages) => {
   const minutes = Math.floor((now.getTime() - d.getTime()) / 60000);
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (minutes < 1) return t.alerts.justNow;
+  if (minutes < 60) return t.alerts.minutesAgo(minutes);
+  return d.toLocaleTimeString(dateLocale('en-US'), { hour: 'numeric', minute: '2-digit' });
 };
 
 const Switch: React.FC<{ on: boolean; onChange: (on: boolean) => void }> = ({ on, onChange }) => (
@@ -76,6 +79,7 @@ const ICONS: Record<AlertKind, string> = {
 };
 
 const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSavePrefs, onOpenStrategy }) => {
+  const t = useT();
   const [filter, setFilter] = useState<Filter>('all');
   const [permission, setPermission] = useState<Permission>('unsupported');
   const [exact, setExact] = useState(true);
@@ -103,13 +107,13 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
   const groups = useMemo(() => {
     const out: { label: string; items: Alert[] }[] = [];
     for (const a of visible) {
-      const label = dayLabel(new Date(a.date), now);
+      const label = dayLabel(new Date(a.date), now, t);
       const last = out[out.length - 1];
       if (last && last.label === label) last.items.push(a);
       else out.push({ label, items: [a] });
     }
     return out;
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const countOf = (f: Filter) => alerts.filter((a) => !a.read && FILTERS.find((x) => x.key === f)!.kinds.includes(a.kind)).length;
 
@@ -146,12 +150,13 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         return (
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
-              Split across {a.lines?.length ?? 0} goal{a.lines?.length === 1 ? '' : 's'}:
+              {t.alerts.splitAcross(a.lines?.length ?? 0)}
             </p>
             <div className="grid grid-cols-2 gap-2 mt-3">
               {a.lines?.map((l) => (
                 <div key={l.bankId} className="flex items-center justify-between gap-2 bg-white/5 rounded-xl px-3 py-2 min-w-0">
-                  <span className="text-slate-300 text-[11px] font-bold truncate">{l.name}</span>
+                  {/* A receipt stores "Deleted goal" in English for a goal that was gone. */}
+                  <span className="text-slate-300 text-[11px] font-bold truncate">{l.name === 'Deleted goal' ? t.alerts.deletedGoal : l.name}</span>
                   <span className="text-white text-[11px] font-black shrink-0">{formatMoney(l.amount)}</span>
                 </div>
               ))}
@@ -162,10 +167,10 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         return (
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
-              A deposit carried <span className="text-white font-bold">{a.bankName}</span> past{' '}
-              <span className="text-primary font-bold">{formatMoney(a.reachedAmount ?? 0)}</span>.
+              {t.alerts.milestoneBefore}<span className="text-white font-bold">{a.bankName}</span>{t.alerts.milestonePast}
+              <span className="text-primary font-bold">{formatMoney(a.reachedAmount ?? 0)}</span>{t.alerts.milestoneEnd}
               {a.amount !== undefined && (
-                <> {formatMoney(a.amount)} left to reach its target.</>
+                <>{t.alerts.milestoneLeft(formatMoney(a.amount))}</>
               )}
             </p>
             {/* Only a goal with a target has a bar to fill. */}
@@ -183,13 +188,13 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         return (
           <>
             <p className="text-slate-400 text-xs font-medium leading-relaxed">
-              <span className="text-white font-bold">{a.bankName}</span> reached its {formatMoney(a.amount ?? 0, { decimals: 0 })} target.
-              {a.percent ? ` It still takes ${a.percent}% of every deposit.` : ''}
-              {a.overflow ? ' Its share now goes to your other goals automatically.' : ''}
+              <span className="text-white font-bold">{a.bankName}</span>{t.alerts.reachedTarget(formatMoney(a.amount ?? 0, { decimals: 0 }))}
+              {a.percent ? t.alerts.reachedStillTakes(a.percent) : ''}
+              {a.overflow ? t.alerts.reachedOverflow : ''}
             </p>
             {a.percent ? (
               <div className="flex items-center justify-between gap-3 mt-4">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Still allocated: {a.percent}%</p>
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.alerts.stillAllocated(a.percent)}</p>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -198,7 +203,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
                   }}
                   className="h-10 px-4 rounded-full bg-primary text-black text-xs font-black active:scale-95 transition-transform"
                 >
-                  Reallocate Split
+                  {t.alerts.reallocate}
                 </button>
               </div>
             ) : null}
@@ -207,23 +212,19 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
       case 'streak':
         return (
           <p className="text-slate-400 text-xs font-medium leading-relaxed">
-            You have put money into your goals every day for {a.days} days straight. Keep it going.
+            {t.alerts.streakBody(a.days ?? '')}
           </p>
         );
       case 'housekeeping':
         return (
           <p className="text-slate-400 text-xs font-medium leading-relaxed">
-            The app reads your whole history every time it opens, so records older than {a.months} months
-            are cleared to keep that quick. Nothing has been removed yet. Open Report → Statements to save
-            those months first, or to keep them for longer. Your balances are never affected.
+            {t.alerts.housekeepingBody(a.months)}
           </p>
         );
       case 'dividend':
         return (
           <p className="text-slate-400 text-xs font-medium leading-relaxed">
-            Worked out on the {a.units?.toLocaleString('en-US')} units you held on the ex-date and split
-            across your goals like any other deposit. Companies deduct tax and fees, so check the amount
-            that actually landed and correct it in Trades if it differs.
+            {t.alerts.dividendBody(a.units?.toLocaleString('en-US') ?? '')}
           </p>
         );
     }
@@ -232,17 +233,17 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
   const title = (a: Alert) => {
     switch (a.kind) {
       case 'receipt':
-        return `Auto deposit posted (${formatMoney(a.amount ?? 0)})`;
+        return t.alerts.receiptTitle(formatMoney(a.amount ?? 0));
       case 'milestone':
-        return `${a.bankName} passed ${formatMoney(a.reachedAmount ?? 0)}`;
+        return t.alerts.milestoneTitle(a.bankName, formatMoney(a.reachedAmount ?? 0));
       case 'reached':
-        return `Goal reached: ${a.bankName}`;
+        return t.alerts.reachedTitle(a.bankName);
       case 'streak':
-        return `${a.days}-day savings streak`;
+        return t.alerts.streakTitle(a.days);
       case 'housekeeping':
-        return 'Old records are ready to be cleared';
+        return t.alerts.housekeepingTitle;
       case 'dividend':
-        return `${a.counter} paid ${formatMoney(a.amount ?? 0)}`;
+        return t.alerts.dividendTitle(a.counter, formatMoney(a.amount ?? 0));
     }
   };
 
@@ -257,9 +258,9 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
           <span className="material-symbols-rounded">arrow_back</span>
         </button>
         <div className="min-w-0 flex-1">
-          <h2 className="text-white text-3xl font-black tracking-tight">Alerts</h2>
+          <h2 className="text-white text-3xl font-black tracking-tight">{t.alerts.title}</h2>
           <p className="text-slate-500 text-sm font-medium mt-1">
-            {unread.length === 0 ? 'You are all caught up.' : `${unread.length} new alert${unread.length === 1 ? '' : 's'}`}
+            {unread.length === 0 ? t.alerts.allCaughtUp : t.alerts.newAlerts(unread.length)}
           </p>
         </div>
         {unread.length > 0 && (
@@ -268,7 +269,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             className="shrink-0 h-9 px-4 rounded-full glass text-slate-300 text-xs font-black flex items-center gap-1.5 active:scale-95 transition-transform"
           >
             <span className="material-symbols-rounded text-base">done_all</span>
-            Mark all read
+            {t.alerts.markAllRead}
           </button>
         )}
       </div>
@@ -285,7 +286,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
                 filter === f.key ? 'bg-primary text-black' : 'glass text-slate-300'
               }`}
             >
-              {f.label}
+              {t.alerts.filters[f.key]}
               {n > 0 && (
                 <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${filter === f.key ? 'bg-black/15' : 'bg-primary/20 text-primary'}`}>
                   {n}
@@ -303,14 +304,14 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             <span className="material-symbols-rounded">alarm</span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-white font-black text-sm">Daily savings reminder</p>
+            <p className="text-white font-black text-sm">{t.alerts.dailySavingsReminder}</p>
             <p className="text-slate-500 text-xs font-medium mt-0.5">
               {prefs.reminder ? (
                 <>
-                  Every evening at <span className="text-primary font-bold">{formatTime(prefs.reminderTime)}</span>
+                  {t.alerts.everyEveningAt}<span className="text-primary font-bold">{formatTime(prefs.reminderTime)}</span>
                 </>
               ) : (
-                'Off — a nudge to keep your streak alive'
+                t.alerts.reminderOff
               )}
             </p>
           </div>
@@ -321,10 +322,9 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
           <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-5 flex items-start gap-3">
             <span className="material-symbols-rounded text-amber-400 shrink-0">notifications_off</span>
             <div className="min-w-0">
-              <p className="text-amber-200 text-sm font-black">Android is blocking these</p>
+              <p className="text-amber-200 text-sm font-black">{t.alerts.blockedTitle}</p>
               <p className="text-amber-200/70 text-xs font-medium leading-relaxed mt-1">
-                Nothing can be scheduled until you allow them. Open Settings → Apps → SavvyPiggy →
-                Notifications and turn them on, then come back — this screen rechecks itself.
+                {t.alerts.blockedBody}
               </p>
             </div>
           </div>
@@ -342,10 +342,9 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             <div className="flex items-start gap-3">
               <span className="material-symbols-rounded text-amber-400 shrink-0">schedule</span>
               <div className="min-w-0">
-                <p className="text-amber-200 text-sm font-black">Reminders may arrive late</p>
+                <p className="text-amber-200 text-sm font-black">{t.alerts.lateTitle}</p>
                 <p className="text-amber-200/70 text-xs font-medium leading-relaxed mt-1">
-                  Android is allowed to delay these by up to an hour, or skip them while the phone is
-                  asleep. Allowing exact alarms makes 8:00 PM mean 8:00 PM.
+                  {t.alerts.lateBody}
                 </p>
               </div>
             </div>
@@ -353,7 +352,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
               onClick={() => void requestExactAlarms().then(setExact)}
               className="w-full h-12 rounded-2xl bg-amber-400 text-black font-black text-sm mt-4 active:scale-95 transition-transform"
             >
-              Allow exact alarms
+              {t.alerts.allowExact}
             </button>
           </div>
         )}
@@ -362,9 +361,9 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         {groups.length === 0 ? (
           <Card className="p-8 text-center">
             <span className="material-symbols-rounded text-slate-600 text-4xl">notifications_paused</span>
-            <p className="text-white font-black mt-3">Nothing here yet</p>
+            <p className="text-white font-black mt-3">{t.alerts.emptyTitle}</p>
             <p className="text-slate-500 text-xs font-medium mt-1 leading-relaxed">
-              Milestones, auto-deposit receipts and streaks show up here as they happen.
+              {t.alerts.emptyBody}
             </p>
           </Card>
         ) : (
@@ -373,7 +372,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
               <div className="flex items-center justify-between px-1 mb-3">
                 <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{g.label}</p>
                 <p className="text-slate-600 text-[10px] font-bold">
-                  {g.items.length} update{g.items.length === 1 ? '' : 's'}
+                  {t.alerts.updates(g.items.length)}
                 </p>
               </div>
               <div className="space-y-3">
@@ -397,7 +396,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">
                           <p className={`font-black text-sm leading-snug ${a.kind === 'reached' ? 'text-primary' : 'text-white'}`}>{title(a)}</p>
-                          <p className="text-slate-600 text-[10px] font-bold shrink-0 mt-0.5">{timeLabel(new Date(a.date), now)}</p>
+                          <p className="text-slate-600 text-[10px] font-bold shrink-0 mt-0.5">{timeLabel(new Date(a.date), now, t)}</p>
                         </div>
                         <div className="mt-1.5">{body(a)}</div>
                       </div>
@@ -413,33 +412,33 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         <section>
           <div className="flex items-center gap-2 px-1 mb-3">
             <span className="material-symbols-rounded text-primary text-lg">tune</span>
-            <p className="text-white font-black">Delivery preferences</p>
+            <p className="text-white font-black">{t.alerts.deliveryPreferences}</p>
           </div>
           <Card className="divide-y divide-white/5">
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">Auto-deposit receipts</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">A card here each time a rule posts a deposit.</p>
+                <p className="text-white font-bold text-sm">{t.alerts.receiptsTitle}</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">{t.alerts.receiptsHint}</p>
               </div>
               <Switch on={prefs.receipts} onChange={(receipts) => onSavePrefs({ receipts })} />
             </div>
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">Milestones &amp; streaks</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">Each time a goal passes a round amount or reaches its target, and on 7, 30, 100 and 365-day streaks.</p>
+                <p className="text-white font-bold text-sm">{t.alerts.milestonesTitle}</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">{t.alerts.milestonesHint}</p>
               </div>
               <Switch on={prefs.milestones} onChange={(milestones) => onSavePrefs({ milestones })} />
             </div>
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">Daily reminder</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">A system notification every evening.</p>
+                <p className="text-white font-bold text-sm">{t.alerts.dailyReminder}</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">{t.alerts.dailyReminderHint}</p>
                 {prefs.reminder && (
                   <TimeField
                     value={prefs.reminderTime}
                     onChange={(reminderTime) => onSavePrefs({ reminderTime })}
-                    title="Remind me at"
-                    hint="Pick an hour you are usually free to put something aside."
+                    title={t.alerts.remindMeAt}
+                    hint={t.alerts.remindHint}
                   />
                 )}
               </div>
@@ -447,25 +446,23 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             </div>
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">Monthly report</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">On the 1st at 9:00 AM, opening last month’s Report.</p>
+                <p className="text-white font-bold text-sm">{t.alerts.monthlyReport}</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">{t.alerts.monthlyReportHint}</p>
               </div>
               <Switch on={prefs.digest} onChange={(on) => void enableSystem({ digest: on })} />
             </div>
             <div className="p-5 flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">Ex-dividend days</p>
+                <p className="text-white font-bold text-sm">{t.alerts.exDates}</p>
                 <p className="text-slate-500 text-xs font-medium mt-0.5">
-                  Two days before a counter you hold goes ex-dividend — the day that decides whether the
-                  payment is yours.
+                  {t.alerts.exDatesHint}
                 </p>
               </div>
               <Switch on={prefs.exDates} onChange={(on) => void enableSystem({ exDates: on })} />
             </div>
           </Card>
           <p className="text-slate-600 text-[11px] font-medium leading-relaxed px-1 mt-3">
-            Reminders are set on this phone and fire even when the app is closed. Auto deposits themselves are only posted when
-            you open the app — there is no server behind SavvyPiggy — so a rule that is due gets a 9:00 AM nudge to open it.
+            {t.alerts.footer}
           </p>
         </section>
       </div>

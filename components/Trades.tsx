@@ -3,6 +3,8 @@ import type { Trade } from '../types';
 import { ordered, tradeCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale, type Messages } from '../i18n';
 
 interface TradesProps {
   uid: string;
@@ -26,18 +28,23 @@ const rate = (trade: Trade) =>
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-/** TODAY, SEP 8 — matching the savings history, because it reads the same way. */
-const dayLabel = (d: Date, now: Date) => {
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
-  if (sameDay(d, now)) return `TODAY, ${date}`;
-  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return `YESTERDAY, ${date}`;
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()}, ${date}`;
+/**
+ * TODAY, SEP 8 — matching the savings history, because it reads the same way.
+ * Chinese has no capitals, so the same call reads 今天 · 9月8日 there.
+ */
+const dayLabel = (d: Date, now: Date, t: Messages) => {
+  const date = d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' }).toUpperCase();
+  if (sameDay(d, now)) return t.invest.dayHeading(t.common.today.toUpperCase(), date);
+  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)))
+    return t.invest.dayHeading(t.common.yesterday.toUpperCase(), date);
+  return t.invest.dayHeading(t.common.weekdaysLong[d.getDay()].toUpperCase(), date);
 };
 
-const TAG: Record<Trade['kind'], { label: string; className: string; amountClass: string }> = {
-  buy: { label: 'BUY', className: 'bg-primary/15 text-primary', amountClass: 'text-white' },
-  sell: { label: 'SELL', className: 'bg-red-500/15 text-red-400', amountClass: 'text-red-400' },
-  dividend: { label: 'DIVIDEND', className: 'bg-accent/15 text-accent', amountClass: 'text-accent' },
+// The chip's words are looked up by kind at render, so they follow the language.
+const TAG: Record<Trade['kind'], { className: string; amountClass: string }> = {
+  buy: { className: 'bg-primary/15 text-primary', amountClass: 'text-white' },
+  sell: { className: 'bg-red-500/15 text-red-400', amountClass: 'text-red-400' },
+  dividend: { className: 'bg-accent/15 text-accent', amountClass: 'text-accent' },
 };
 
 /**
@@ -47,6 +54,7 @@ const TAG: Record<Trade['kind'], { label: string; className: string; amountClass
  * rest of the history — and any dividend already worked out from it — alone.
  */
 const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
+  const t = useT();
   const [draft, setDraft] = useState<TradeDraft | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const now = new Date();
@@ -76,7 +84,7 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
         >
           <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
         </button>
-        <h2 className="text-white text-2xl font-black tracking-tight">Trades</h2>
+        <h2 className="text-white text-2xl font-black tracking-tight">{t.invest.tradesTitle}</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-40">
@@ -89,17 +97,16 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
         {trades.length === 0 ? (
           <div className="text-center py-20">
             <span className="material-symbols-rounded text-slate-700 text-5xl">receipt_long</span>
-            <p className="text-white font-black mt-4">No trades yet</p>
+            <p className="text-white font-black mt-4">{t.invest.noTrades}</p>
             <p className="text-slate-500 text-xs font-bold mt-2 leading-relaxed px-6">
-              Record a buy with the button below. Every trade keeps the day it was done, which is what
-              decides who a dividend belongs to.
+              {t.invest.noTradesBody}
             </p>
           </div>
         ) : (
           days.map((day) => (
             <div key={day.key}>
               <p className="text-slate-500 text-[10px] font-black tracking-widest mt-6 mb-3">
-                {dayLabel(day.date, now)}
+                {dayLabel(day.date, now, t)}
               </p>
               <div className="space-y-2.5">
                 {day.rows.map((trade) => {
@@ -111,12 +118,12 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
                       className="w-full flex items-center gap-3 p-4 rounded-3xl glass text-left active:scale-[0.98] transition-transform"
                     >
                       <span className={`text-[9px] font-black px-2.5 py-1 rounded-full tracking-wider ${tag.className}`}>
-                        {tag.label}
+                        {t.invest.tag[trade.kind]}
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-white font-black text-[13px] truncate">{trade.name}</p>
                         <p className="text-slate-500 text-[11px] font-bold mt-0.5">
-                          {trade.units.toLocaleString('en-US')} units {trade.kind === 'dividend' ? '×' : '@'}{' '}
+                          {t.common.units(trade.units.toLocaleString('en-US'))} {trade.kind === 'dividend' ? '×' : '@'}{' '}
                           {rate(trade)}
                         </p>
                       </div>
@@ -134,8 +141,7 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack }) => {
 
         {trades.length > 0 && (
           <p className="text-slate-600 text-[11px] font-bold text-center mt-8 leading-relaxed px-4">
-            Tap any trade to change its date, units or price — or to delete it. Units and cost are worked
-            out again from the whole list.
+            {t.invest.tradesFooter}
           </p>
         )}
       </div>

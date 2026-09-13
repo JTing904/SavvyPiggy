@@ -5,12 +5,17 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import { SLICE_COLORS } from './DonutChart';
 import { CATEGORIES, categoryOf } from '../services/categories';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale, noteText, type Messages } from '../i18n';
 
-const STYLES: Record<ActivityType, { label: string; icon: string; tint: string; outgoing: boolean }> = {
-  'auto-save': { label: 'Scheduled deposit', icon: 'cycle', tint: 'bg-primary/10 text-primary', outgoing: false },
-  manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
-  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
-  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+const STYLES: Record<
+  ActivityType,
+  { label: keyof Messages['common']['activity']; icon: string; tint: string; outgoing: boolean }
+> = {
+  'auto-save': { label: 'autoSave', icon: 'cycle', tint: 'bg-primary/10 text-primary', outgoing: false },
+  manual: { label: 'manual', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
+  withdraw: { label: 'withdraw', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
+  borrow: { label: 'borrow', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
 };
 
 interface ActivityLogProps {
@@ -30,18 +35,18 @@ const inflow = (a: Activity) => a.distributions.reduce((s, d) => (d.amount > 0 ?
 const outflow = (a: Activity) => a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-const monthLabel = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-const shortMonth = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+const monthLabel = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
+const shortMonth = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', year: 'numeric' });
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-/** TODAY / YESTERDAY / SATURDAY, SEP 5 */
-const dayLabel = (d: Date, now: Date) => {
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
-  if (sameDay(d, now)) return `TODAY, ${date}`;
-  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return `YESTERDAY, ${date}`;
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()}, ${date}`;
+/** TODAY / YESTERDAY / SATURDAY, SEP 5 — or 今天 · 9月8日 in Chinese. */
+const dayLabel = (d: Date, now: Date, t: Messages) => {
+  const date = d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' }).toUpperCase();
+  if (sameDay(d, now)) return t.history.dayToday(date);
+  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return t.history.dayYesterday(date);
+  return t.history.dayOther(t.common.weekdaysLong[d.getDay()].toUpperCase(), date);
 };
 
 interface Day {
@@ -61,6 +66,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   onEditActivity,
   onSetCategory,
 }) => {
+  const t = useT();
   const confirm = useConfirm();
   const now = new Date();
   const [month, setMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
@@ -144,20 +150,20 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   const handleDelete = async (activity: Activity) => {
     const style = STYLES[activity.type];
     const undo = style.outgoing
-      ? `The ${money(activity.amount)} goes back into your goals.`
-      : `The ${money(activity.amount)} is taken back out of your goals.`;
+      ? t.history.undoOutgoing(money(activity.amount))
+      : t.history.undoIncoming(money(activity.amount));
     const ok = await confirm({
-      title: 'Remove this entry?',
+      title: t.history.removeTitle,
       body: undo,
       tone: 'danger',
-      confirmLabel: 'Remove',
+      confirmLabel: t.history.remove,
       // The row exactly as it reads in the list above, so the entry being
       // deleted is visible at the moment of deciding.
       detail: {
         icon: style.icon,
         tint: style.tint,
-        label: activity.note || style.label,
-        meta: new Date(activity.date).toLocaleString('en-GB', {
+        label: (activity.note && noteText(activity.note)) || t.common.activity[style.label],
+        meta: new Date(activity.date).toLocaleString(dateLocale('en-GB'), {
           day: 'numeric',
           month: 'short',
           hour: 'numeric',
@@ -177,7 +183,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
     if (activity.distributions.length === 0) {
       return (
         <p className="text-slate-500 text-xs font-medium py-2 leading-relaxed">
-          No goal was touched — your next deposits cover this before anything reaches them.
+          {t.history.noGoalTouched}
         </p>
       );
     }
@@ -188,7 +194,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       return (
         <div key={dist.bankId} className="flex items-center gap-3 py-2">
           <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-          <span className="text-slate-300 text-sm font-bold truncate">{bank?.name ?? 'Deleted goal'}</span>
+          <span className="text-slate-300 text-sm font-bold truncate">{bank?.name ?? t.history.deletedGoal}</span>
           {share !== null && (
             <span
               className="text-[10px] font-black px-1.5 py-0.5 rounded-md shrink-0"
@@ -219,7 +225,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             <span className="material-symbols-rounded text-base">{style.icon}</span>
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-slate-300 text-xs font-bold truncate">{activity.note || style.label}</p>
+            <p className="text-slate-300 text-xs font-bold truncate">{(activity.note && noteText(activity.note)) || t.common.activity[style.label]}</p>
             {activity.type === 'withdraw' && (
               <button
                 onClick={() => setPickingFor(activity.id)}
@@ -242,8 +248,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
 
         <div className="flex items-center gap-2 mt-1.5 pl-11">
           <p className="text-slate-600 text-[10px] font-medium truncate flex-1">
-            {new Date(activity.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-            {activity.repaid ? ` · ${money(activity.repaid)} to debt` : ''}
+            {new Date(activity.date).toLocaleTimeString(dateLocale('en-US'), { hour: 'numeric', minute: '2-digit' })}
+            {activity.repaid ? ` · ${t.history.toDebt(money(activity.repaid))}` : ''}
           </p>
 
           {editingId === activity.id ? (
@@ -256,10 +262,10 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                 className="w-20 bg-white/10 border border-primary/30 rounded-lg px-2 py-1 text-white font-black text-right outline-none"
               />
               <button onClick={() => setEditingId(null)} className="text-[10px] text-slate-500 font-black uppercase">
-                Cancel
+                {t.common.cancel}
               </button>
               <button onClick={() => handleSaveEdit(activity.id)} className="text-[10px] text-primary font-black uppercase">
-                Save
+                {t.common.save}
               </button>
             </>
           ) : (
@@ -293,12 +299,12 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       {/* Header */}
       <div className="px-6 pt-6 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-white text-3xl font-black tracking-tight">History</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">Every deposit, and where it landed.</p>
+          <h2 className="text-white text-3xl font-black tracking-tight">{t.history.title}</h2>
+          <p className="text-slate-500 text-sm font-medium mt-1">{t.history.subtitle}</p>
         </div>
         <button
           onClick={() => setPickMonth(true)}
-          aria-label="Pick a month"
+          aria-label={t.history.pickMonth}
           className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
         >
           <span className="material-symbols-rounded">calendar_month</span>
@@ -309,7 +315,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       <div className="px-6 mt-6">
         <div className="rounded-[2rem] border border-primary/20 bg-primary/5 p-6">
           <p className="text-primary/70 text-[10px] font-black uppercase tracking-widest">
-            Total saved · {monthLabel(month)}
+            {t.history.totalSaved(monthLabel(month))}
           </p>
           <div className="flex items-end gap-3 mt-2 flex-wrap">
             <h3 className="text-white text-3xl font-black tracking-tight">{money(fromCents(savedThisMonth))}</h3>
@@ -326,7 +332,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             )}
           </div>
           <p className="text-slate-500 text-xs font-medium mt-1">
-            {change === null ? 'Nothing saved the month before.' : 'Compared with the month before.'}
+            {change === null ? t.history.nothingSavedBefore : t.history.comparedWithBefore}
           </p>
         </div>
       </div>
@@ -334,15 +340,15 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       {/* Timeline */}
       <div className="px-6 mt-8">
         <div className="flex items-center justify-between gap-3 mb-4">
-          <h3 className="text-white text-lg font-black">Activity feed</h3>
+          <h3 className="text-white text-lg font-black">{t.history.activityFeed}</h3>
           <p className="text-primary text-xs font-black">{shortMonth(month)}</p>
         </div>
 
         {days.length === 0 ? (
           <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
             <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">history</span>
-            <p className="text-slate-500 font-bold">Nothing in {monthLabel(month)}</p>
-            <p className="text-slate-600 text-xs mt-1">Pick another month with the calendar above</p>
+            <p className="text-slate-500 font-bold">{t.history.nothingIn(monthLabel(month))}</p>
+            <p className="text-slate-600 text-xs mt-1">{t.history.pickAnotherMonth}</p>
           </div>
         ) : (
           <div className="relative">
@@ -380,7 +386,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                       >
                         <div className="min-w-0 flex-1">
                           <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                            {dayLabel(day.date, now)}
+                            {dayLabel(day.date, now, t)}
                           </p>
                           <p className={`text-2xl font-black mt-1 ${net < 0 ? 'text-slate-300' : 'text-white'}`}>
                             {net < 0 ? '-' : '+'}
@@ -388,14 +394,14 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                           </p>
                           {(day.spent > 0 || day.borrowed > 0 || day.repaid > 0) && (
                             <p className="text-slate-500 text-[11px] font-bold mt-1">
-                              {day.saved > 0 && `saved ${money(fromCents(day.saved))}`}
+                              {day.saved > 0 && t.history.savedAmount(money(fromCents(day.saved)))}
                               {day.saved > 0 && day.spent > 0 && ' · '}
-                              {day.spent > 0 && `spent ${money(fromCents(day.spent))}`}
+                              {day.spent > 0 && t.history.spentAmount(money(fromCents(day.spent)))}
                               {day.repaid > 0 && (
-                                <span className="text-amber-400"> · {money(fromCents(day.repaid))} to debt</span>
+                                <span className="text-amber-400"> · {t.history.toDebt(money(fromCents(day.repaid)))}</span>
                               )}
                               {day.borrowed > 0 && (
-                                <span className="text-amber-400"> · spent ahead {money(fromCents(day.borrowed))}</span>
+                                <span className="text-amber-400"> · {t.history.spentAheadAmount(money(fromCents(day.borrowed)))}</span>
                               )}
                             </p>
                           )}
@@ -458,9 +464,9 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
-            <h3 className="text-white text-xl font-black">What was this for?</h3>
+            <h3 className="text-white text-xl font-black">{t.history.whatWasThisFor}</h3>
             <p className="text-slate-500 text-[11px] font-bold mt-1">
-              Changes the label only — the money stays exactly where it is.
+              {t.history.labelOnly}
             </p>
             <div className="flex flex-wrap gap-2 mt-5">
               {CATEGORIES.map((c) => {
@@ -501,8 +507,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-white text-2xl font-black">Jump to a month</h3>
-            <p className="text-slate-500 text-sm font-medium mt-1">Only months holding records are listed.</p>
+            <h3 className="text-white text-2xl font-black">{t.history.jumpToMonth}</h3>
+            <p className="text-slate-500 text-sm font-medium mt-1">{t.history.onlyMonthsWithRecords}</p>
 
             <div className="mt-5 space-y-2 max-h-[50vh] overflow-y-auto no-scrollbar">
               {months.map((m) => {

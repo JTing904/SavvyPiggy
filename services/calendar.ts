@@ -50,11 +50,11 @@ export const addMonths = (year: number, month: number, delta: number) => {
 export const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export const monthLabel = (year: number, month: number) =>
-  new Date(year, month, 1).toLocaleDateString(dateLocale(), { month: 'long', year: 'numeric' });
+  new Date(year, month, 1).toLocaleDateString(dateLocale('en-GB'), { month: 'long', year: 'numeric' });
 
 /** "Fri, 19 Jun 2026" — the date as a person reads it. */
 export const readableDate = (key: string) =>
-  new Date(fromInputDate(key)).toLocaleDateString(dateLocale(), {
+  new Date(fromInputDate(key)).toLocaleDateString(dateLocale('en-GB'), {
     weekday: 'short',
     day: 'numeric',
     month: 'short',

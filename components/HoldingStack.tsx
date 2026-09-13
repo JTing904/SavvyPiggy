@@ -9,6 +9,7 @@ import {
 } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import { SLICE_COLORS } from './DonutChart';
+import { useT } from '../contexts/LanguageContext';
 
 interface HoldingStackProps {
   holdings: Holding[];
@@ -45,6 +46,7 @@ const lighten = (hex: string) => mix(hex, 0.28, 255);
  * Sell and the log is where a mistake gets fixed.
  */
 const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, onTrade }) => {
+  const t = useT();
   const [openId, setOpenId] = useState<string | null>(null);
 
   return (
@@ -119,7 +121,7 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
                 {/* The position's own move in ringgit belongs next to the
                     position, not next to a per-unit price. */}
                 <span className="text-[10px] font-bold opacity-75">
-                  Market value{quote && day !== 0 ? ` · ${money(day, { signed: true })} today` : ''}
+                  {t.home.stack.marketValue}{quote && day !== 0 ? ` · ${t.home.stack.today(money(day, { signed: true }))}` : ''}
                 </span>
                 <div className="flex-1" />
                 <span className="text-sm font-black">{money(marketValueCents(holding, priceNow))}</span>
@@ -130,19 +132,19 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
                   <div className="h-px bg-black/15 my-3" />
                   <div className="grid grid-cols-2 gap-y-3">
                     <div>
-                      <p className="text-[9px] font-black opacity-70 tracking-wider">UNITS</p>
+                      <p className="text-[9px] font-black opacity-70 tracking-wider">{t.home.stack.units}</p>
                       <p className="text-sm font-black">{holding.units.toLocaleString('en-US')}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[9px] font-black opacity-70 tracking-wider">AVG COST</p>
+                      <p className="text-[9px] font-black opacity-70 tracking-wider">{t.home.stack.avgCost}</p>
                       <p className="text-sm font-black">{money(Math.round(averageCostCents(holding)))}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-black opacity-70 tracking-wider">INVESTED</p>
+                      <p className="text-[9px] font-black opacity-70 tracking-wider">{t.home.stack.invested}</p>
                       <p className="text-sm font-black">{money(holding.costCents)}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[9px] font-black opacity-70 tracking-wider">GAIN</p>
+                      <p className="text-[9px] font-black opacity-70 tracking-wider">{t.home.stack.gain}</p>
                       <p className="text-sm font-black">
                         {money(position.cents, { signed: true })} ({position.percent >= 0 ? '+' : ''}
                         {position.percent}%)
@@ -151,7 +153,7 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
                   </div>
                   {missing.includes(holding.symbol) && (
                     <p className="text-[10px] font-bold opacity-70 mt-3 leading-relaxed">
-                      No price for this counter right now — it is being held at what you paid.
+                      {t.home.stack.noPrice}
                     </p>
                   )}
                   <div className="flex gap-2 mt-4">
@@ -159,13 +161,13 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
                       onClick={() => onTrade(holding, 'buy')}
                       className="flex-1 h-10 rounded-full bg-black/15 text-xs font-black active:scale-95 transition-transform"
                     >
-                      Buy more
+                      {t.home.stack.buyMore}
                     </button>
                     <button
                       onClick={() => onTrade(holding, 'sell')}
                       className="flex-1 h-10 rounded-full bg-black/15 text-xs font-black active:scale-95 transition-transform"
                     >
-                      Sell
+                      {t.home.stack.sell}
                     </button>
                   </div>
                 </div>

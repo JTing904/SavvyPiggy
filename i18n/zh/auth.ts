@@ -1,3 +1,56 @@
 import type { auth as English } from '../en/auth';
 
-export const auth: typeof English = {};
+export const auth: typeof English = {
+  errors: {
+    invalidCredentials: '电邮或密码不正确。',
+    emailInUse: '这个电邮已经注册过了，试试登录。',
+    weakPassword: '密码至少要 6 个字符。',
+    invalidEmail: '这个电邮地址好像不对。',
+    googleAccount: '这个电邮是用 Google 登录的，请点「用 Google 继续」。',
+    tooManyRequests: '尝试次数太多了，等几分钟再试。',
+    offline: '没有网络，这一步需要连网。',
+    popupClosed: '登录窗口被关掉了。',
+    notEnabled: '这个登录方式还没在 Firebase 控制台开启。',
+    unauthorizedDomain: '这个域名不在 Firebase 的授权域名列表里。',
+    networkProblem: '网络有问题，检查一下你的连接。',
+    // Firebase only speaks English; keep its message in brackets for support.
+    unknown: (raw) => (raw ? `出了点问题，请再试一次。（${raw}）` : '出了点问题，请再试一次。'),
+  },
+  typeEmailFirst: '先输入你的电邮，再点一次这里。',
+
+  signUpHint: '注册一个账户，开始存钱。',
+  signInHint: '欢迎回来，登录看看你的钱罐。',
+  yourName: '你的名字',
+  email: '电邮',
+  password: '密码',
+  forgotPassword: '忘记密码？',
+  resetSent: '如果这个电邮有账户，重设密码的链接已经寄出。也记得看看垃圾邮件。',
+  pleaseWait: '请稍候…',
+  createAccount: '注册',
+  signIn: '登录',
+  or: '或',
+  continueWithGoogle: '用 Google 继续',
+  haveAccount: '已经有账户？',
+  noAccount: '还没有账户？',
+  signInLink: '登录',
+  signUpLink: '注册',
+
+  redeemFailed: '这个邀请码用不了。',
+  inviteOnly: '仅限邀请',
+  inviteIntro: 'SavvyPiggy 还没有公开。输入你收到的邀请码来解锁账户。',
+  inviteCode: '邀请码',
+  checking: '检查中…',
+  unlockAccount: '解锁账户',
+  signedInAs: '已登录：',
+  signOut: '退出登录',
+
+  setupTitle: 'Firebase 还没配置',
+  setupLead: '按照项目根目录里的 ',
+  setupTail: ' 操作，或参考下面的简短步骤。',
+  setupSteps: [
+    '在 console.firebase.google.com 建立项目',
+    '添加一个 Web 应用，复制它的 firebaseConfig 值',
+    '粘贴到 .env.local（参考 .env.local.example）',
+    '用 npm run dev 重启开发服务器',
+  ],
+};

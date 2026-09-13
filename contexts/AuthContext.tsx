@@ -14,6 +14,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { auth, googleProvider, isFirebaseConfigured } from '../lib/firebase';
+import { m } from '../i18n';
 
 interface AuthValue {
   user: User | null;
@@ -50,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // sheet and hand the resulting ID token to the JS SDK.
       if (Capacitor.isNativePlatform()) {
         const { credential } = await FirebaseAuthentication.signInWithGoogle();
-        if (!credential?.idToken) throw new Error('Google sign-in was cancelled.');
+        if (!credential?.idToken) throw new Error(m().errors.googleCancelled);
         await signInWithCredential(auth, GoogleAuthProvider.credential(credential.idToken));
         return;
       }

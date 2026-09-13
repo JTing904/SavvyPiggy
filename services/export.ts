@@ -3,6 +3,7 @@ import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './h
 import { fromCents } from './money';
 import { buildXlsx, type Cell } from './xlsx';
 import { categoryOf } from './categories';
+import { m, noteText } from '../i18n';
 
 /**
  * The monthly statement as a spreadsheet.
@@ -17,18 +18,15 @@ import { categoryOf } from './categories';
  * a real spreadsheet: the columns can be summed.
  */
 
-const TYPE_LABEL: Record<Activity['type'], string> = {
-  'auto-save': 'Scheduled deposit',
-  manual: 'Deposit',
-  withdraw: 'Withdrawal',
-  borrow: 'Spent ahead',
-};
+// Read when the sheet is built, so it comes out in the language chosen now.
+const typeLabels = (): Record<Activity['type'], string> => ({
+  'auto-save': m().common.activity.autoSave,
+  manual: m().common.activity.manual,
+  withdraw: m().files.withdrawal,
+  borrow: m().common.activity.borrow,
+});
 
-const TRADE_LABEL: Record<Trade['kind'], string> = {
-  buy: 'Buy',
-  sell: 'Sell',
-  dividend: 'Dividend',
-};
+const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
 
 /** Rounded to the sen the ledger stores, so no float tail reaches the sheet. */
 const money = (n: number) => Math.round(n * 100) / 100;
@@ -48,18 +46,20 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
     a.distributions.some((d) => !banks.some((b) => b.id === d.bankId))
   );
 
+  const f = m().files;
+  const TYPE_LABEL = typeLabels();
   const header: Cell[] = [
-    'Date',
-    'Time',
-    'Type',
-    'Amount',
-    'Repaid debt',
-    'Note',
+    f.date,
+    f.time,
+    f.type,
+    f.amount,
+    f.repaidDebt,
+    f.note,
     // Only spending has one; a deposit's cell stays empty rather than
     // claiming a category it was never given.
-    'Category',
+    f.category,
     ...banks.map((b) => b.name),
-    ...(orphaned ? ['Deleted goals'] : []),
+    ...(orphaned ? [f.deletedGoals] : []),
   ];
 
   const rows = [...activities]
@@ -80,7 +80,7 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
         TYPE_LABEL[a.type] ?? a.type,
         money(a.amount),
         a.repaid ? money(a.repaid) : null,
-        a.note ?? null,
+        a.note == null ? null : noteText(a.note),
         a.type === 'withdraw' ? categoryOf(a.category).label : null,
         ...perBank,
         ...(orphaned ? [other === 0 ? null : money(other)] : []),
@@ -113,16 +113,18 @@ export interface MonthSheetInput {
  * because it really is income from a holding and money that reached the goals.
  */
 export const monthRows = ({ label, activities, banks, trades, holdings, quotes }: MonthSheetInput): Cell[][] => {
-  const rows: Cell[][] = [['SavvyPiggy statement', label], [], ['SAVINGS']];
+  const f = m().files;
+  const TRADE_LABEL = tradeLabels();
+  const rows: Cell[][] = [[f.sheetTitle, label], [], [f.savingsBlock]];
 
-  if (activities.length === 0) rows.push(['No records this month']);
+  if (activities.length === 0) rows.push([f.noRecordsThisMonth]);
   else rows.push(...savingsRows(activities, banks));
 
-  rows.push([], ['INVESTMENTS']);
+  rows.push([], [f.investmentsBlock]);
   if (trades.length === 0) {
-    rows.push(['No trades this month']);
+    rows.push([f.noTradesThisMonth]);
   } else {
-    rows.push(['Date', 'Action', 'Counter', 'Name', 'Units', 'Per unit', 'Amount']);
+    rows.push([f.date, f.action, f.counter, f.name, f.units, f.perUnit, f.amount]);
     for (const t of [...trades].sort((a, b) => a.tradedAt - b.tradedAt)) {
       rows.push([
         localDate(new Date(t.tradedAt)),
@@ -137,11 +139,11 @@ export const monthRows = ({ label, activities, banks, trades, holdings, quotes }
     }
   }
 
-  rows.push([], ['POSITIONS AT MONTH END']);
+  rows.push([], [f.positionsBlock]);
   if (holdings.length === 0) {
-    rows.push(['Nothing held']);
+    rows.push([f.nothingHeld]);
   } else {
-    rows.push(['Counter', 'Name', 'Units', 'Average cost', 'Total cost', 'Market value', 'Gain']);
+    rows.push([f.counter, f.name, f.units, f.averageCost, f.totalCost, f.marketValue, f.gain]);
     for (const h of holdings) {
       const price = quotes[h.symbol]?.priceCents ?? Math.round(averageCostCents(h));
       const value = marketValueCents(h, price);

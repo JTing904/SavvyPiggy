@@ -1,6 +1,7 @@
 import type { Activity, PiggyBank, Trade } from '../types';
 import { categoryOf } from './categories';
 import { fromCents, toCents } from './money';
+import { m } from '../i18n';
 
 /**
  * Everything the Report page shows is derived here from the activity ledger,
@@ -8,16 +9,26 @@ import { fromCents, toCents } from './money';
  *
  * Balances are never derived from the ledger: a goal's `currentAmount` is the
  * truth, so clearing old records changes these statistics but never the money.
+ *
+ * Labels are worded in the language current when they are built.
  */
 
 export type Period = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
+/** The label is read in the current language each time it is shown. */
+const periodOption = (key: Period): { key: Period; label: string } => ({
+  key,
+  get label() {
+    return m().report.periods[key];
+  },
+});
+
 export const PERIODS: { key: Period; label: string }[] = [
-  { key: 'week', label: 'Week' },
-  { key: 'month', label: 'Month' },
-  { key: 'quarter', label: 'Quarter' },
-  { key: 'year', label: 'Year' },
-  { key: 'all', label: 'All Time' },
+  periodOption('week'),
+  periodOption('month'),
+  periodOption('quarter'),
+  periodOption('year'),
+  periodOption('all'),
 ];
 
 export interface DateRange {
@@ -34,8 +45,6 @@ export interface PeriodRange extends DateRange {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
@@ -45,15 +54,15 @@ const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth()
 export const dayKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-const shortDate = (d: Date) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+const shortDate = (d: Date) => m().report.dayMonth(d.getMonth(), d.getDate());
 
 /** "Sep 1 – Sep 30, 2026", or with both years when the range straddles one. */
 export const rangeLabel = (start: Date, endExclusive: Date) => {
   const last = addDays(endExclusive, -1);
   if (start.getFullYear() !== last.getFullYear()) {
-    return `${shortDate(start)}, ${start.getFullYear()} – ${shortDate(last)}, ${last.getFullYear()}`;
+    return m().report.rangeCrossYear(shortDate(start), start.getFullYear(), shortDate(last), last.getFullYear());
   }
-  return `${shortDate(start)} – ${shortDate(last)}, ${last.getFullYear()}`;
+  return m().report.rangeSameYear(shortDate(start), shortDate(last), last.getFullYear());
 };
 
 const inRange = (d: Date, r: DateRange) => d >= r.start && d < r.end;
@@ -99,7 +108,7 @@ export const periodRange = (period: Period, now: Date, firstActivity: Date | nul
       break;
   }
 
-  const label = period === 'all' ? `Since ${shortDate(start)}, ${start.getFullYear()}` : rangeLabel(start, end);
+  const label = period === 'all' ? m().report.since(shortDate(start), start.getFullYear()) : rangeLabel(start, end);
   // A period that ends before today is fully elapsed; otherwise count to today.
   const lastDay = end <= today ? addDays(end, -1) : today;
   const days = Math.max(1, daysBetween(start, lastDay) + 1);
@@ -204,19 +213,19 @@ export const bucketsFor = (period: Period, range: PeriodRange): { label: string;
     case 'week':
       for (let i = 0; i < 7; i++) {
         const day = addDays(range.start, i);
-        out.push({ label: WEEKDAYS[day.getDay()], range: { start: day, end: addDays(day, 1) } });
+        out.push({ label: m().common.weekdaysShort[day.getDay()], range: { start: day, end: addDays(day, 1) } });
       }
       break;
     case 'month':
       for (let i = 0, start = range.start; start < range.end; i++, start = addDays(start, 7)) {
         const end = addDays(start, 7) < range.end ? addDays(start, 7) : range.end;
-        out.push({ label: `W${i + 1}`, range: { start, end } });
+        out.push({ label: m().report.weekBucket(i + 1), range: { start, end } });
       }
       break;
     case 'quarter':
     case 'year':
       for (let start = range.start; start < range.end; start = addMonths(start, 1)) {
-        out.push({ label: MONTHS[start.getMonth()], range: { start, end: addMonths(start, 1) } });
+        out.push({ label: m().report.monthsShort[start.getMonth()], range: { start, end: addMonths(start, 1) } });
       }
       break;
     case 'all': {
@@ -228,7 +237,7 @@ export const bucketsFor = (period: Period, range: PeriodRange): { label: string;
         }
       } else {
         for (let start = addMonths(range.start, 0); start < range.end; start = addMonths(start, 1)) {
-          out.push({ label: MONTHS[start.getMonth()], range: { start, end: addMonths(start, 1) } });
+          out.push({ label: m().report.monthsShort[start.getMonth()], range: { start, end: addMonths(start, 1) } });
         }
       }
       break;
@@ -416,10 +425,15 @@ export const RETENTION_MONTHS = 12;
  * project allows fifty thousand reads a day. Keeping everything does not cost
  * space — it eventually costs the ability to open the app at all.
  */
-export const RETENTION_CHOICES: { months: number; label: string }[] = [
-  { months: 6, label: '6 months' },
-  { months: 12, label: '12 months' },
-];
+const retentionChoice = (months: number): { months: number; label: string } => ({
+  months,
+  // Read in the current language each time it is shown.
+  get label() {
+    return m().report.retentionChoice(months);
+  },
+});
+
+export const RETENTION_CHOICES: { months: number; label: string }[] = [retentionChoice(6), retentionChoice(12)];
 
 /**
  * A stored setting made safe. A value from before the choices narrowed — or
@@ -460,8 +474,6 @@ export interface MonthReport {
   /** The date this month's records are cleared, if a window is set. */
   clearedOn: Date | null;
 }
-
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
@@ -504,7 +516,7 @@ export const monthsWithRecords = (
   return [...seen.entries()]
     .map(([key, e]) => ({
       key,
-      label: `${MONTH_NAMES[e.start.getMonth()]} ${e.start.getFullYear()}`,
+      label: m().report.monthYear(e.start.getMonth(), e.start.getFullYear()),
       start: e.start,
       end: new Date(e.start.getFullYear(), e.start.getMonth() + 1, 1),
       activities: e.activities,

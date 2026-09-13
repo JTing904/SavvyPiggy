@@ -8,6 +8,8 @@ import { fromInputDate, toInputDate } from '../services/calendar';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useConfirm } from '../contexts/ConfirmContext';
 import DateField from './DateField';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale } from '../i18n';
 
 /**
  * What the sheet has been opened to do. Recording a trade and correcting one
@@ -29,8 +31,6 @@ interface TradeSheetProps {
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
   formatMoney(fromCents(cents), opts);
-
-const LABEL: Record<Trade['kind'], string> = { buy: 'Buy', sell: 'Sell', dividend: 'Dividend' };
 
 const Field: React.FC<{
   label: string;
@@ -59,6 +59,9 @@ const Field: React.FC<{
 
 const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, onDone }) => {
   const confirm = useConfirm();
+  const t = useT();
+  // Looked up at render, so a trade's kind is named in the current language.
+  const LABEL = t.invest.kind;
   const editing = draft.mode === 'edit' ? draft.trade : null;
   const kind: Trade['kind'] = draft.mode === 'edit' ? draft.trade.kind : draft.kind;
 
@@ -138,14 +141,14 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
       const body = { symbol, name: name || symbol, kind, units: unitsIn, priceCents, tradedAt };
       if (editing) {
         await updateTrade(uid, editing.id, body);
-        onDone(`${name || symbol} trade corrected.`);
+        onDone(t.invest.tradeCorrected(name || symbol));
       } else {
         await createTrade(uid, body);
-        onDone(`${LABEL[kind]} recorded · ${unitsIn} units of ${name || symbol}.`);
+        onDone(t.invest.tradeRecorded(LABEL[kind], unitsIn, name || symbol));
       }
       onClose();
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : 'Could not save that.');
+      setProblem(e instanceof Error ? e.message : t.invest.couldNotSave);
       setBusy(false);
     }
   };
@@ -153,15 +156,15 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
   const remove = async () => {
     if (!editing || busy) return;
     const ok = await confirm({
-      title: 'Delete this trade?',
-      body: 'The position is worked out again from the remaining trades, so your units and average cost will move.',
+      title: t.invest.deleteTitle,
+      body: t.invest.deleteBody,
       tone: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t.common.delete,
       detail: {
         icon: editing.kind === 'sell' ? 'trending_down' : 'trending_up',
         tint: editing.kind === 'sell' ? 'bg-slate-500/10 text-slate-400' : 'bg-accent/10 text-accent',
         label: `${LABEL[editing.kind]} · ${editing.name || editing.symbol}`,
-        meta: `${editing.units.toLocaleString('en-US')} units · ${new Date(editing.tradedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        meta: `${t.common.units(editing.units.toLocaleString('en-US'))} · ${new Date(editing.tradedAt).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short', year: 'numeric' })}`,
         amount: money(tradeCents(editing)),
       },
     });
@@ -169,17 +172,17 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
     setBusy(true);
     try {
       await deleteTrade(uid, editing.id);
-      onDone('Trade deleted.');
+      onDone(t.invest.tradeDeleted);
       onClose();
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : 'Could not delete that.');
+      setProblem(e instanceof Error ? e.message : t.invest.couldNotDelete);
       setBusy(false);
     }
   };
 
   // A dividend is not edited here, so it is not titled as if it were.
   const title =
-    kind === 'dividend' ? 'Dividend' : editing ? `Edit · ${LABEL[kind]}` : kind === 'buy' ? 'Buy' : 'Sell';
+    kind === 'dividend' ? LABEL.dividend : editing ? t.invest.editTitle(LABEL[kind]) : kind === 'buy' ? LABEL.buy : LABEL.sell;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/85 veil-in" onClick={onClose}>
@@ -195,12 +198,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
         </h3>
         <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
           {kind === 'dividend'
-            ? 'This is the record of a payment the app made into your goals. The money itself lives in your history — if the amount that reached your account was different, correct it there.'
+            ? t.invest.dividendIntro
             : editing
-            ? 'Fixing one trade leaves every other one alone, so how many units you held on a past ex-date is worked out again from scratch — correctly.'
+            ? t.invest.editIntro
             : kind === 'buy'
-              ? 'Recording the day it was done, not the day you typed it in. That date is what a dividend is decided on.'
-              : 'Selling after an ex-date still leaves that dividend yours, which is why the date matters here too.'}
+              ? t.invest.buyIntro
+              : t.invest.sellIntro}
         </p>
 
         {/* A dividend was not typed in by anyone, so there is nothing here to
@@ -209,9 +212,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           <div className="mt-5">
             <div className="rounded-2xl bg-white/5 p-4 space-y-2.5">
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">Paid on</span>
+                <span className="flex-1 text-slate-400 font-bold">{t.invest.paidOn}</span>
                 <span className="text-white font-black">
-                  {new Date(tradedAt).toLocaleDateString('en-GB', {
+                  {new Date(tradedAt).toLocaleDateString(dateLocale('en-GB'), {
                     day: 'numeric',
                     month: 'short',
                     year: 'numeric',
@@ -219,43 +222,41 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
                 </span>
               </div>
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">Units on the ex-date</span>
+                <span className="flex-1 text-slate-400 font-bold">{t.invest.unitsOnExDate}</span>
                 <span className="text-white font-black">{unitsIn.toLocaleString('en-US')}</span>
               </div>
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">Per unit</span>
+                <span className="flex-1 text-slate-400 font-bold">{t.invest.perUnit}</span>
                 <span className="text-white font-black">
                   RM{((editing?.perUnitPoints ?? 0) / 10_000).toFixed(4)}
                 </span>
               </div>
               <div className="h-px bg-white/10" />
               <div className="flex items-center">
-                <span className="flex-1 text-accent font-black text-sm">Paid into your goals</span>
+                <span className="flex-1 text-accent font-black text-sm">{t.invest.paidIntoGoals}</span>
                 <span className="text-accent font-black text-lg">
                   {money(editing ? tradeCents(editing) : 0)}
                 </span>
               </div>
             </div>
             <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
-              Companies deduct tax and fees, so what reaches your account is often less than what was
-              announced. The money is an ordinary deposit in your history — correct the amount there and
-              every figure follows.
+              {t.invest.dividendReceiptNote}
             </p>
             <button
               onClick={onClose}
               className="w-full h-14 mt-5 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
             >
-              Close
+              {t.common.close}
             </button>
           </div>
         ) : needsCounter && kind === 'sell' ? (
           <div className="mt-5">
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">
-              Which counter
+              {t.invest.whichCounter}
             </p>
             {held.length === 0 ? (
               <p className="text-slate-500 text-xs font-bold leading-relaxed">
-                Nothing is held right now, so there is nothing to sell.
+                {t.invest.nothingToSell}
               </p>
             ) : (
               <div className="space-y-2">
@@ -271,7 +272,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
                     <div className="flex-1 min-w-0">
                       <p className="text-white font-black text-sm truncate">{holding.name}</p>
                       <p className="text-slate-500 text-[11px] font-bold">
-                        {holding.units.toLocaleString('en-US')} units · {holding.symbol}
+                        {t.common.units(holding.units.toLocaleString('en-US'))} · {holding.symbol}
                       </p>
                     </div>
                     <span className="material-symbols-rounded text-slate-600">chevron_right</span>
@@ -282,21 +283,21 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           </div>
         ) : needsCounter ? (
           <div className="mt-5">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Counter</p>
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{t.invest.counter}</p>
             <div className="flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
               <span className="material-symbols-rounded text-slate-500">search</span>
               <input
                 autoFocus
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
-                placeholder="Name or code, e.g. maybank"
+                placeholder={t.invest.searchPlaceholder}
                 className="w-full border-0 bg-transparent text-white font-bold focus:outline-none placeholder:text-slate-700"
               />
             </div>
-            {searching && <p className="text-slate-500 text-xs font-bold mt-3">Searching…</p>}
+            {searching && <p className="text-slate-500 text-xs font-bold mt-3">{t.invest.searching}</p>}
             {!searching && term.trim().length >= 2 && hits.length === 0 && (
               <p className="text-slate-500 text-xs font-bold mt-3 leading-relaxed">
-                Nothing on Bursa matched. Try the four-digit code.
+                {t.invest.noMatch}
               </p>
             )}
             <div className="mt-3 space-y-2">
@@ -322,18 +323,18 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           <>
             <div className="mt-5">
               <DateField
-                label="Trade date"
+                label={t.invest.tradeDate}
                 value={date}
                 onChange={setDate}
                 max={today}
-                title="When was this trade?"
-                hint="The day you dealt decides which dividends are yours."
+                title={t.invest.whenWasTrade}
+                hint={t.invest.whenWasTradeHint}
               />
             </div>
             <div className="flex gap-3 mt-4">
-              <Field label="Units" value={units} onChange={setUnits} autoFocus={!editing} />
+              <Field label={t.invest.units} value={units} onChange={setUnits} autoFocus={!editing} />
               <Field
-                label="Price per unit"
+                label={t.invest.pricePerUnit}
                 value={price}
                 onChange={setPrice}
                 prefix="RM"
@@ -343,24 +344,24 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
             {outcome && canSave && (
               <div className="mt-5 rounded-2xl bg-white/5 p-4 space-y-2.5">
                 <div className="flex text-[13px]">
-                  <span className="flex-1 text-slate-400 font-bold">This trade</span>
+                  <span className="flex-1 text-slate-400 font-bold">{t.invest.thisTrade}</span>
                   <span className="text-white font-black">{money(unitsIn * priceCents)}</span>
                 </div>
                 <div className="flex text-[13px]">
-                  <span className="flex-1 text-slate-400 font-bold">{name || symbol} after this</span>
+                  <span className="flex-1 text-slate-400 font-bold">{t.invest.afterThis(name || symbol)}</span>
                   <span className="text-white font-black">
-                    {outcome.before.units.toLocaleString('en-US')} → {outcome.after.units.toLocaleString('en-US')} units
+                    {t.invest.unitsChange(outcome.before.units.toLocaleString('en-US'), outcome.after.units.toLocaleString('en-US'))}
                   </span>
                 </div>
                 <div className="flex text-[13px]">
-                  <span className="flex-1 text-slate-400 font-bold">Average cost</span>
+                  <span className="flex-1 text-slate-400 font-bold">{t.invest.averageCost}</span>
                   <span className="text-white font-black">
                     {money(Math.round(averageCostCents(outcome.after)))}
                   </span>
                 </div>
                 {kind === 'sell' && outcome.after.units === outcome.before.units && unitsIn > 0 && (
                   <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">
-                    Nothing was held on that date, so this sale changes nothing. Check the date.
+                    {t.invest.saleChangesNothing}
                   </p>
                 )}
               </div>
@@ -373,7 +374,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
               disabled={!canSave}
               className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
             >
-              {editing ? 'Save changes' : `Record this ${kind}`}
+              {editing ? t.common.saveChanges : t.invest.record[kind]}
             </button>
 
             {editing && (
@@ -381,7 +382,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
                 onClick={() => void remove()}
                 className="w-full h-12 mt-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black active:scale-95 transition-transform"
               >
-                Delete this trade
+                {t.invest.deleteTrade}
               </button>
             )}
           </>

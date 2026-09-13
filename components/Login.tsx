@@ -1,43 +1,46 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../contexts/LanguageContext';
+import type { Messages } from '../i18n';
 
 /** Turns a Firebase auth/* code into something worth showing a person. */
-const friendlyError = (e: unknown) => {
+const friendlyError = (e: unknown, words: Messages['auth']['errors']) => {
   const code = (e as { code?: string })?.code ?? '';
   switch (code) {
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return 'Email or password is incorrect.';
+      return words.invalidCredentials;
     case 'auth/email-already-in-use':
-      return 'That email already has an account. Try signing in.';
+      return words.emailInUse;
     case 'auth/weak-password':
-      return 'Password needs at least 6 characters.';
+      return words.weakPassword;
     case 'auth/invalid-email':
-      return 'That email address looks wrong.';
+      return words.invalidEmail;
     // The likeliest collision: an account made with Google, then signed into
     // with a password. Without this it surfaced as a raw Firebase string.
     case 'auth/account-exists-with-different-credential':
-      return 'That email already signs in with Google. Use “Continue with Google”.';
+      return words.googleAccount;
     case 'auth/too-many-requests':
-      return 'Too many attempts. Wait a few minutes and try again.';
+      return words.tooManyRequests;
     case 'auth/network-request-failed':
-      return 'No connection. This one needs the internet.';
+      return words.offline;
     case 'auth/popup-closed-by-user':
-      return 'Sign-in window was closed.';
+      return words.popupClosed;
     case 'auth/operation-not-allowed':
-      return 'That sign-in method is not enabled in the Firebase console yet.';
+      return words.notEnabled;
     case 'auth/unauthorized-domain':
-      return 'This domain is not in the Firebase authorised domains list.';
+      return words.unauthorizedDomain;
     case 'auth/network-request-failed':
-      return 'Network problem. Check your connection.';
+      return words.networkProblem;
     default:
-      return (e as Error)?.message ?? 'Something went wrong.';
+      return words.unknown((e as Error)?.message);
   }
 };
 
 const Login: React.FC = () => {
   const { signInWithGoogle, signIn, signUp, resetPassword } = useAuth();
+  const t = useT();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -52,7 +55,7 @@ const Login: React.FC = () => {
     try {
       await fn();
     } catch (e) {
-      setError(friendlyError(e));
+      setError(friendlyError(e, t.auth.errors));
     } finally {
       setBusy(false);
     }
@@ -72,7 +75,7 @@ const Login: React.FC = () => {
   const handleReset = () => {
     if (busy) return;
     if (!email.trim()) {
-      setError('Type your email address first, then tap this again.');
+      setError(t.auth.typeEmailFirst);
       return;
     }
     void run(async () => {
@@ -100,7 +103,7 @@ const Login: React.FC = () => {
           </div>
           <h1 className="text-white text-4xl font-black tracking-tight">SavvyPiggy</h1>
           <p className="text-slate-500 font-medium mt-2 text-center">
-            {isSignUp ? 'Create an account to start saving.' : 'Welcome back. Sign in to your goals.'}
+            {isSignUp ? t.auth.signUpHint : t.auth.signInHint}
           </p>
         </div>
 
@@ -110,7 +113,7 @@ const Login: React.FC = () => {
               value={name}
               onChange={(e) => setName(e.target.value)}
               className={inputClass}
-              placeholder="Your name"
+              placeholder={t.auth.yourName}
               autoComplete="name"
             />
           )}
@@ -118,7 +121,7 @@ const Login: React.FC = () => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className={inputClass}
-            placeholder="Email"
+            placeholder={t.auth.email}
             type="email"
             autoComplete="email"
           />
@@ -126,7 +129,7 @@ const Login: React.FC = () => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className={inputClass}
-            placeholder="Password"
+            placeholder={t.auth.password}
             type="password"
             autoComplete={isSignUp ? 'new-password' : 'current-password'}
           />
@@ -138,7 +141,7 @@ const Login: React.FC = () => {
               disabled={busy}
               className="w-full text-right text-slate-400 text-xs font-bold active:opacity-60 disabled:opacity-40"
             >
-              Forgot your password?
+              {t.auth.forgotPassword}
             </button>
           )}
 
@@ -146,7 +149,7 @@ const Login: React.FC = () => {
             <div className="flex items-start gap-3 rounded-2xl bg-primary/10 border border-primary/25 px-5 py-4">
               <span className="material-symbols-rounded text-primary text-lg">mark_email_read</span>
               <p className="text-primary/90 text-xs font-bold leading-relaxed">
-                If that address has an account, a reset link is on its way. Check your spam folder too.
+                {t.auth.resetSent}
               </p>
             </div>
           )}
@@ -170,13 +173,13 @@ const Login: React.FC = () => {
                 : 'bg-white/5 text-slate-700 cursor-not-allowed'
             }`}
           >
-            {busy ? 'Please wait…' : isSignUp ? 'Create Account' : 'Sign In'}
+            {busy ? t.auth.pleaseWait : isSignUp ? t.auth.createAccount : t.auth.signIn}
           </button>
         </form>
 
         <div className="flex items-center gap-4 my-7">
           <div className="h-px flex-1 bg-white/10" />
-          <span className="text-slate-600 text-[10px] font-black uppercase tracking-widest">or</span>
+          <span className="text-slate-600 text-[10px] font-black uppercase tracking-widest">{t.auth.or}</span>
           <div className="h-px flex-1 bg-white/10" />
         </div>
 
@@ -187,12 +190,12 @@ const Login: React.FC = () => {
             className="w-full h-16 rounded-[2rem] glass border border-white/10 text-white font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform disabled:opacity-40"
           >
             <span className="material-symbols-rounded text-primary">login</span>
-            Continue with Google
+            {t.auth.continueWithGoogle}
           </button>
         </div>
 
         <p className="text-center text-slate-500 text-sm font-medium mt-8">
-          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+          {isSignUp ? t.auth.haveAccount : t.auth.noAccount}{' '}
           <button
             onClick={() => {
               setMode(isSignUp ? 'signin' : 'signup');
@@ -200,7 +203,7 @@ const Login: React.FC = () => {
             }}
             className="text-primary font-black"
           >
-            {isSignUp ? 'Sign in' : 'Sign up'}
+            {isSignUp ? t.auth.signInLink : t.auth.signUpLink}
           </button>
         </p>
       </div>
