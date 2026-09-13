@@ -64,6 +64,12 @@ export const plan: typeof English = {
     up12: (p) => `12 个月涨了 ${p}`,
     down12: (p) => `12 个月跌了 ${p}`,
     vol: (p) => `股价一个月大约波动 ${p}`,
+    modestYield: (p) => `股息率不高（${p}）——不高的股息比较少被砍`,
+    highYield: (p) => `股息率偏高（${p}）——高股息比较常被砍`,
+    lowYield: (p) => `过去一年只派了 ${p} 的股息`,
+    bigJump: (p) => `股息一下子多了 ${p}——这么大的跳升常常维持不了`,
+    steadier: '股价比大部分股票稳',
+    swingsMore: (p) => `股价比大部分股票波动大（一个月大约 ${p}）`,
   },
 
   noPrice: '还没有股价——连上网就会有。',

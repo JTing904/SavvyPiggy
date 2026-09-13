@@ -50,7 +50,7 @@ export const setup = {
   noRecord: 'Not enough history on your list to test this yet',
   redoQuestions: 'Redo the questions',
   continueToBuy: 'Continue to buy',
-  redoNote: 'You can redo this any time from Profile or the monthly buy page.',
+  redoNote: 'You can redo this any time from the monthly buy page.',
 
   brokerTitle: 'Your broker',
   brokerFirstTitle: 'Where do you buy?',

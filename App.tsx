@@ -254,8 +254,10 @@ const App: React.FC = () => {
     const today = new Date().toLocaleDateString();
     // What actually reached the goals today. A deposit's headline amount can be
     // larger, since the part that cleared debt never lands in a goal, and
-    // spending takes money back out again.
+    // spending takes money back out again. Money moved into or back from shares
+    // is neither saving nor spending, so a buy does not turn today negative.
     return activities
+      .filter((a) => a.type !== 'invest' && a.type !== 'divest')
       .filter((a) => new Date(a.date).toLocaleDateString() === today)
       .flatMap((a) => a.distributions)
       .reduce((sum, d) => sum + d.amount, 0);

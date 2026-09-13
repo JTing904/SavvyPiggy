@@ -72,6 +72,12 @@ export const plan = {
     up12: (p: string) => `Up ${p} over 12 months`,
     down12: (p: string) => `Down ${p} over 12 months`,
     vol: (p: string) => `Price moves about ${p} a month`,
+    modestYield: (p: string) => `A modest yield (${p}) — modest yields are cut less often`,
+    highYield: (p: string) => `A high yield (${p}) — high yields are cut more often`,
+    lowYield: (p: string) => `Only paid ${p} in dividends over the last year`,
+    bigJump: (p: string) => `Dividends jumped ${p} — jumps that big often don't last`,
+    steadier: 'Its price moves less than most',
+    swingsMore: (p: string) => `Its price swings more than most (about ${p} a month)`,
   },
 
   // Sizing

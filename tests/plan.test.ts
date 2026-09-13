@@ -12,6 +12,8 @@ import {
   pricePointsOfQuote,
   priceText,
   reasonText,
+  reasonLine,
+  beatsRandom,
   recordSpan,
   sizeBuy,
 } from '../components/invest/monthlyPlan';
@@ -168,6 +170,22 @@ eq('no records, no span', recordSpan({ income: null, cash: null, price: null }),
   eq('in Chinese', reasonText(zh, 'mom12', x), '12 个月涨了 21.9%');
   eq('never paid', reasonText(en, 'payCount12', { ...x, payCount12: 0 }), 'Has not paid a dividend in the last 3 years');
   eq('facts line', factsText(en, x), 'yield 6.3% · 2 cuts in 3 yrs · 12m +21.9%');
+
+  // The same fact on both sides of a pick must not read as a contradiction.
+  const low = { ...x, yield12: 0.023 };
+  const list = [x, low];
+  eq('a high yield for it is just the yield', reasonLine(en, 'yield12', x, 'for', list), 'Paid 6.3% in dividends over the last year');
+  eq('a high yield against it says why', reasonLine(en, 'yield12', x, 'against', list), 'A high yield (6.3%) — high yields are cut more often');
+  eq('a modest yield for it says why', reasonLine(en, 'yield12', low, 'for', list), 'A modest yield (2.3%) — modest yields are cut less often');
+  eq('a low yield against it', reasonLine(en, 'yield12', low, 'against', list), 'Only paid 2.3% in dividends over the last year');
+  eq('"no cuts" is never a reason against', reasonLine(en, 'cuts3y', { ...x, cuts3y: 0 }, 'against', list), null);
+  eq('"cut twice" is never a reason for', reasonLine(en, 'cuts3y', x, 'for', list), null);
+  eq('a big dividend jump against it says why', reasonLine(en, 'divGrowth', { ...x, divGrowth: 0.4 }, 'against', list), "Dividends jumped 40.0% — jumps that big often don't last");
+  eq('Chinese says it too', reasonLine(zh, 'yield12', x, 'against', list), '股息率偏高（6.3%）——高股息比较常被砍');
 }
+
+eq('five points over chance is clearly better', beatsRandom({ hitRate: 0.55, randomRate: 0.5 }), true);
+eq('three points is not', beatsRandom({ hitRate: 0.53, randomRate: 0.5 }), false);
+eq('below chance is not', beatsRandom({ hitRate: 0.47, randomRate: 0.5 }), false);
 
 report();

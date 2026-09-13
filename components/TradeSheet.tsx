@@ -336,9 +336,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
    */
   const outcome = useMemo(() => {
     if (!candidate) return null;
-    const mine = trades.filter((tr) => tr.symbol === candidate.symbol);
-    const before = replay(mine);
-    const after = replay([...mine.filter((tr) => tr.id !== editing?.id), candidate]);
+    // "Before" is the position without this trade. Counting the trade being
+    // edited in it made a sale read "0 → 0 units" and warn that nothing was
+    // held that day — the sale had already taken the units it was selling.
+    const others = trades.filter((tr) => tr.symbol === candidate.symbol && tr.id !== editing?.id);
+    const before = replay(others);
+    const after = replay([...others, candidate]);
     return { before, after };
     // `candidate` is rebuilt every render; its parts are what matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -76,7 +76,9 @@ const StyleQuiz: React.FC<StyleQuizProps> = ({ initial, records, required, start
       {/* The shared slider style draws a green thumb; each style's slider takes its own colour. */}
       <style>
         {STYLES.map(
-          (style) => `input[type="range"].style-range-${style}::-webkit-slider-thumb{background:${STYLE_COLORS[style]};box-shadow:0 0 12px ${STYLE_COLORS[style]}80}`
+          // Android's WebView only restyles the thumb when the thumb itself drops
+          // its native look; without that it stayed the system blue.
+          (style) => `input[type="range"].style-range-${style}{-webkit-appearance:none;appearance:none}input[type="range"].style-range-${style}::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;margin-top:-9px;background:${STYLE_COLORS[style]};box-shadow:0 0 12px ${STYLE_COLORS[style]}80}`
         ).join('')}
       </style>
 
@@ -195,7 +197,8 @@ const StyleQuiz: React.FC<StyleQuizProps> = ({ initial, records, required, start
                   const color = STYLE_COLORS[style];
                   const value = shownMix[style];
                   const record = records ? records[style] : undefined;
-                  const weak = record ? record.hitRate < record.randomRate : false;
+                  // The same bar as the monthly buy page: a few points over chance is not skill.
+                  const weak = record ? record.hitRate - record.randomRate < 0.05 : false;
                   return (
                     <div key={style} className="rounded-2xl glass p-4">
                       <div className="flex items-center gap-2">

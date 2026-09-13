@@ -25,7 +25,8 @@ import {
   planBudget,
   pricePointsOfQuote,
   priceText,
-  reasonText,
+  reasonLine,
+  beatsRandom,
   recordSpan,
   sizeBuy,
   watchSymbols,
@@ -367,8 +368,13 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
   const renderPick = () => {
     if (!pick || !mix) return null;
     const reasons = reasonsFor(pick, mix);
-    const forIt = groupReasons(reasons.forIt);
-    const against = groupReasons(reasons.against);
+    const list = advisor.ranked.map((c) => c.x);
+    const forIt = groupReasons(reasons.forIt)
+      .map((r) => ({ ...r, text: reasonLine(p, r.feature, pick.x, 'for', list) }))
+      .filter((r): r is typeof r & { text: string } => r.text !== null);
+    const against = groupReasons(reasons.against)
+      .map((r) => ({ ...r, text: reasonLine(p, r.feature, pick.x, 'against', list) }))
+      .filter((r): r is typeof r & { text: string } => r.text !== null);
     const second = ranked[1];
     return (
       <div className="mt-4 rounded-[2rem] bg-surface border border-white/5 p-5">
@@ -408,7 +414,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
                       add_circle
                     </span>
                     <span className="min-w-0">
-                      {reasonText(p, r.feature, pick.x)}
+                      {r.text}
                       {r.styles.length > 1 && (
                         <span className="inline-flex gap-1 ml-1.5 align-middle">
                           {r.styles.map((s) => (
@@ -428,7 +434,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
                   <div key={r.feature} className="flex gap-2 text-slate-300 text-xs font-bold leading-snug">
                     <span className="material-symbols-rounded text-[16px] text-slate-500 shrink-0">do_not_disturb_on</span>
                     <span className="min-w-0">
-                      {reasonText(p, r.feature, pick.x)}
+                      {r.text}
                       <span className="inline-flex gap-1 ml-1.5 align-middle">
                         {r.styles.map((s) => (
                           <Dot key={s} style={s} />
@@ -537,8 +543,10 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
     const records = advisor.records;
     const span = recordSpan(records);
     const judged = STYLES.filter((s) => records?.[s]);
-    const beat = judged.filter((s) => records![s]!.hitRate > records![s]!.randomRate);
-    const notBeat = judged.filter((s) => records![s]!.hitRate <= records![s]!.randomRate);
+    // "Beaten a random pick" is only said when it is clearly true; a couple of
+    // points either way is noise, not skill.
+    const beat = judged.filter((s) => beatsRandom(records![s]!));
+    const notBeat = judged.filter((s) => !beatsRandom(records![s]!));
     const names = (list: Style[]) => list.map((s) => p.styles[s]).join(p.and);
     const monthText = (key: string) => monthDate(key).toLocaleDateString(dateLocale('en-GB'), { month: 'short', year: 'numeric' });
     return (
@@ -550,7 +558,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
         <div className="mt-3 space-y-2.5">
           {STYLES.map((s) => {
             const r = records?.[s] ?? null;
-            const worse = r !== null && r.hitRate <= r.randomRate;
+            const worse = r !== null && !beatsRandom(r);
             return (
               <div key={s} className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">

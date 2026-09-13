@@ -219,6 +219,58 @@ export const reasonText = (words: PlanWords, feature: Feature, x: Features) => {
   }
 };
 
+const median = (values: number[]) => {
+  const s = [...values].sort((a, b) => a - b);
+  return s.length === 0 ? 0 : s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
+/**
+ * A reason, said so it makes sense on the side of the pick it is on.
+ *
+ * The models weigh the same fact differently: a high yield helps the "big
+ * payouts" style and counts against "steady dividends", because high yields
+ * are cut more often. Printing "Paid 6.3% in dividends" under both "for" and
+ * "against" read as a contradiction, so each side says why. A combination
+ * that has no honest plain-language reading — "no cuts in 3 years" as a
+ * reason against — is left out rather than shown. Null means skip the line.
+ */
+export const reasonLine = (
+  words: PlanWords,
+  feature: Feature,
+  x: Features,
+  side: 'for' | 'against',
+  list: Features[]
+): string | null => {
+  const r = words.reason;
+  switch (feature) {
+    case 'yield12': {
+      const high = x.yield12 >= median(list.map((c) => c.yield12));
+      if (side === 'for') return high ? r.yield12(pct(x.yield12)) : r.modestYield(pct(x.yield12));
+      return high ? r.highYield(pct(x.yield12)) : r.lowYield(pct(x.yield12));
+    }
+    case 'divGrowth':
+      if (side === 'against' && x.divGrowth > 0.1) return r.bigJump(pct(x.divGrowth));
+      if (side === 'for' && x.divGrowth < 0) return null;
+      return reasonText(words, feature, x);
+    case 'cuts3y':
+      if (side === 'against' && x.cuts3y === 0) return null;
+      if (side === 'for' && x.cuts3y > 0) return null;
+      return reasonText(words, feature, x);
+    case 'vol12': {
+      const calm = x.vol12 <= median(list.map((c) => c.vol12));
+      if (side === 'for') return calm ? r.steadier : null;
+      return calm ? null : r.swingsMore(pct(x.vol12));
+    }
+    default:
+      return reasonText(words, feature, x);
+  }
+};
+
+/** A record clearly better than chance: at least five points over a random pick. */
+export const CLEARLY_BETTER = 0.05;
+export const beatsRandom = (record: { hitRate: number; randomRate: number }) =>
+  record.hitRate - record.randomRate >= CLEARLY_BETTER;
+
 /** "yield 6.3% · no cuts in 3 yrs · 12m +21.9%" under a ranked row. */
 export const factsText = (words: PlanWords, x: Features) =>
   [

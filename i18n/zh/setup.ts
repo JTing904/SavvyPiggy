@@ -46,7 +46,7 @@ export const setup: typeof English = {
   noRecord: '你的清单历史还不够，暂时没法测试',
   redoQuestions: '重新回答问题',
   continueToBuy: '继续买入',
-  redoNote: '随时可以在个人资料或每月定投页面重新做。',
+  redoNote: '随时可以在每月定投页面重新做。',
 
   brokerTitle: '你的券商',
   brokerFirstTitle: '你在哪里买股票？',
