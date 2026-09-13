@@ -21,6 +21,8 @@ export const common: typeof English = {
     manual: '存入',
     withdraw: '开销',
     borrow: '预支',
+    invest: '买股',
+    divest: '卖股所得',
   },
 
   categories: {

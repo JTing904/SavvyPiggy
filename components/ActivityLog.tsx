@@ -16,6 +16,8 @@ const STYLES: Record<
   manual: { label: 'manual', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
   withdraw: { label: 'withdraw', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
   borrow: { label: 'borrow', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+  invest: { label: 'invest', icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
+  divest: { label: 'divest', icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
 };
 
 interface ActivityLogProps {

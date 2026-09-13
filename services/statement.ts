@@ -33,6 +33,8 @@ const typeLabels = (): Record<Activity['type'], string> => ({
   manual: m().common.activity.manual,
   withdraw: m().files.withdrawal,
   borrow: m().common.activity.borrow,
+  invest: m().common.activity.invest,
+  divest: m().common.activity.divest,
 });
 
 const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;

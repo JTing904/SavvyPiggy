@@ -24,6 +24,8 @@ export const common = {
     manual: 'Deposit',
     withdraw: 'Spent',
     borrow: 'Spent ahead',
+    invest: 'Invested',
+    divest: 'Sale proceeds',
   },
 
   /** Spending categories, by their stored key. */

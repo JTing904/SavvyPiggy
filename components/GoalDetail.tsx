@@ -15,6 +15,8 @@ const STYLES: Record<ActivityType, { label: (t: Messages) => string; icon: strin
   manual: { label: (t) => t.common.activity.manual, icon: 'person', tint: 'bg-blue-400/10 text-blue-400' },
   withdraw: { label: (t) => t.common.activity.withdraw, icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
   borrow: { label: (t) => t.common.activity.borrow, icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
+  invest: { label: (t) => t.common.activity.invest, icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent' },
+  divest: { label: (t) => t.common.activity.divest, icon: 'currency_exchange', tint: 'bg-accent/10 text-accent' },
 };
 
 

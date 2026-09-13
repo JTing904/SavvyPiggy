@@ -1,5 +1,6 @@
 import type { Holding, Trade } from '../types';
 import { toCents } from './money';
+import { totalFees, valueCents } from './fees';
 
 /**
  * The arithmetic behind the holdings screen. Everything here is pure so the
@@ -85,9 +86,12 @@ export const applyBuy = (
   holding: Pick<Holding, 'units' | 'costCents'>,
   units: number,
   priceCents: number
-) => ({
+) => buyInto(holding, units, units * priceCents);
+
+/** A buy by what it cost in total — shares and fees — which is what the average is made of. */
+export const buyInto = (holding: Pick<Holding, 'units' | 'costCents'>, units: number, paidCents: number) => ({
   units: holding.units + units,
-  costCents: holding.costCents + units * priceCents,
+  costCents: holding.costCents + paidCents,
 });
 
 /**
@@ -99,14 +103,17 @@ export const applySell = (
   holding: Pick<Holding, 'units' | 'costCents'>,
   units: number,
   priceCents: number
-) => {
+) => sellFrom(holding, units, Math.min(Math.max(0, Math.floor(units)), holding.units) * priceCents);
+
+/** A sale by what actually came back — the sale less its fees. */
+export const sellFrom = (holding: Pick<Holding, 'units' | 'costCents'>, units: number, receivedCents: number) => {
   const sold = Math.min(Math.max(0, Math.floor(units)), holding.units);
   // Round the cost coming out so a full sale empties the position exactly.
   const costOut = sold === holding.units ? holding.costCents : Math.round(sold * averageCostCents(holding));
   return {
     units: holding.units - sold,
     costCents: holding.costCents - costOut,
-    realisedCents: sold * priceCents - costOut,
+    realisedCents: receivedCents - costOut,
   };
 };
 
@@ -139,9 +146,9 @@ export const replay = (trades: Trade[]): Pick<Holding, 'units' | 'costCents'> =>
   let position = { units: 0, costCents: 0 };
   for (const trade of ordered(trades)) {
     if (trade.kind === 'buy') {
-      position = applyBuy(position, trade.units, trade.priceCents);
+      position = buyInto(position, trade.units, tradeTotalCents(trade));
     } else if (trade.kind === 'sell') {
-      const after = applySell(position, trade.units, trade.priceCents);
+      const after = sellFrom(position, trade.units, tradeTotalCents(trade));
       position = { units: after.units, costCents: after.costCents };
     }
   }
@@ -197,10 +204,27 @@ export const unitsOnExDate = (trades: Trade[], exDateMs: number) =>
  * the price paid; a dividend is quoted per unit in ten-thousandths of a
  * ringgit, because Bursa pays amounts like RM0.0125.
  */
-export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints'>) =>
+export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints'>) =>
   trade.kind === 'dividend'
     ? Math.floor((trade.units * (trade.perUnitPoints ?? 0)) / 100)
-    : trade.units * trade.priceCents;
+    : trade.pricePoints
+      ? valueCents(trade.units, trade.pricePoints)
+      : trade.units * trade.priceCents;
+
+/**
+ * The money a trade actually moved: what a buy cost with its fees, what a sale
+ * brought home after them. A dividend is its value. Older trades have no fees
+ * recorded, and none are guessed.
+ */
+export const tradeTotalCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints' | 'fees'>) => {
+  const value = tradeCents(trade);
+  if (trade.kind === 'buy') return value + totalFees(trade.fees);
+  if (trade.kind === 'sell') return Math.max(0, value - totalFees(trade.fees));
+  return value;
+};
+
+/** A price as ten-thousandths of a ringgit, whichever way the trade stored it. */
+export const pricePointsOf = (trade: Pick<Trade, 'priceCents' | 'pricePoints'>) => trade.pricePoints ?? trade.priceCents * 100;
 
 /**
  * What the investing has actually come to, in the three parts it is made of.
@@ -277,10 +301,10 @@ export const performance = (trades: Trade[], quotes: Quotes): Performance => {
     let position = { units: 0, costCents: 0 };
     for (const trade of ordered(list)) {
       if (trade.kind === 'buy') {
-        investedCents += trade.units * trade.priceCents;
-        position = applyBuy(position, trade.units, trade.priceCents);
+        investedCents += tradeTotalCents(trade);
+        position = buyInto(position, trade.units, tradeTotalCents(trade));
       } else if (trade.kind === 'sell') {
-        const after = applySell(position, trade.units, trade.priceCents);
+        const after = sellFrom(position, trade.units, tradeTotalCents(trade));
         realisedCents += after.realisedCents;
         position = { units: after.units, costCents: after.costCents };
       } else {

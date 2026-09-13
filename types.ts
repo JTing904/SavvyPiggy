@@ -17,7 +17,14 @@ export interface PiggyBank {
   archivedAt?: number | null;
 }
 
-export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow';
+import type { FeeKey, SecurityType, TradeFees } from './services/fees';
+
+/**
+ * `invest` is money leaving goals to buy shares; `divest` is a sale's proceeds
+ * coming back into them. Neither is spending or saving — the report keeps them
+ * on their own lines — and both belong to a trade, which is where they are edited.
+ */
+export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest';
 
 export interface Activity {
   id: string;
@@ -40,6 +47,10 @@ export interface Activity {
    * which is every entry made before categories existed.
    */
   category?: string;
+  /** `invest` / `divest`: the trade this money moved for, and what it was. */
+  tradeId?: string;
+  counter?: string;
+  units?: number;
 }
 
 /** Money taken out of the goals that future income is expected to put back. */
@@ -146,7 +157,29 @@ export interface Trade {
   tradedAt: number;
   /** Epoch ms it was entered, which orders two trades made the same day. */
   createdAt: number;
+  /**
+   * Buy and sell: the price in ten-thousandths of a ringgit, because penny
+   * stocks trade in half-sen (RM0.345 is 3450) and `priceCents` cannot hold
+   * that. Absent on trades made before it existed, whose `priceCents` is exact.
+   */
+  pricePoints?: number;
+  /** What the broker, the exchange and the tax took. Absent on older trades: none recorded. */
+  fees?: TradeFees;
+  /** Snapshot at the time: a REIT's fees and tax treatment differ from a share's. */
+  securityType?: SecurityType;
+  /** Where the money for a buy came from, or where a sale's went. Absent: nothing moved. */
+  money?: TradeMoney;
+  /** Fees typed over what the broker's rates gave, and in which direction. */
+  feeEdits?: Partial<Record<FeeKey, 1 | -1>>;
 }
+
+export type TradeMoney =
+  /** Buy: paid from one goal. Sell: deposited into one goal. */
+  | { mode: 'goal'; goalId: string; activityId: string }
+  /** Sell only: split like any deposit, spent ahead covered first. */
+  | { mode: 'split'; activityId: string }
+  /** Only the trade is recorded; no goal's money moved. */
+  | { mode: 'none' };
 
 export type AlertKind = 'receipt' | 'milestone' | 'reached' | 'streak' | 'dividend' | 'housekeeping';
 

@@ -25,6 +25,8 @@ const activityLabel = (t: Messages, type: ActivityType) =>
     manual: t.common.activity.manual,
     withdraw: t.common.activity.withdraw,
     borrow: t.common.activity.borrow,
+    invest: t.common.activity.invest,
+    divest: t.common.activity.divest,
   })[type];
 
 const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoing: boolean }> = {
@@ -32,6 +34,8 @@ const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoi
   manual: { icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
   withdraw: { icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
   borrow: { icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+  invest: { icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
+  divest: { icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
 };
 
 interface DashboardProps {
