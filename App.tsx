@@ -546,9 +546,15 @@ const App: React.FC = () => {
         content sprawling twice as wide, and the mode rail — two cards that are
         meant to be swiped between — had room to show both at once, which killed
         the swipe and the whole idea of looking at one half at a time.
+
+        The column has to be as tall as the screen, not just as wide as a
+        phone. Without h-full every screen that centres itself or scrolls inside
+        its own height — the splash, sign-in, History, Trades — measured against
+        a column that was only as tall as its content, so the splash's piggy
+        sat at the top instead of the middle.
       */}
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
-        <div className="mx-auto w-full max-w-md">{children}</div>
+        <div className="mx-auto w-full max-w-md h-full">{children}</div>
       </main>
 
       {/* Showing yesterday's numbers is fine; showing them as if they were
