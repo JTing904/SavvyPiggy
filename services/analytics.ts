@@ -156,6 +156,12 @@ export interface Summary {
   spent: number;
   repaid: number;
   borrowed: number;
+  /** Paid out of goals for shares. Not spending: the money still exists, as shares. */
+  invested: number;
+  /** A sale's proceeds coming back — split, into a goal, or covering spent ahead. Not saving. */
+  cameBack: number;
+  /** The part of `cameBack` that landed in goals, rather than covering spent ahead. */
+  cameBackToGoals: number;
   /** Percent change of `distributed` against the previous period. */
   change: number | null;
   dailyAverage: number;
@@ -172,12 +178,19 @@ export interface Summary {
   forecast: Forecast | null;
 }
 
-/** What actually landed in goals: only the positive side of the distributions. */
+/**
+ * What was saved into goals: only the positive side of the distributions. A
+ * sale's proceeds land in goals too, but that is money coming back from shares
+ * rather than money saved, so it counts neither here nor towards a streak.
+ */
 export const inflowCents = (a: Activity) =>
-  a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
+  a.type === 'divest' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
 
+/** What was spent out of goals. Buying shares is not spending, so it is left out. */
 const outflowCents = (a: Activity) =>
-  a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+  a.type === 'invest' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+
+const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
 
 const percent = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
@@ -260,10 +273,22 @@ export const summarize = (
   let spent = 0;
   let repaid = 0;
   let borrowed = 0;
+  let invested = 0;
+  let cameBack = 0;
+  let cameBackToGoals = 0;
   const credited = new Map<string, number>();
   const byDay = new Map<string, number>();
 
   for (const { a, d } of inPeriod) {
+    if (a.type === 'invest') {
+      invested += movedCents(a);
+      continue;
+    }
+    if (a.type === 'divest') {
+      cameBack += movedCents(a) + toCents(a.repaid ?? 0);
+      cameBackToGoals += movedCents(a);
+      continue;
+    }
     const inflow = inflowCents(a);
     distributed += inflow;
     spent += outflowCents(a);
@@ -346,6 +371,9 @@ export const summarize = (
     spent: fromCents(spent),
     repaid: fromCents(repaid),
     borrowed: fromCents(borrowed),
+    invested: fromCents(invested),
+    cameBack: fromCents(cameBack),
+    cameBackToGoals: fromCents(cameBackToGoals),
     change,
     dailyAverage: fromCents(Math.floor(distributed / range.days)),
     transactions: inPeriod.length,

@@ -311,3 +311,29 @@ export enum Tab {
   DIVIDENDS = 'dividends',
   GROWTH = 'growth'
 }
+
+/** How much weight each style gets in a pick; the three add up to 100. */
+export interface StyleMix {
+  /** 股息派: dividends that keep coming and are not cut. */
+  income: number;
+  /** 现金流派: the highest dividend yield. */
+  cash: number;
+  /** 股价派: total return, mostly from the price. */
+  price: number;
+}
+
+export interface InvestSettings {
+  /** A broker id from services/fees.ts, `custom`, or null before anyone chose. */
+  brokerId: string | null;
+  customRule: import('./services/fees').BrokerageRule | null;
+  /** The counters someone would buy. The pick only ever comes from these. */
+  watchlist: { symbol: string; name: string }[];
+  /** Answers to the style questions, and the mix they came to (possibly adjusted by hand). */
+  style: { answers: number[]; mix: StyleMix; at: number } | null;
+  /** A person's correction when a counter's REIT tag is wrong. */
+  typeOverrides: Record<string, SecurityType>;
+  /** The goal a monthly buy is paid from by default. */
+  budgetGoalId: string | null;
+  /** Epoch ms the fee-mismatch question was last answered; only trades after it count. */
+  feePromptAt: number;
+}

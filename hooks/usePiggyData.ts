@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings } from '../types';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
@@ -11,7 +11,9 @@ import {
   subscribeToPrefs,
   subscribeToSavings,
   subscribeToTrades,
+  subscribeToInvest,
   migrateHoldingsToTrades,
+  DEFAULT_INVEST,
 } from '../services/firestore';
 
 /** Live Firestore data for one user. Every collection streams in real time. */
@@ -24,6 +26,7 @@ export const usePiggyData = (uid: string | undefined) => {
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_PREFS);
   const [savings, setSavings] = useState<SavingsSettings>(DEFAULT_SAVINGS);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [invest, setInvest] = useState<InvestSettings>(DEFAULT_INVEST);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
   /**
@@ -183,6 +186,16 @@ export const usePiggyData = (uid: string | undefined) => {
     if (offlineTimer.current) clearTimeout(offlineTimer.current);
   }, []);
 
+  // Investing settings never hold the savings screens back: until they arrive
+  // the defaults simply mean nothing has been chosen yet.
+  useEffect(() => {
+    if (!uid) {
+      setInvest(DEFAULT_INVEST);
+      return;
+    }
+    return subscribeToInvest(uid, setInvest, (e) => setError(e.message));
+  }, [uid, attempt]);
+
   useEffect(() => {
     if (!uid) {
       setActivities([]);
@@ -222,6 +235,7 @@ export const usePiggyData = (uid: string | undefined) => {
     savings,
     trades,
     holdings,
+    invest,
     loading: loading || !activitiesReady,
     offline,
     error,

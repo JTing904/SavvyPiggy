@@ -20,10 +20,12 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
+import type { InvestSettings } from '../types';
+import { planTradeMoney, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
 import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
-import { dayStart } from './holdings';
+import { dayStart, tradeTotalCents } from './holdings';
 import type { LangChoice } from '../i18n';
 import { m as messages } from '../i18n';
 import { dividendTradeId, type DueDividend } from './dividends';
@@ -61,6 +63,7 @@ const legacyHoldingsCol = (uid: string) => collection(db, 'users', uid, 'holding
 const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notifications');
 const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings');
 const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general');
+const investRef = (uid: string) => doc(db, 'users', uid, 'settings', 'invest');
 
 /** Which alerts a deposit is allowed to raise. */
 export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
@@ -661,6 +664,123 @@ export const pruneAlerts = async (uid: string, ids: string[]) => {
  * so a trade entered wrong is fixed by fixing that one trade rather than by
  * overwriting a total and losing the history a dividend depends on.
  */
+export const DEFAULT_INVEST: InvestSettings = {
+  brokerId: null,
+  customRule: null,
+  watchlist: [],
+  style: null,
+  typeOverrides: {},
+  budgetGoalId: null,
+  feePromptAt: 0,
+};
+
+export const subscribeToInvest = (
+  uid: string,
+  onChange: (settings: InvestSettings) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe =>
+  onSnapshot(investRef(uid), (snap) => onChange({ ...DEFAULT_INVEST, ...(snap.data() ?? {}) } as InvestSettings), onError);
+
+export const saveInvest = (uid: string, patch: Partial<InvestSettings>) => setDoc(investRef(uid), patch, { merge: true });
+
+/** Why a trade's money could not move, carried to the screen that has to ask about it. */
+export class TradeMoneyError extends Error {
+  constructor(readonly problem: TradeMoneyProblem) {
+    super(messages().errors.tradeMoney[problem.kind]);
+  }
+}
+
+/** Firestore rejects undefined; an absent optional field is simply left out. */
+const defined = <T extends Record<string, unknown>>(value: T) =>
+  Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T;
+
+export interface TradeWrite {
+  /** The trade being corrected or deleted, with the History row it wrote. Null when recording. */
+  previous: { trade: Trade; activity: Activity | null } | null;
+  /** What the trade is now; null deletes it. */
+  trade: Omit<Trade, 'id' | 'createdAt' | 'money'> | null;
+  choice: MoneyChoice;
+  refund?: MoneyChoice;
+  banks: PiggyBank[];
+  /** Every debt, settled ones included — undoing a sale can reopen one. */
+  loans: Loan[];
+  savings?: SavingsSettings;
+}
+
+/**
+ * Recording, correcting or deleting a buy or sale, with the money it moves.
+ *
+ * One batch, so it goes through offline like a deposit does, and either all of
+ * it lands or none of it: the trade, each goal's balance, any debt a sale
+ * covered, and the single History row. Goals move by increments, never by
+ * figures worked out from a snapshot.
+ */
+export const saveTrade = async (uid: string, w: TradeWrite) => {
+  const next = w.trade;
+  const result = planTradeMoney({
+    previous: w.previous,
+    next:
+      next && (next.kind === 'buy' || next.kind === 'sell')
+        ? { kind: next.kind, totalCents: tradeTotalCents(next), choice: w.choice, counter: next.name || next.symbol, units: next.units }
+        : null,
+    banks: w.banks,
+    loans: w.loans,
+    overflow: (w.savings ?? DEFAULT_SAVINGS).overflow,
+    refund: w.refund,
+  });
+  if ('problem' in result) throw new TradeMoneyError(result.problem);
+  const { plan } = result;
+
+  const now = new Date();
+  const batch = writeBatch(db);
+  const ref = w.previous ? tradeRef(uid, w.previous.trade.id) : doc(tradesCol(uid));
+
+  let activityId: string | null = null;
+  switch (plan.activity.write) {
+    case 'create': {
+      const aRef = doc(activitiesCol(uid));
+      activityId = aRef.id;
+      batch.set(aRef, { ...plan.activity.draft, date: now.toISOString(), tradeId: ref.id });
+      break;
+    }
+    case 'update':
+      activityId = plan.activity.id;
+      batch.update(activityRef(uid, plan.activity.id), { ...plan.activity.draft, tradeId: ref.id });
+      break;
+    case 'delete':
+      batch.delete(activityRef(uid, plan.activity.id));
+      break;
+  }
+
+  for (const [bankId, cents] of Object.entries(plan.bankDeltas)) {
+    batch.update(bankRef(uid, bankId), { currentAmount: increment(fromCents(cents)) });
+  }
+  for (const [loanId, cents] of Object.entries(plan.loanDeltas)) {
+    batch.update(loanRef(uid, loanId), {
+      outstanding: increment(fromCents(cents)),
+      settledAt: plan.loanOutstanding[loanId] === 0 ? now.toISOString() : null,
+    });
+  }
+
+  if (next) {
+    const money = plan.money && plan.money.mode !== 'none' ? { ...plan.money, activityId: activityId ?? '' } : plan.money;
+    batch.set(
+      ref,
+      defined({
+        ...next,
+        tradedAt: dayStart(next.tradedAt),
+        createdAt: w.previous?.trade.createdAt ?? Date.now(),
+        money: money ?? { mode: 'none' },
+      }) as Record<string, unknown>
+    );
+  } else {
+    batch.delete(ref);
+  }
+
+  await batch.commit();
+  return { id: ref.id, plan };
+};
+
 export const createTrade = (uid: string, trade: Omit<Trade, 'id' | 'createdAt'>) =>
   addDoc(tradesCol(uid), { ...trade, tradedAt: dayStart(trade.tradedAt), createdAt: Date.now() });
 

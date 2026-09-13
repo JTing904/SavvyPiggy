@@ -31,7 +31,8 @@ export const normalizeSymbol = (input: string) => {
   const raw = input.trim().toUpperCase();
   if (!raw) return '';
   if (raw.endsWith('.KL')) return raw;
-  return /^\d{3,5}$/.test(raw) ? `${raw}.KL` : raw;
+  // KLCC is a stapled security and only trades as 5235SS.
+  return /^\d{3,5}(SS)?$/.test(raw) ? `${raw}.KL` : raw;
 };
 
 /**

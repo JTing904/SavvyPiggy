@@ -26,4 +26,11 @@ export const errors = {
     emergencyFund: 'Emergency Fund',
     newTech: 'New Tech',
   },
+  /** Why a trade's money could not move. The sheet usually asks instead of showing these. */
+  tradeMoney: {
+    goalGone: 'The goal this was paid from no longer exists. Choose where the money goes back.',
+    rowGone: 'This sale’s entry has been cleared from History, so its split can no longer be undone exactly.',
+    insufficient: 'That goal doesn’t hold enough for this trade.',
+    nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
+  },
 };
