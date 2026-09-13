@@ -1,5 +1,7 @@
 import React from 'react';
 import { Tab } from '../types';
+import { useT } from '../contexts/LanguageContext';
+import type { Messages } from '../i18n';
 
 /**
  * Which half of the app the bar is showing. Swiping the card on Home is what
@@ -15,35 +17,36 @@ interface NavigationProps {
   onQuickAction: () => void;
 }
 
-const TABS: Record<Mode, { tab: Tab; icon: string; label: string }[]> = {
+const TABS: Record<Mode, { tab: Tab; icon: string; label: keyof Messages['nav'] }[]> = {
   save: [
-    { tab: Tab.HOME, icon: 'home', label: 'Home' },
-    { tab: Tab.LOG, icon: 'history', label: 'History' },
-    { tab: Tab.BANKS, icon: 'account_balance_wallet', label: 'Strategy' },
-    { tab: Tab.STATS, icon: 'monitoring', label: 'Report' },
+    { tab: Tab.HOME, icon: 'home', label: 'home' },
+    { tab: Tab.LOG, icon: 'history', label: 'history' },
+    { tab: Tab.BANKS, icon: 'account_balance_wallet', label: 'strategy' },
+    { tab: Tab.STATS, icon: 'monitoring', label: 'report' },
   ],
   invest: [
-    { tab: Tab.HOME, icon: 'home', label: 'Home' },
-    { tab: Tab.TRADES, icon: 'receipt_long', label: 'Trades' },
-    { tab: Tab.DIVIDENDS, icon: 'payments', label: 'Dividends' },
-    { tab: Tab.GROWTH, icon: 'trending_up', label: 'Growth' },
+    { tab: Tab.HOME, icon: 'home', label: 'home' },
+    { tab: Tab.TRADES, icon: 'receipt_long', label: 'trades' },
+    { tab: Tab.DIVIDENDS, icon: 'payments', label: 'dividends' },
+    { tab: Tab.GROWTH, icon: 'trending_up', label: 'growth' },
   ],
 };
 
 /** The action button's colour and job both follow the mode. */
-const ACTION: Record<Mode, { tint: string; glow: string; label: string }> = {
-  save: { tint: 'bg-primary', glow: 'shadow-primary/40', label: 'Deposit or spend' },
-  invest: { tint: 'bg-accent', glow: 'shadow-accent/40', label: 'Buy or sell' },
+const ACTION: Record<Mode, { tint: string; glow: string; label: keyof Messages['nav'] }> = {
+  save: { tint: 'bg-primary', glow: 'shadow-primary/40', label: 'depositOrSpend' },
+  invest: { tint: 'bg-accent', glow: 'shadow-accent/40', label: 'buyOrSell' },
 };
 
 const Navigation: React.FC<NavigationProps> = ({ mode, activeTab, onTabChange, onQuickAction }) => {
+  const t = useT();
   const tabs = TABS[mode];
   const action = ACTION[mode];
   const tint = mode === 'save' ? 'text-primary' : 'text-accent';
 
   // Every tab takes an equal share and is allowed to shrink, so four labels
   // plus the action button always fit a narrow phone instead of overflowing.
-  const renderTab = ({ tab, icon, label }: { tab: Tab; icon: string; label: string }) => (
+  const renderTab = ({ tab, icon, label }: (typeof TABS)[Mode][number]) => (
     <button
       key={tab}
       onClick={() => onTabChange(tab)}
@@ -53,7 +56,7 @@ const Navigation: React.FC<NavigationProps> = ({ mode, activeTab, onTabChange, o
     >
       <span className={`material-symbols-rounded ${activeTab === tab ? 'fill-1' : ''}`}>{icon}</span>
       <span className="w-full truncate text-center text-[9px] font-bold uppercase tracking-wide">
-        {label}
+        {t.nav[label]}
       </span>
     </button>
   );
@@ -68,7 +71,7 @@ const Navigation: React.FC<NavigationProps> = ({ mode, activeTab, onTabChange, o
 
           <button
             onClick={onQuickAction}
-            aria-label={action.label}
+            aria-label={t.nav[action.label]}
             className={`shrink-0 mx-1 size-14 -mt-12 flex items-center justify-center rounded-full text-black shadow-2xl border-4 border-bg-dark active:scale-90 transition-all ${action.tint} ${action.glow}`}
           >
             <span className="material-symbols-rounded text-3xl font-black">add</span>

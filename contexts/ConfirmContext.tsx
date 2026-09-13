@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useT } from './LanguageContext';
 
 /**
  * Asking "are you sure?" without handing the question to Android.
@@ -55,6 +56,7 @@ type Ask = (request: ConfirmRequest) => Promise<boolean>;
 const ConfirmContext = createContext<Ask | null>(null);
 
 export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const t = useT();
   const [request, setRequest] = useState<ConfirmRequest | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
 
@@ -140,7 +142,7 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 onClick={() => settle(false)}
                 className="flex-1 h-14 rounded-2xl glass text-slate-300 font-black active:scale-95 transition-transform"
               >
-                {request.cancelLabel ?? 'Cancel'}
+                {request.cancelLabel ?? t.common.cancel}
               </button>
               <button
                 onClick={() => settle(true)}
@@ -148,7 +150,7 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   danger ? 'bg-red-500 text-white' : 'bg-primary text-black'
                 }`}
               >
-                {request.confirmLabel ?? 'Confirm'}
+                {request.confirmLabel ?? t.common.confirm}
               </button>
             </div>
           </div>

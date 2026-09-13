@@ -24,6 +24,7 @@ import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, P
 import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
 import { dayStart } from './holdings';
+import type { LangChoice } from '../i18n';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
 import { fromCents, splitByPercentage, toCents } from './money';
@@ -58,6 +59,7 @@ const creditedRef = (uid: string, id: string) => doc(db, 'users', uid, 'dividend
 const legacyHoldingsCol = (uid: string) => collection(db, 'users', uid, 'holdings');
 const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notifications');
 const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings');
+const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general');
 
 /** Which alerts a deposit is allowed to raise. */
 export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
@@ -253,6 +255,20 @@ export const subscribeToSavings = (
 
 export const saveSavings = (uid: string, patch: Partial<SavingsSettings>) =>
   setDoc(savingsRef(uid), patch, { merge: true });
+
+/**
+ * The language kept with the account, so a new phone signs in speaking it.
+ * Read once per sign-in rather than listened to: it changes about never, and a
+ * listener would be a read on every open for nothing.
+ */
+export const loadLanguage = async (uid: string): Promise<LangChoice | null> => {
+  const data = (await getDoc(generalRef(uid))).data();
+  const lang = data?.language;
+  return lang === 'en' || lang === 'zh' ? { lang, at: Number(data?.languageAt) || 0 } : null;
+};
+
+export const saveLanguage = (uid: string, choice: LangChoice) =>
+  setDoc(generalRef(uid), { language: choice.lang, languageAt: choice.at }, { merge: true });
 
 /* ------------------------------------------------------------------- banks */
 

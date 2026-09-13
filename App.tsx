@@ -20,6 +20,9 @@ import Dividends from './components/Dividends';
 import Growth from './components/Growth';
 import TradeSheet, { type TradeDraft } from './components/TradeSheet';
 import type { Mode } from './components/Navigation';
+import LanguagePicker from './components/LanguagePicker';
+import { useLanguage } from './contexts/LanguageContext';
+import { getChoice, hasChosenLanguage, onLangChange, setLang } from './i18n';
 import { useAuth } from './contexts/AuthContext';
 import { usePiggyData } from './hooks/usePiggyData';
 import { useMembership } from './hooks/useMembership';
@@ -46,6 +49,9 @@ const App: React.FC = () => {
   const isMember = useMembership(user?.uid);
   // Firestore reads only start once an invite has unlocked the account.
   const uid = isMember ? user?.uid : undefined;
+  const { lang } = useLanguage();
+  const [languageChosen, setLanguageChosen] = useState(hasChosenLanguage);
+  useEffect(() => onLangChange(() => setLanguageChosen(true)), []);
 
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
   const [showCreateGoal, setShowCreateGoal] = useState(false);
@@ -132,6 +138,31 @@ const App: React.FC = () => {
     if (stale.length > 0) run(() => api.pruneAlerts(uid, stale.map((a) => a.id)));
   }, [uid, dataLoading, alerts]);
 
+  // The language follows the account. Whichever was chosen more recently —
+  // on this phone or on the account — wins, so picking 中文 on a new phone's
+  // first screen is not overruled by an older English saved months ago.
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    void api
+      .loadLanguage(uid)
+      .then((remote) => {
+        if (cancelled) return;
+        const local = getChoice();
+        if (remote && (!local || remote.at > local.at)) setLang(remote.lang, remote.at);
+        else if (local && (!remote || local.at > remote.at || local.lang !== remote.lang)) void api.saveLanguage(uid, local).catch(() => {});
+      })
+      .catch(() => {});
+    const stop = onLangChange(() => {
+      const local = getChoice();
+      if (local) void api.saveLanguage(uid, local).catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [uid]);
+
   // The phone's alarms are rebuilt from the settings whenever they change, and
   // again whenever the app comes back into view: a phone that aggressively
   // sleeps apps — or a reinstall — can quietly drop what was already set.
@@ -144,7 +175,9 @@ const App: React.FC = () => {
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => document.removeEventListener('visibilitychange', sync);
-  }, [uid, dataLoading, prefs, schedules, dividends, trades]);
+    // The language is in the list because every alarm's words are: switching
+    // re-arms each one in the new language.
+  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang]);
 
   // Android's back gesture: close whatever is open, step back to Home, and
   // only then leave the app. Sheets inside a screen take it first — they push
@@ -628,6 +661,7 @@ const App: React.FC = () => {
   );
 
   if (!isFirebaseConfigured) return shell(<SetupNotice />);
+  if (!languageChosen) return shell(<LanguagePicker />);
   if (authLoading) return shell(<Splash label="Starting up" />);
   if (!user) return shell(<Login />);
   if (isMember === null) return shell(<Splash label="Checking your invite" />);

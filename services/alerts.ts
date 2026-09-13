@@ -1,6 +1,7 @@
 import type { Activity, Alert, NotificationPrefs, PiggyBank, SavingsSettings } from '../types';
 import { currentStreak, dayKey, inflowCents, startOfDay } from './analytics';
 import { isInSplit, type Movement } from './ledger';
+import { getLang, m } from '../i18n';
 import { fromCents, toCents } from './money';
 
 /**
@@ -189,6 +190,9 @@ export const parseTime = (value: string) => {
 /** "20:00" -> "8:00 PM". */
 export const formatTime = (value: string) => {
   const { hour, minute } = parseTime(value);
+  const mm = String(minute).padStart(2, '0');
+  // Chinese reads a 24-hour clock without a second thought; English keeps 8:00 PM.
+  if (getLang() === 'zh') return `${String(hour).padStart(2, '0')}:${mm}`;
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
+  return `${h12}:${mm} ${hour < 12 ? m().pickers.am : m().pickers.pm}`;
 };

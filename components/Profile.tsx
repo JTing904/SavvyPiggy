@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank, SavingsSettings, Schedule } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../contexts/LanguageContext';
+import LanguageSheet from './LanguageSheet';
 import { isArchived, isFull, isInSplit, seedSampleBanks } from '../services/firestore';
 import { currentStreak, summarize } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
@@ -103,6 +105,8 @@ const Profile: React.FC<ProfileProps> = ({
   const { user, logout } = useAuth();
   const [busy, setBusy] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
+  const [showLanguage, setShowLanguage] = useState(false);
+  const t = useT();
   const now = new Date();
 
   if (!user) return null;
@@ -382,6 +386,13 @@ const Profile: React.FC<ProfileProps> = ({
               onClick={onOpenReport}
             />
             <Row
+              icon="translate"
+              title={t.language.title}
+              subtitle={t.language.subtitle}
+              onClick={() => setShowLanguage(true)}
+              trailing={<span className="text-primary text-xs font-black shrink-0">{t.language.current}</span>}
+            />
+            <Row
               icon="payments"
               title="Amounts shown in RM"
               subtitle="Ringgit formatting and 12-hour times, everywhere in the app"
@@ -416,6 +427,8 @@ const Profile: React.FC<ProfileProps> = ({
           <p className="text-center text-slate-600 text-[10px] font-bold mt-4">SavvyPiggy v{APP_VERSION}</p>
         </div>
       </div>
+
+      {showLanguage && <LanguageSheet onClose={() => setShowLanguage(false)} />}
     </div>
   );
 };
