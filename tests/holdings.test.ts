@@ -47,7 +47,7 @@ eq('nothing in, nothing out', normalizeSymbol('   '), '');
 const payload = {
   chart: { result: [{ meta: { regularMarketPrice: 10.56, chartPreviousClose: 10.58, regularMarketTime: 1_757_000_000 } }] },
 };
-eq('a quote arrives in sen', parseQuote(payload), { priceCents: 1056, previousCloseCents: 1058, at: 1_757_000_000_000 });
+eq('a quote arrives in sen, and in points for half-sen prices', parseQuote(payload), { priceCents: 1056, pricePoints: 105_600, previousCloseCents: 1058, at: 1_757_000_000_000 });
 eq('a missing payload is no quote', parseQuote({}), null);
 eq('a zero price is no quote', parseQuote({ chart: { result: [{ meta: { regularMarketPrice: 0 } }] } }), null);
 eq(

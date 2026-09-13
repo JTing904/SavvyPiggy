@@ -16,7 +16,7 @@ import { parseQuote, type Quote, type Quotes } from './holdings';
  * missing ringgit.
  */
 
-const CHART = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+export const CHART = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 const SEARCH = 'https://query1.finance.yahoo.com/v1/finance/search';
 const CACHE_KEY = 'savvypiggy.quotes';
 
@@ -36,7 +36,7 @@ const HEADERS = {
 };
 
 /** One request, whichever transport this platform has. Never throws. */
-const getJson = async (url: string, params: Record<string, string>): Promise<unknown | null> => {
+export const getJson = async (url: string, params: Record<string, string>): Promise<unknown | null> => {
   try {
     if (native()) {
       const res = await CapacitorHttp.get({ url, params, headers: HEADERS, readTimeout: 12_000, connectTimeout: 12_000 });

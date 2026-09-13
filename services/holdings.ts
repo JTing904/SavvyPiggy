@@ -14,6 +14,8 @@ import { totalFees, valueCents } from './fees';
 /** A price already turned into whole sen, with when it was read. */
 export interface Quote {
   priceCents: number;
+  /** The same price in ten-thousandths of a ringgit, which keeps half-sen prices (RM0.345) exact. */
+  pricePoints?: number;
   previousCloseCents: number;
   /** Epoch ms of the exchange's own timestamp, not of our request. */
   at: number;
@@ -52,6 +54,7 @@ export const parseQuote = (payload: unknown): Quote | null => {
 
   return {
     priceCents: toCents(price),
+    pricePoints: Math.round(price * 10_000),
     previousCloseCents: toCents(Number.isFinite(previous) && previous > 0 ? previous : price),
     at: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : Date.now(),
   };
