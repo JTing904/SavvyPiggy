@@ -7,6 +7,8 @@ import { CATEGORIES, categoryOf } from '../services/categories';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, noteText, type Messages } from '../i18n';
+import { goneShareCents, type GoneShareChoice } from '../services/ledger';
+import GoneShareSheet from './GoneShareSheet';
 
 const STYLES: Record<
   ActivityType,
@@ -24,7 +26,8 @@ const STYLES: Record<
 interface ActivityLogProps {
   activities: Activity[];
   banks: PiggyBank[];
-  onDeleteActivity: (id: string) => void;
+  /** `takeBack` settles the share of a goal deleted since; only asked for when there is one. */
+  onDeleteActivity: (id: string, takeBack?: GoneShareChoice) => void;
   onEditActivity: (id: string, newAmount: number) => void;
   /** Re-labelling what a withdrawal was for. Moves no money. */
   onSetCategory: (id: string, category: string) => void;
@@ -104,6 +107,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   /** Which entry is having its category changed, if any. */
   const [pickingFor, setPickingFor] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  /** An entry being deleted that went through a goal deleted since. */
+  const [settling, setSettling] = useState<Activity | null>(null);
 
   useBackHandler(pickMonth, () => setPickMonth(false));
   useBackHandler(pickingFor !== null, () => setPickingFor(null));
@@ -204,6 +209,12 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   };
 
   const handleDelete = async (activity: Activity) => {
+    // Part of it sits in a goal that is gone; that sheet asks where it is
+    // settled, and is the confirmation.
+    if (goneShareCents(activity.distributions, banks) !== 0) {
+      setSettling(activity);
+      return;
+    }
     const style = STYLES[activity.type];
     const undo = style.outgoing
       ? t.history.undoOutgoing(money(activity.amount))
@@ -665,6 +676,20 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {settling && (
+        <GoneShareSheet
+          distributions={settling.distributions}
+          banks={banks}
+          activities={activities}
+          confirmLabel={t.history.remove}
+          onChoose={(takeBack) => {
+            onDeleteActivity(settling.id, takeBack);
+            setSettling(null);
+          }}
+          onClose={() => setSettling(null)}
+        />
       )}
     </div>
   );

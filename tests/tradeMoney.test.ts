@@ -187,4 +187,34 @@ const invested = (amount: number, goalId = 'stocks'): Activity => ({
   eq('deleting a split sale when its row is gone is refused, not guessed', run({ previous: { trade, activity: null } }), { problem: { kind: 'rowGone' } });
 }
 
+{
+  // The sale fed stocks and a goal since deleted, whose RM529.83 moved on with it.
+  const sold: Activity = {
+    id: 'a3',
+    type: 'divest',
+    date: '2026-09-13T00:00:00.000Z',
+    amount: 1059.67,
+    distributions: [
+      { bankId: 'stocks', amount: 529.84, percentage: 50 },
+      { bankId: 'temp', amount: 529.83, percentage: 50 },
+    ],
+  };
+  const trade: Trade = { ...buy({ mode: 'split', activityId: 'a3' }), kind: 'sell' };
+  const previous = { trade, activity: sold };
+  eq('deleting a sale that fed a deleted goal asks where its share comes back from', run({ previous }), {
+    problem: { kind: 'saleGoalGone', cents: 52_983 },
+  });
+  eq('...from a goal', plan({ previous, takeBack: { mode: 'goal', goalId: 'car' } }).bankDeltas, { stocks: -52_984, car: -52_983 });
+  eq('...or not at all, for a goal that took its money with it', plan({ previous, takeBack: { mode: 'none' } }).bankDeltas, { stocks: -52_984 });
+  eq('a goal that is not there cannot be the answer', run({ previous, takeBack: { mode: 'goal', goalId: 'temp' } }), {
+    problem: { kind: 'saleGoalGone', cents: 52_983 },
+  });
+  const edited = plan({
+    previous,
+    takeBack: { mode: 'goal', goalId: 'car' },
+    next: { kind: 'sell', totalCents: 105_967, choice: { mode: 'goal', goalId: 'stocks' }, counter: 'MAYBANK', units: 100 },
+  });
+  eq('correcting it asks the same, then lands the sale again', edited.bankDeltas, { stocks: 105_967 - 52_984, car: -52_983 });
+}
+
 report();

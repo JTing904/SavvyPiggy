@@ -104,6 +104,28 @@ export const planGoalRemoval = (
   return { plan: { cents, movements, strategy } };
 };
 
+/**
+ * Undoing a record that put money into, or took it out of, a goal that has
+ * since been deleted. Deleting a goal now hands its money on, so that share
+ * no longer vanished with the goal — it sits somewhere else, and the person
+ * says where to settle it. Goals deleted before that rule really did take
+ * their money with them, which is what "none" is for.
+ */
+export type GoneShareChoice = { mode: 'goal'; goalId: string } | { mode: 'none' };
+
+/**
+ * What a record moved in goals that no longer exist, signed as it was written:
+ * positive when it put money in (undoing takes it back), negative when it took
+ * money out (undoing gives it back).
+ */
+export const goneShareCents = (distributions: { bankId: string; amount: number }[], banks: PiggyBank[]) =>
+  distributions.reduce((sum, d) => (banks.some((b) => b.id === d.bankId) ? sum : sum + toCents(d.amount)), 0);
+
+/** The goals a record touched that are gone, once each. */
+export const goneGoalIds = (distributions: { bankId: string }[], banks: PiggyBank[]) => [
+  ...new Set(distributions.filter((d) => !banks.some((b) => b.id === d.bankId)).map((d) => d.bankId)),
+];
+
 export const outstandingCents = (loan: Loan) => toCents(loan.outstanding);
 
 export const totalDebtCents = (loans: Loan[]) =>

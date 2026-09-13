@@ -56,6 +56,11 @@ export interface Activity {
    * here. Kept as the name, because the goal itself no longer exists.
    */
   fromGoal?: string;
+  /**
+   * `transfer`: the deleted goal's id, so a later undo of a record that fed
+   * that goal can say where its money went.
+   */
+  fromGoalId?: string;
 }
 
 /** Money taken out of the goals that future income is expected to put back. */

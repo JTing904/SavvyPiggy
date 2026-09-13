@@ -126,6 +126,7 @@ export const invest: typeof English = {
   refundSplitSub: '先补预支，剩下按比例分',
   refundNone: '不退回',
   refundNoneSub: '只改持股',
+  takeBackLater: '这笔卖出有一部分存进了已删除的钱罐。保存时会问你从哪个钱罐扣回。',
 
   mismatchTitle: (rates) => `你的成交单和${rates}对不上`,
   mismatchBody: (fee, rates, lower) =>

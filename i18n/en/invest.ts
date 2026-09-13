@@ -143,6 +143,7 @@ export const invest = {
   refundSplitSub: 'Spent ahead first, then your %',
   refundNone: 'Don’t put it back',
   refundNoneSub: 'Only the shares change',
+  takeBackLater: 'Part of this sale went into a goal you’ve since deleted. When you save, you’ll be asked where it comes back from.',
 
   // When the contract notes keep disagreeing with the rates
   mismatchTitle: (rates: string) => `Your contract notes don’t match ${rates}`,

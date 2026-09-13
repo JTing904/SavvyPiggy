@@ -37,7 +37,7 @@ import { useQuotes } from './hooks/useQuotes';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
-import type { GoalMoneyChoice } from './services/ledger';
+import type { GoalMoneyChoice, GoneShareChoice } from './services/ledger';
 import { staleAlerts, streakAlert } from './services/alerts';
 import { onNotificationOpen, syncNotifications } from './services/notifications';
 
@@ -256,9 +256,10 @@ const App: React.FC = () => {
     // What actually reached the goals today. A deposit's headline amount can be
     // larger, since the part that cleared debt never lands in a goal, and
     // spending takes money back out again. Money moved into or back from shares
-    // is neither saving nor spending, so a buy does not turn today negative.
+    // is neither saving nor spending, so a buy does not turn today negative —
+    // and nor is a deleted goal's money moving into another goal.
     return activities
-      .filter((a) => a.type !== 'invest' && a.type !== 'divest')
+      .filter((a) => a.type !== 'invest' && a.type !== 'divest' && a.type !== 'transfer')
       .filter((a) => new Date(a.date).toLocaleDateString() === today)
       .flatMap((a) => a.distributions)
       .reduce((sum, d) => sum + d.amount, 0);
@@ -335,11 +336,15 @@ const App: React.FC = () => {
     if (uid) run(() => api.saveStrategy(uid, updated));
   };
 
-  const handleDeleteBank = (id: string, choice: GoalMoneyChoice | null) => {
-    if (uid) run(() => api.deleteBank(uid, banks, id, choice, savings));
+  const handleDeleteBank = (id: string, choice: GoalMoneyChoice | null, scheduleTarget?: string | null) => {
+    const retarget =
+      scheduleTarget === undefined
+        ? null
+        : { scheduleIds: schedules.filter((s) => s.targetBankId === id).map((s) => s.id), target: scheduleTarget };
+    if (uid) run(() => api.deleteBank(uid, banks, id, choice, savings, retarget));
   };
 
-  const handleDeleteActivity = (id: string) => {
+  const handleDeleteActivity = (id: string, takeBack?: GoneShareChoice) => {
     const activity = activities.find((a) => a.id === id);
     // Deleting spending that was already covered puts that money back into
     // the goals, so the strategy travels with it — and so do the deposits
@@ -347,7 +352,7 @@ const App: React.FC = () => {
     const covering = activity?.loanId
       ? activities.filter((a) => a.repayments?.some((r) => r.loanId === activity.loanId))
       : [];
-    if (uid && activity) run(() => api.deleteActivity(uid, activity, banks, savings, covering));
+    if (uid && activity) run(() => api.deleteActivity(uid, activity, banks, savings, covering, takeBack));
   };
 
   const handleEditActivity = (id: string, newAmount: number) => {
@@ -553,6 +558,7 @@ const App: React.FC = () => {
             onArchiveBank={handleArchiveBank}
             onAddGoal={() => setShowCreateGoal(true)}
             scheduleCount={schedules.filter((s) => s.enabled).length}
+            schedules={schedules}
             onOpenAutoDeposits={() => setShowAutoDeposits(true)}
           />
         );

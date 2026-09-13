@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PiggyBank } from '../types';
+import { PiggyBank, Schedule } from '../types';
 import { evenSplit, sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
@@ -14,11 +14,15 @@ import type { GoalMoneyChoice } from '../services/ledger';
 interface StrategyEditorProps {
   banks: PiggyBank[];
   onUpdateBanks: (banks: PiggyBank[]) => void;
-  /** `choice` says where a goal's money goes; null only for an empty goal. */
-  onDeleteBank: (id: string, choice: GoalMoneyChoice | null) => void;
+  /**
+   * `choice` says where a goal's money goes; null only for an empty goal.
+   * `scheduleTarget` is where auto deposits aimed at it save from now on.
+   */
+  onDeleteBank: (id: string, choice: GoalMoneyChoice | null, scheduleTarget?: string | null) => void;
   onArchiveBank: (id: string) => void;
   onAddGoal: () => void;
   scheduleCount: number;
+  schedules: Schedule[];
   onOpenAutoDeposits: () => void;
 }
 
@@ -122,6 +126,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   onArchiveBank,
   onAddGoal,
   scheduleCount,
+  schedules,
   onOpenAutoDeposits,
 }) => {
   // Unsaved edits only. Everything else reads straight from Firestore, so
@@ -173,8 +178,10 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
   const handleDelete = async (id: string) => {
     const bank = localBanks.find((b) => b.id === id);
-    // A goal with money in it asks where the money goes; that sheet is the confirmation.
-    if (bank && toCents(bank.currentAmount) !== 0) {
+    // A goal with money in it, or auto deposits aimed at it, asks where they
+    // go; that sheet is the confirmation.
+    const aimed = schedules.some((s) => s.targetBankId === id);
+    if (bank && (toCents(bank.currentAmount) !== 0 || aimed)) {
       setMoving(bank);
       return;
     }
@@ -199,8 +206,9 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
     <MoveGoalMoneySheet
       bank={moving}
       banks={banks}
-      onConfirm={(choice) => {
-        onDeleteBank(moving.id, choice);
+      aimed={schedules.filter((s) => s.targetBankId === moving.id).length}
+      onConfirm={(choice, scheduleTarget) => {
+        onDeleteBank(moving.id, choice, scheduleTarget);
         setDraft(({ [moving.id]: _removed, ...rest }) => rest);
         setMoving(null);
       }}

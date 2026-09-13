@@ -31,7 +31,7 @@ import { m as messages } from '../i18n';
 import { dividendTradeId, type DueDividend } from './dividends';
 import { dueOccurrences } from './schedules';
 import { fromCents, splitByPercentage, toCents } from './money';
-import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type Movement } from './ledger';
+import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type GoneShareChoice, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 
 export { isInSplit, isArchived, isFull } from './ledger';
@@ -321,7 +321,9 @@ export const deleteBank = async (
   banks: PiggyBank[],
   id: string,
   choice: GoalMoneyChoice | null,
-  savings: SavingsSettings = DEFAULT_SAVINGS
+  savings: SavingsSettings = DEFAULT_SAVINGS,
+  /** Auto deposits aimed at this goal, and where they save from now on (null: auto split). */
+  retarget: { scheduleIds: string[]; target: string | null } | null = null
 ) => {
   const result = planGoalRemoval(banks, id, choice, savings.overflow);
   if ('problem' in result) throw new Error(messages().errors.goalRemoval[result.problem]);
@@ -343,7 +345,16 @@ export const deleteBank = async (
       amount: fromCents(Math.abs(cents)),
       distributions: toDistributions(movements),
       fromGoal: target?.name ?? '',
+      fromGoalId: id,
     });
+  }
+  // Auto deposits aimed at this goal would otherwise write to a goal that is
+  // gone, and a failed write stopped every auto deposit after it.
+  if (retarget) {
+    if (retarget.target && !strategy.some((b) => b.id === retarget.target && !b.archivedAt)) {
+      throw new Error(messages().errors.goalRemoval.noDestination);
+    }
+    retarget.scheduleIds.forEach((sid) => batch.update(scheduleRef(uid, sid), { targetBankId: retarget.target }));
   }
   batch.delete(bankRef(uid, id));
   await batch.commit();
@@ -527,20 +538,35 @@ export const deleteActivity = (
   activity: Activity,
   banks: PiggyBank[] = [],
   savings: SavingsSettings = DEFAULT_SAVINGS,
-  covering: Activity[] = []
+  covering: Activity[] = [],
+  /** Where the share of a goal deleted since is settled — see GoneShareChoice. */
+  takeBack?: GoneShareChoice
 ) =>
   runTransaction(db, async (tx) => {
     const refs = activity.distributions.map((d) => bankRef(uid, d.bankId));
     // Every read has to happen before the first write.
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
 
+    // A deleted goal's share was handed on when the goal went, so undoing it
+    // is settled against the goal the person picked, or nowhere.
+    const gone = snaps.reduce((sum, snap, i) => (snap.exists() ? sum : sum + toCents(activity.distributions[i].amount)), 0);
+    const settle = gone !== 0 && takeBack?.mode === 'goal' ? bankRef(uid, takeBack.goalId) : null;
+    if (gone !== 0 && !takeBack) throw new Error(messages().errors.goneShare);
+    const settleSnap = settle ? await tx.get(settle) : null;
+    if (settleSnap && !settleSnap.exists()) throw new Error(messages().errors.goalRemoval.noDestination);
+
+    // One write per goal: the picked goal can be one the record also touched,
+    // and two updates worked out from the same read would overwrite each other.
+    const next = new Map<string, number>();
+    const move = (id: string, balance: number, cents: number) => next.set(id, (next.get(id) ?? toCents(balance)) + cents);
     snaps.forEach((snap, i) => {
       if (!snap.exists()) return;
       // Distributions are signed, so subtracting undoes deposits and
       // withdrawals alike.
-      const next = toCents(snap.data().currentAmount ?? 0) - toCents(activity.distributions[i].amount);
-      tx.update(refs[i], { currentAmount: fromCents(next) });
+      move(refs[i].id, snap.data().currentAmount ?? 0, -toCents(activity.distributions[i].amount));
     });
+    if (settle && settleSnap?.exists()) move(settle.id, settleSnap.data().currentAmount ?? 0, -gone);
+    next.forEach((cents, id) => tx.update(bankRef(uid, id), { currentAmount: fromCents(cents) }));
 
     // Undoing a repayment puts the debt back.
     activity.repayments?.forEach((r) =>
@@ -737,6 +763,8 @@ export interface TradeWrite {
   trade: Omit<Trade, 'id' | 'createdAt' | 'money'> | null;
   choice: MoneyChoice;
   refund?: MoneyChoice;
+  /** Where a sale's share in a since-deleted goal is taken back from. */
+  takeBack?: GoneShareChoice;
   banks: PiggyBank[];
   /** Every debt, settled ones included — undoing a sale can reopen one. */
   loans: Loan[];
@@ -763,6 +791,7 @@ export const saveTrade = async (uid: string, w: TradeWrite) => {
     loans: w.loans,
     overflow: (w.savings ?? DEFAULT_SAVINGS).overflow,
     refund: w.refund,
+    takeBack: w.takeBack,
   });
   if ('problem' in result) throw new TradeMoneyError(result.problem);
   const { plan } = result;
@@ -1039,9 +1068,17 @@ export const runDueSchedules = async (
   // Likewise goal balances, so milestones are judged against the running total.
   let liveBanks = banks.map((b) => ({ ...b }));
   let posted = 0;
+  let aimedAtNothing = 0;
 
   for (const schedule of schedules) {
     if (!schedule.enabled) continue;
+    // Aimed at a goal deleted before deleting asked about auto deposits: the
+    // write would fail and take every later schedule down with it. The others
+    // post first; this one is still reported once they have.
+    if (schedule.targetBankId && !banks.some((b) => b.id === schedule.targetBankId)) {
+      aimedAtNothing += 1;
+      continue;
+    }
 
     for (const when of dueOccurrences(schedule)) {
       const plan = planDeposit(toCents(schedule.amount), liveBanks, openLoans, schedule.targetBankId, savings.overflow);
@@ -1090,6 +1127,7 @@ export const runDueSchedules = async (
       });
     }
   }
+  if (aimedAtNothing > 0) throw new Error(messages().errors.scheduleGoalGone(aimedAtNothing));
   return posted;
 };
 

@@ -2,6 +2,8 @@ import {
   archiveStrategy,
   balanceCents,
   effectiveSplit,
+  goneGoalIds,
+  goneShareCents,
   isFull,
   isInSplit,
   planDeposit,
@@ -256,6 +258,21 @@ eq('total debt across open loans', totalDebtCents([loan('a', 1.5), loan('b', 2.2
     eq('...but one goal can take it on', 'plan' in out ? out.plan.movements : null, [{ bankId: 'a', cents: -500, percentage: 100 }]);
   }
   eq('the last goal has nowhere to put its money', plan({ mode: 'split' }, [bank('only', 100, 10)], 'only'), { problem: 'noDestination' });
+}
+
+// --- undoing a record that touched a deleted goal
+
+{
+  const deposit = [
+    { bankId: 'vacation', amount: 3.01 },
+    { bankId: 'gone1', amount: 5.02 },
+    { bankId: 'gone2', amount: 2.0 },
+    { bankId: 'gone1', amount: 0.01 },
+  ];
+  eq('a deposit\'s share in deleted goals, in sen', goneShareCents(deposit, BANKS), 703);
+  eq('each deleted goal once', goneGoalIds(deposit, BANKS), ['gone1', 'gone2']);
+  eq('a spend from a deleted goal is signed as it was taken', goneShareCents([{ bankId: 'gone1', amount: -12.5 }], BANKS), -1250);
+  eq('nothing gone, nothing to ask', goneShareCents([{ bankId: 'tech', amount: 4 }], BANKS), 0);
 }
 
 report();

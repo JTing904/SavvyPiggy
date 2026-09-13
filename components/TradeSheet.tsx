@@ -27,13 +27,14 @@ import {
 } from '../services/fees';
 import { planTradeMoney, type MoneyChoice, type TradeMoneyProblem } from '../services/tradeMoney';
 import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt';
-import { isInSplit } from '../services/ledger';
+import { isInSplit, type GoneShareChoice } from '../services/ledger';
 import { fromInputDate, toInputDate } from '../services/calendar';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useConfirm } from '../contexts/ConfirmContext';
 import DateField from './DateField';
 import RefundSheet, { ChoiceRow } from './invest/RefundSheet';
 import FeeMismatchSheet from './invest/FeeMismatchSheet';
+import GoneShareSheet from './GoneShareSheet';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
 
@@ -227,6 +228,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
 
   /** Asked when a buy's paying goal is gone; `removing` says what to retry. */
   const [refundAsk, setRefundAsk] = useState<{ cents: number; removing: boolean } | null>(null);
+  /** A sale being undone fed a goal deleted since: where its share comes back from. */
+  const [takeBackAsk, setTakeBackAsk] = useState<{ removing: boolean } | null>(null);
   const [mismatch, setMismatch] = useState<FeeMismatch | null>(null);
 
   useBackHandler(true, onClose);
@@ -367,9 +370,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     };
     const first = planTradeMoney(input);
     if ('problem' in first && first.problem.kind === 'goalGone') {
-      return { result: planTradeMoney({ ...input, refund: { mode: 'none' } }), refundPending: true };
+      return { result: planTradeMoney({ ...input, refund: { mode: 'none' } }), refundPending: true, takeBackPending: false };
     }
-    return { result: first, refundPending: false };
+    if ('problem' in first && first.problem.kind === 'saleGoalGone') {
+      return { result: planTradeMoney({ ...input, takeBack: { mode: 'none' } }), refundPending: false, takeBackPending: true };
+    }
+    return { result: first, refundPending: false, takeBackPending: false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, kind, totalCents, choice, name, symbol, unitsIn, previous, banks, loans, savings.overflow]);
 
@@ -385,6 +391,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
         return t.invest.nothingToSplit;
       case 'goalGone':
         return t.errors.tradeMoney.goalGone;
+      case 'saleGoalGone':
+        return t.errors.tradeMoney.saleGoalGone;
     }
   };
 
@@ -409,15 +417,21 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
         setRefundAsk({ cents: e.problem.cents, removing });
         return;
       }
+      if (e.problem.kind === 'saleGoalGone') {
+        setTakeBackAsk({ removing });
+        return;
+      }
       setRefundAsk(null);
+      setTakeBackAsk(null);
       setProblem(describe(e.problem));
       return;
     }
     setRefundAsk(null);
+    setTakeBackAsk(null);
     setProblem(e instanceof Error ? e.message : removing ? t.invest.couldNotDelete : t.invest.couldNotSave);
   };
 
-  const save = async (refund?: MoneyChoice) => {
+  const save = async (refund?: MoneyChoice, takeBack?: GoneShareChoice) => {
     if (!candidate || candidate.kind === 'dividend' || !ready || busy) return;
     setBusy(true);
     setProblem(null);
@@ -434,8 +448,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       feeEdits,
     };
     try {
-      const { id } = await saveTrade(uid, { previous, trade: body, choice, refund, banks, loans, savings });
+      const { id } = await saveTrade(uid, { previous, trade: body, choice, refund, takeBack, banks, loans, savings });
       setRefundAsk(null);
+      setTakeBackAsk(null);
       onDone(editing ? t.invest.tradeCorrected(name || symbol) : t.invest.tradeRecorded(LABEL[candidate.kind], unitsIn, name || symbol));
 
       // The snapshot may not have this trade yet, so it is put in by hand.
@@ -452,13 +467,14 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     }
   };
 
-  const removeWith = async (refund?: MoneyChoice) => {
+  const removeWith = async (refund?: MoneyChoice, takeBack?: GoneShareChoice) => {
     if (!editing) return;
     setBusy(true);
     setProblem(null);
     try {
-      await saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, banks, loans, savings });
+      await saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, takeBack, banks, loans, savings });
       setRefundAsk(null);
+      setTakeBackAsk(null);
       onDone(t.invest.tradeDeleted);
       onClose();
     } catch (e) {
@@ -854,6 +870,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 {preview?.refundPending && (
                   <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.refundLater}</p>
                 )}
+                {preview?.takeBackPending && (
+                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.takeBackLater}</p>
+                )}
               </div>
             )}
 
@@ -892,6 +911,20 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             confirmLabel={refundAsk.removing ? t.invest.deleteTrade : editing ? t.common.saveChanges : t.invest.record[kind]}
             onChoose={(refund) => void (refundAsk.removing ? removeWith(refund) : save(refund))}
             onClose={() => setRefundAsk(null)}
+          />
+        </div>
+      )}
+
+      {takeBackAsk && previous?.activity && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <GoneShareSheet
+            distributions={previous.activity.distributions}
+            banks={banks}
+            activities={activities}
+            busy={busy}
+            confirmLabel={takeBackAsk.removing ? t.invest.deleteTrade : t.common.saveChanges}
+            onChoose={(takeBack) => void (takeBackAsk.removing ? removeWith(undefined, takeBack) : save(undefined, takeBack))}
+            onClose={() => setTakeBackAsk(null)}
           />
         </div>
       )}

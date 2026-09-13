@@ -1,6 +1,6 @@
 import type { Activity, Loan, PiggyBank, Trade, TradeMoney } from '../types';
 import { tradeTotalCents } from './holdings';
-import { outstandingCents, planDeposit } from './ledger';
+import { goneShareCents, outstandingCents, planDeposit, type GoneShareChoice } from './ledger';
 import { fromCents, toCents } from './money';
 
 /**
@@ -41,10 +41,17 @@ export interface TradeMoneyInput {
    * Without it, the plan stops and asks.
    */
   refund?: MoneyChoice;
+  /**
+   * Where a sale's share is taken back from when a goal it went into has been
+   * deleted. Without it, the plan stops and asks.
+   */
+  takeBack?: GoneShareChoice;
 }
 
 export type TradeMoneyProblem =
   | { kind: 'goalGone'; cents: number }
+  /** A sale fed a goal that has been deleted since; `cents` is that goal's share. */
+  | { kind: 'saleGoalGone'; cents: number }
   /** A split sale whose History row has been cleared, so the split cannot be undone exactly. */
   | { kind: 'rowGone' }
   | { kind: 'insufficient'; goalId: string; availableCents: number; neededCents: number }
@@ -114,10 +121,20 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
       }
     } else if (trade.kind === 'sell') {
       if (!activity) return { problem: { kind: 'rowGone' } };
-      // Every goal the sale fed gives back exactly what it got; a goal that
-      // has since been deleted took its share with it.
+      // Every goal the sale fed gives back exactly what it got. A deleted
+      // goal's share was handed on when it was deleted, so it is taken back
+      // from wherever the person says.
       for (const d of activity.distributions) {
         if (exists(banks, d.bankId)) add(bankDeltas, d.bankId, -toCents(d.amount));
+      }
+      const gone = goneShareCents(activity.distributions, banks);
+      if (gone !== 0) {
+        const takeBack = input.takeBack;
+        if (!takeBack) return { problem: { kind: 'saleGoalGone', cents: gone } };
+        if (takeBack.mode === 'goal') {
+          if (!exists(banks, takeBack.goalId)) return { problem: { kind: 'saleGoalGone', cents: gone } };
+          add(bankDeltas, takeBack.goalId, -gone);
+        }
       }
       for (const r of activity.repayments ?? []) add(loanDeltas, r.loanId, toCents(r.amount));
     }
