@@ -1,5 +1,8 @@
 import type { invest as English } from '../en/invest';
 
+/** A space between Chinese and a Latin name like M+ Online, none before 你保存的费率. */
+const spaced = (text: string) => (/^[A-Za-z0-9]/.test(text) ? ` ${text}` : text);
+
 export const invest: typeof English = {
   kind: {
     buy: '买入',
@@ -126,11 +129,12 @@ export const invest: typeof English = {
   refundSplitSub: '先补预支，剩下按比例分',
   refundNone: '不退回',
   refundNoneSub: '只改持股',
+  chooseWherePaidFrom: '这笔买入当初出钱的钱罐已经删掉了。选一下它现在从哪里出钱；原来的钱退去哪里，保存时会问你。',
   takeBackLater: '这笔卖出有一部分存进了已删除的钱罐。保存时会问你从哪个钱罐扣回。',
 
-  mismatchTitle: (rates) => `你的成交单和${rates}对不上`,
+  mismatchTitle: (rates) => `你的成交单和${spaced(rates)}对不上`,
   mismatchBody: (fee, rates, lower) =>
-    `你最近 3 笔交易都手动改了${fee}，而且每次都比${rates}算出来的${lower ? '少' : '多'}。如果券商改了收费，更新费率之后，以后的交易就会自动填对。`,
+    `你最近 3 笔交易都手动改了${fee}，而且每次都比${spaced(rates)}算出来的${lower ? '少' : '多'}。如果券商改了收费，更新费率之后，以后的交易就会自动填对。`,
   mismatchSavedRates: '你保存的费率',
   youEntered: '你输入的',
   mismatchNote: '新费率只用在以后的交易。这三笔保留你输入的手续费。',

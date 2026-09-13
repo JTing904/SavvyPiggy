@@ -76,6 +76,7 @@ export const goals: typeof English = {
   more: '增加',
   deleteTitle: (name) => (name ? `删除「${name}」？` : '删除这个钱罐？'),
   deleteBody: '这个钱罐里没有钱，不用搬。它在之后存入里的分配比例会分给其他钱罐。',
+  deleteBodyLast: '这个钱罐里没有钱，不用搬。它是你唯一的钱罐，删掉后存入就没有地方放，要等你再建一个钱罐。',
   moveMoney: {
     title: (name, amount) => `「${name}」里还有 ${amount}，要搬去哪里？`,
     body: '删掉钱罐不会再把钱一起删掉。选一个钱罐把钱搬过去，或者像存入一样自动分配。记录里会多一行「转入」。',

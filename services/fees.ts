@@ -211,3 +211,12 @@ export const REIT_SYMBOLS = new Set([
 
 export const securityTypeOf = (symbol: string, overrides?: Record<string, SecurityType> | null): SecurityType =>
   overrides?.[symbol] ?? (REIT_SYMBOLS.has(symbol) ? 'REIT' : 'EQUITY');
+
+/**
+ * What a typed fee field may hold: digits and at most two decimals. A fee is
+ * money, so a stray tap cannot turn 0.00 into 0.00100.
+ */
+export const cleanFeeInput = (text: string) => {
+  const [whole, ...rest] = text.replace(/[^\d.]/g, '').split('.');
+  return rest.length ? `${whole}.${rest.join('').slice(0, 2)}` : whole;
+};

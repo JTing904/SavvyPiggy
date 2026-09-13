@@ -5,6 +5,7 @@ import { formatMoney, fromCents, toCents } from '../services/money';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useT } from '../contexts/LanguageContext';
 import { ChoiceRow } from './invest/RefundSheet';
+import { goneGoalHint } from './goneGoalHint';
 
 /**
  * Asked when a record is undone — deleted from History, or a sale corrected or
@@ -36,13 +37,7 @@ const GoneShareSheet: React.FC<{
   const goals = banks.filter((b) => !isArchived(b));
   const [choice, setChoice] = useState<GoneShareChoice | null>(null);
 
-  const nameOf = (id: string) => banks.find((b) => b.id === id)?.name ?? t.history.deletedGoal;
-  const hints = goneGoalIds(distributions, banks).map((id) => {
-    const moved = activities.find((a) => a.type === 'transfer' && a.fromGoalId === id);
-    if (!moved) return w.noRecord;
-    const to = moved.distributions.map((d) => w.quoted(nameOf(d.bankId))).join(w.listJoin);
-    return w.movedTo(moved.fromGoal || t.history.deletedGoal, to);
-  });
+  const hints = goneGoalIds(distributions, banks).map((id) => goneGoalHint(t, id, banks, activities));
 
   const on = (c: GoneShareChoice) => !!choice && choice.mode === c.mode && (c.mode === 'none' || (choice.mode === 'goal' && choice.goalId === c.goalId));
 

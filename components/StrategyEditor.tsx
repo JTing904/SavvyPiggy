@@ -187,7 +187,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
     }
     const ok = await confirm({
       title: t.goals.deleteTitle(bank?.name),
-      body: t.goals.deleteBody,
+      body: localBanks.length > 1 ? t.goals.deleteBody : t.goals.deleteBodyLast,
       tone: 'danger',
       confirmLabel: t.common.delete,
       detail: bank && {

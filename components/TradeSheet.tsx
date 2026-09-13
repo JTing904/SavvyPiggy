@@ -14,6 +14,7 @@ import { saveInvest, saveTrade, TradeMoneyError, type TradeWrite } from '../serv
 import { formatMoney, fromCents, toCents } from '../services/money';
 import {
   brokerById,
+  cleanFeeInput,
   CUSTOM_BROKER_ID,
   FEE_KEYS,
   feesFor,
@@ -211,6 +212,19 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
    * trade did; a goal that has since been deleted cannot be chosen again, so
    * that one starts from "no goal" and the save asks where its money goes.
    */
+  /**
+   * A buy being corrected whose paying goal has been deleted. It cannot stay
+   * paid from a goal that is gone, and quietly showing "Not from a goal" read
+   * as if the person had chosen that — so nothing is picked until they pick.
+   */
+  const paidFromGone =
+    !!editing && editing.kind === 'buy' && editing.money?.mode === 'goal' && !banks.some((b) => b.id === (editing.money as { goalId: string }).goalId);
+  const [picked, setPicked] = useState(!paidFromGone);
+  const pick = (next: MoneyChoice) => {
+    setChoice(next);
+    setPicked(true);
+  };
+
   const [choice, setChoice] = useState<MoneyChoice>(() => {
     if (editing) {
       const m = editing.money;
@@ -287,7 +301,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const ratesName = broker ? (broker.id === CUSTOM_BROKER_ID ? t.invest.yourRates : t.invest.brokerRates(broker.name)) : '';
 
   const typeFee = (key: FeeKey, text: string) => {
-    setFeeInput((prev) => ({ ...prev, [key]: text }));
+    setFeeInput((prev) => ({ ...prev, [key]: cleanFeeInput(text) }));
     setEdited((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
   };
 
@@ -404,7 +418,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
    * forcing it into a goal now would count that money twice.
    */
   const legacyNone = !!editing && editing.kind === 'sell' && (!editing.money || editing.money.mode === 'none');
-  const needsChoice = kind === 'sell' && choice.mode === 'none' && !legacyNone;
+  const needsChoice = (kind === 'sell' && choice.mode === 'none' && !legacyNone) || !picked;
   const hasDestination = banks.some((b) => !b.archivedAt);
 
   const blocked = preview && 'problem' in preview.result ? describe(preview.result.problem) : null;
@@ -765,6 +779,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                         step="0.01"
                         value={shown(key)}
                         onChange={(e) => typeFee(key, e.target.value)}
+                        onFocus={(e) => e.target.select()}
                         placeholder="0.00"
                         className="w-full min-w-0 border-0 bg-transparent text-white text-sm font-black focus:outline-none placeholder:text-slate-700"
                       />
@@ -799,8 +814,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     label={b.name}
                     sub={b.archivedAt ? t.invest.archived : undefined}
                     value={money(toCents(b.currentAmount))}
-                    on={sameChoice(choice, { mode: 'goal', goalId: b.id })}
-                    onClick={() => setChoice({ mode: 'goal', goalId: b.id })}
+                    on={picked && sameChoice(choice, { mode: 'goal', goalId: b.id })}
+                    onClick={() => pick({ mode: 'goal', goalId: b.id })}
                   />
                 ))}
                 {kind === 'sell' && (canSplit || choice.mode === 'split') && (
@@ -809,8 +824,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     tone="split"
                     label={t.common.autoSplit}
                     sub={t.invest.autoSplitSub}
-                    on={choice.mode === 'split'}
-                    onClick={() => setChoice({ mode: 'split' })}
+                    on={picked && choice.mode === 'split'}
+                    onClick={() => pick({ mode: 'split' })}
                   />
                 )}
                 {(kind === 'buy' || legacyNone) && (
@@ -819,15 +834,18 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     tone="none"
                     label={kind === 'buy' ? t.common.notFromGoal : t.invest.notIntoGoal}
                     sub={kind === 'buy' ? t.invest.notFromGoalSub : t.invest.notIntoGoalLegacySub}
-                    on={choice.mode === 'none'}
-                    onClick={() => setChoice({ mode: 'none' })}
+                    on={picked && choice.mode === 'none'}
+                    onClick={() => pick({ mode: 'none' })}
                   />
                 )}
               </div>
-              {needsChoice && hasDestination && (
+              {!picked && (
+                <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWherePaidFrom}</p>
+              )}
+              {picked && needsChoice && hasDestination && (
                 <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWhereSaleGoes}</p>
               )}
-              {needsChoice && !hasDestination && (
+              {picked && needsChoice && !hasDestination && (
                 <div className="mt-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
                   <p className="text-amber-200/90 text-[11px] font-bold leading-relaxed">{t.invest.noGoalForSale}</p>
                   {onCreateGoal && (
@@ -867,7 +885,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     {t.invest.saleChangesNothing}
                   </p>
                 )}
-                {preview?.refundPending && (
+                {/* Until a source is picked, the hint above already says this. */}
+                {preview?.refundPending && picked && (
                   <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.refundLater}</p>
                 )}
                 {preview?.takeBackPending && (
@@ -908,6 +927,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             amountCents={refundAsk.cents}
             banks={banks}
             busy={busy}
+            goneGoalId={editing?.money?.mode === 'goal' ? editing.money.goalId : undefined}
+            activities={activities}
             confirmLabel={refundAsk.removing ? t.invest.deleteTrade : editing ? t.common.saveChanges : t.invest.record[kind]}
             onChoose={(refund) => void (refundAsk.removing ? removeWith(refund) : save(refund))}
             onClose={() => setRefundAsk(null)}

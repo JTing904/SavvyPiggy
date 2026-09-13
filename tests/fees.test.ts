@@ -1,5 +1,6 @@
 import {
   brokerById,
+  cleanFeeInput,
   brokerageCents,
   costCents,
   feeDrag,
@@ -106,5 +107,15 @@ eq('KLCC is a REIT under its stapled code', securityTypeOf('5235SS.KL'), 'REIT')
 eq('MAYBANK is a share', securityTypeOf('1155.KL'), 'EQUITY');
 eq('PLINTAS is a business trust, not a REIT', securityTypeOf('5320.KL'), 'EQUITY');
 eq('a person can correct the tag', securityTypeOf('1155.KL', { '1155.KL': 'REIT' }), 'REIT');
+
+// --- what a fee field keeps from typing
+eq('a plain fee is kept', cleanFeeInput('7.00'), '7.00');
+eq('whole ringgit is kept', cleanFeeInput('100'), '100');
+eq('a stray tap after 0.00 cannot add decimals', cleanFeeInput('0.00100'), '0.00');
+eq('a third decimal is dropped, not rounded', cleanFeeInput('7.009'), '7.00');
+eq('half-typed decimals are left alone', cleanFeeInput('7.'), '7.');
+eq('a second point is not a new number', cleanFeeInput('1.2.3'), '1.23');
+eq('anything but digits and a point goes', cleanFeeInput('RM 8,50'), '850');
+eq('an emptied field stays empty', cleanFeeInput(''), '');
 
 report();

@@ -61,7 +61,7 @@ const MoveGoalMoneySheet: React.FC<{
           {holdsMoney ? w.title(bank.name, money(Math.abs(cents))) : w.titleEmpty(bank.name)}
         </h3>
         <p className="text-slate-400 text-sm font-medium mt-3 leading-relaxed">
-          {nowhere ? w.nowhere : !holdsMoney ? t.goals.deleteBody : cents < 0 ? w.bodyOverspent : w.body}
+          {nowhere ? w.nowhere : !holdsMoney ? (others.length > 0 ? t.goals.deleteBody : t.goals.deleteBodyLast) : cents < 0 ? w.bodyOverspent : w.body}
         </p>
 
         {holdsMoney && !nowhere && (

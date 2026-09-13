@@ -143,6 +143,7 @@ export const invest = {
   refundSplitSub: 'Spent ahead first, then your %',
   refundNone: 'Don’t put it back',
   refundNoneSub: 'Only the shares change',
+  chooseWherePaidFrom: 'The goal this buy was paid from has been deleted. Choose where it is paid from now — you’ll be asked where the old money goes back when you save.',
   takeBackLater: 'Part of this sale went into a goal you’ve since deleted. When you save, you’ll be asked where it comes back from.',
 
   // When the contract notes keep disagreeing with the rates

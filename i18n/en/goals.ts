@@ -77,6 +77,7 @@ export const goals = {
   more: 'More',
   deleteTitle: (name?: string) => `Delete ${name ?? 'this goal'}?`,
   deleteBody: 'It holds no money, so nothing moves. Its share of future deposits goes to your other goals.',
+  deleteBodyLast: 'It holds no money, so nothing moves. It is your only goal, so deposits will have nowhere to go until you create another.',
   moveMoney: {
     title: (name: string, amount: string) => `${name} still holds ${amount}. Where should it go?`,
     body: 'Deleting a goal no longer deletes its money. Pick a goal to move it into, or split it across your goals like a deposit. History gets one "Moved in" line.',

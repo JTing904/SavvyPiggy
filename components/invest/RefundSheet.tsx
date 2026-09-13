@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import type { PiggyBank } from '../../types';
+import type { Activity, PiggyBank } from '../../types';
 import type { MoneyChoice } from '../../services/tradeMoney';
 import { isInSplit } from '../../services/ledger';
 import { formatMoney, fromCents, toCents } from '../../services/money';
 import { useBackHandler } from '../../hooks/useBackHandler';
 import { useT } from '../../contexts/LanguageContext';
+import { goneGoalHint } from '../goneGoalHint';
 
 /**
  * One option in a "where does the money go" list: a goal, Auto split, or no
@@ -54,18 +55,21 @@ interface RefundSheetProps {
   /** "Save changes" or "Delete trade" — whatever was being done when this came up. */
   confirmLabel: string;
   busy: boolean;
+  /** The deleted goal the buy was paid from, and History, to say where its money went. */
+  goneGoalId?: string;
+  activities?: Activity[];
   onChoose: (choice: MoneyChoice) => void;
   onClose: () => void;
 }
 
-const key = (choice: MoneyChoice) => (choice.mode === 'goal' ? choice.goalId : choice.mode);
+const key = (choice: MoneyChoice | null) => (!choice ? null : choice.mode === 'goal' ? choice.goalId : choice.mode);
 
 /**
  * Asked when a buy is corrected or deleted and the goal it was paid from has
  * been deleted since. The money has to land somewhere — or, if the person
  * says so, nowhere — and the app will not pick for them.
  */
-const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLabel, busy, onChoose, onClose }) => {
+const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLabel, busy, goneGoalId, activities = [], onChoose, onClose }) => {
   const t = useT();
   useBackHandler(true, onClose);
 
@@ -73,9 +77,9 @@ const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLa
   // Auto split into a strategy nobody takes part in would quietly put nothing
   // back, so it is only offered when some goal would actually receive a share.
   const canSplit = banks.some(isInSplit);
-  const [choice, setChoice] = useState<MoneyChoice>(() =>
-    canSplit ? { mode: 'split' } : goals[0] ? { mode: 'goal', goalId: goals[0].id } : { mode: 'none' }
-  );
+  // Nothing is picked for the person: where money lands is theirs to say.
+  const [choice, setChoice] = useState<MoneyChoice | null>(null);
+  const hint = goneGoalId ? goneGoalHint(t, goneGoalId, banks, activities) : null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/85 veil-in" onClick={onClose}>
@@ -91,6 +95,11 @@ const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLa
           {t.invest.refundTitle(formatMoney(fromCents(amountCents)))}
         </h3>
         <p className="text-slate-400 text-[13px] font-medium mt-2 leading-relaxed">{t.invest.refundBody}</p>
+        {hint && (
+          <p className="text-amber-200/90 text-[12px] font-bold mt-3 leading-relaxed rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
+            {hint}
+          </p>
+        )}
 
         <div className="mt-5 space-y-2">
           {goals.map((b) => (
@@ -109,7 +118,7 @@ const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLa
               tone="split"
               label={t.common.autoSplit}
               sub={t.invest.refundSplitSub}
-              on={choice.mode === 'split'}
+              on={choice?.mode === 'split'}
               onClick={() => setChoice({ mode: 'split' })}
             />
           )}
@@ -118,15 +127,15 @@ const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLa
             tone="none"
             label={t.invest.refundNone}
             sub={t.invest.refundNoneSub}
-            on={choice.mode === 'none'}
+            on={choice?.mode === 'none'}
             onClick={() => setChoice({ mode: 'none' })}
           />
         </div>
 
         <button
           type="button"
-          onClick={() => onChoose(choice)}
-          disabled={busy}
+          onClick={() => choice && onChoose(choice)}
+          disabled={busy || !choice}
           className="w-full h-14 mt-6 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
         >
           {confirmLabel}
