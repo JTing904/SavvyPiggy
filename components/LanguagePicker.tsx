@@ -24,7 +24,7 @@ const LanguagePicker: React.FC = () => (
       Choose your language
     </h1>
     <p className="text-slate-400 text-sm font-medium leading-relaxed mt-2">
-      之后可以在 Profile 里更改。
+      之后可以在「个人」页面里更改。
       <br />
       You can change this later in Profile.
     </p>

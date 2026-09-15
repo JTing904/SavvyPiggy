@@ -161,9 +161,16 @@ export const dayStart = (ms: number) => {
   return date.getTime();
 };
 
-/** Oldest first; two trades on the same day keep the order they were entered. */
+/** Buys before anything else on the same day: a day's units are all in before any of them is sold. */
+const sameDayRank = (trade: Pick<Trade, 'kind'>) => (trade.kind === 'buy' ? 0 : 1);
+
+/**
+ * Oldest first. On the same trade day buys come before sales, so a buy and a
+ * sale of the same shares entered in the wrong order still read as held;
+ * beyond that, trades keep the order they were entered.
+ */
 export const ordered = (trades: Trade[]) =>
-  [...trades].sort((a, b) => a.tradedAt - b.tradedAt || a.createdAt - b.createdAt);
+  [...trades].sort((a, b) => a.tradedAt - b.tradedAt || sameDayRank(a) - sameDayRank(b) || a.createdAt - b.createdAt);
 
 /**
  * The position a log of trades adds up to. Nothing stores units and cost —

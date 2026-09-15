@@ -4,20 +4,12 @@ export const plan: typeof English = {
   title: '推荐',
   buyThis: (name) => `买入 ${name}`,
   buyThisHint: '打开买入页，股数和价格照你的成交单填，钱从投资钱罐出',
-  changeBroker: '换券商',
 
   styles: {
     income: '股息派',
     cash: '现金流派',
     price: '股价派',
   },
-
-  payFrom: '从哪里出钱',
-  notFromGoalHint: '只记交易，钱罐里的钱不动',
-  spendUpTo: '最多花',
-  monthBudget: '这个月的预算',
-  allOfIt: '全部',
-  overBalance: (goal, balance) => `超过了「${goal}」里的钱（${balance}），所以按 ${balance} 来算。`,
 
   yourStyle: '你的风格',
   setStyleTitle: '先定下你的风格',
@@ -41,13 +33,6 @@ export const plan: typeof English = {
   countsFor: '利好',
   countsAgainst: '利空',
   tie: (other) => `${other} 跟你的风格几乎一样合，当作平手看待。`,
-  pill: {
-    buy: '买入',
-    lots: '整手',
-    odd: '碎股',
-    wait: '还不够一手',
-    skip: '这个月跳过',
-  },
 
   reason: {
     yield12: (p) => `过去一年派了 ${p} 的股息`,
@@ -73,34 +58,6 @@ export const plan: typeof English = {
     steadier: '股价比大部分股票稳',
     swingsMore: (p) => `股价比大部分股票波动大（一个月大约 ${p}）`,
   },
-
-  noPrice: '还没有股价——连上网就会有。',
-  chooseBroker: '选好你的券商，才能算出要花多少',
-  chooseBrokerButton: '选券商',
-  notOneUnit: '连一股都不够买',
-  oneUnitCosts: (amount) => `一股加手续费要 ${amount}。留到下个月再说。`,
-  oneLotCosts: '一手要',
-  notALot: (amount) => `还不够一手 · 还差 ${amount}`,
-  waitForLot: '等够一手再买',
-  waitForLotHint: '钱先留着，够买 100 股再买',
-  fullLotsOnly: (units) => `只买整手 · ${units} 股`,
-  fullLotsHint: (odd) => `剩下的 ${odd} 股等下个月`,
-  buyAllNow: (units) => `现在就买全部 ${units} 股`,
-  buyAllNowHint: (odd) => `其中 ${odd} 股是碎股——碎股的价格可能跟主板不一样`,
-  unitsAt: (units, price) => `${units} 股 @ ${price}`,
-  brokerage: '佣金',
-  clearing: '结算费',
-  stamp: '印花税',
-  sst: '服务税（SST）',
-  total: '合计',
-  staysIn: (goal) => `留在「${goal}」`,
-  leftOfBudget: '预算剩下',
-  feeDrag: (p) => `手续费占这笔买入的 ${p}。买得少，最低收费就显得重。`,
-  oddNote: (price, odd) =>
-    `碎股在另一个市场撮合，买卖的人比较少。那 ${odd} 股可能要付比 ${price} 高的价——记录时填成交单上的价格。`,
-  ratesOf: (broker) => `按 ${broker} 的费率算`,
-  ownRates: '你自己填的',
-  recordBuy: '记录这笔买入',
 
   ranked: '你的清单排名',
   facts: {
@@ -144,8 +101,6 @@ export const plan: typeof English = {
 
   card: {
     pick: (month) => `${month}推荐`,
-    unitsWithFees: (units, amount) => `${units} 股 · 含手续费 ${amount}`,
-    notALot: '还不够买一手',
     bestMatchFor: (mix) => `最符合 ${mix}`,
     setUp: '设置推荐',
     setUpHint: '回答六个问题，再挑出你想买的股票。',

@@ -3,7 +3,7 @@ import type { setup as English } from '../en/setup';
 export const setup: typeof English = {
   styleTitle: '你的风格',
   notNow: '以后再说',
-  gate: '第一次买入前，先回答六个问题。推荐会按你想从股票得到什么来挑。',
+  gate: '看推荐前，先回答六个问题。推荐会按你想从股票得到什么来挑。',
   questionOf: (n, total) => `第 ${n} 题，共 ${total} 题`,
   seeMyStyle: '看我的风格',
 
@@ -45,8 +45,8 @@ export const setup: typeof English = {
   noBetter: '——不比随便挑好',
   noRecord: '你的清单历史还不够，暂时没法测试',
   redoQuestions: '重新回答问题',
-  continueToBuy: '继续买入',
-  redoNote: '随时可以在每月定投页面重新做。',
+  continueToPick: '看我的推荐',
+  redoNote: '随时可以在推荐页面重新做。',
 
   brokerTitle: '你的券商',
   brokerFirstTitle: '你在哪里买股票？',

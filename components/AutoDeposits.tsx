@@ -78,8 +78,25 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
       // restarts its clock in updateSchedule, so the change applies from the
       // next occurrence and never backwards; changing only the amount does
       // not, so correcting a figure never reposts.
-      if (editing) await onUpdate(editing.id, shape);
-      else await onCreate({ ...shape, enabled: true });
+      if (editing) {
+        // Only what actually changed is sent. The whole form went every time,
+        // and its unchanged frequency and day read as a reschedule, so fixing
+        // just the amount or the goal restarted the clock anyway.
+        const was = {
+          amount: editing.amount,
+          frequency: editing.frequency,
+          weekday: editing.weekday ?? 1,
+          dayOfMonth: editing.dayOfMonth ?? 1,
+          month: editing.month ?? 1,
+          targetBankId: editing.targetBankId,
+        };
+        const patch = Object.fromEntries(
+          (Object.keys(shape) as (keyof typeof shape)[])
+            .filter((key) => shape[key] !== was[key])
+            .map((key) => [key, shape[key]])
+        ) as Partial<typeof shape>;
+        if (Object.keys(patch).length > 0) await onUpdate(editing.id, patch);
+      } else await onCreate({ ...shape, enabled: true });
       reset();
     } catch {
       setBusy(false);

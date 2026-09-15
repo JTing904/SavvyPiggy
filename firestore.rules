@@ -46,13 +46,44 @@ service cloud.firestore {
       allow list, update, delete: if false;
     }
 
+    // The investment pot is cash, and cash cannot be spent twice. A phone that
+    // was offline can queue a buy against a balance another phone has already
+    // spent; the server is the only place that sees both, so it refuses any
+    // write that leaves the pot below zero. The small allowance absorbs float
+    // increments (100.1 - 100.1 can land on -2.8e-17), and a pot that is
+    // already negative may still be saved as long as it does not go lower, so
+    // the rest of the investing settings never get stuck behind it.
+    function potStaysNonNegative() {
+      let after = request.resource.data;
+      return !('potBalance' in after)
+        || (after.potBalance is number
+            && (after.potBalance >= -0.001
+                || (resource != null && after.potBalance >= resource.data.get('potBalance', 0))));
+    }
+
     // A user's own data, gated on membership. Without a redeemed invite the
     // account exists but can read and write nothing at all.
     match /users/{uid} {
       allow read, write: if isOwner(uid) && isMember(uid);
 
-      match /{document=**} {
+      // Rules are OR'd, so a wildcard that also matched settings/invest would
+      // let any write through and the pot guard below would never bite. This
+      // one covers every top-level document except that one.
+      match /{collectionId}/{docId} {
+        allow read: if isOwner(uid) && isMember(uid);
+        allow write: if isOwner(uid) && isMember(uid)
+                     && !(collectionId == 'settings' && docId == 'invest');
+      }
+
+      // Anything nested deeper under a document. At least one more segment is
+      // required, because {rest=**} alone also matches zero segments.
+      match /{collectionId}/{docId}/{subCollectionId}/{rest=**} {
         allow read, write: if isOwner(uid) && isMember(uid);
+      }
+
+      match /settings/invest {
+        allow read, delete: if isOwner(uid) && isMember(uid);
+        allow create, update: if isOwner(uid) && isMember(uid) && potStaysNonNegative();
       }
     }
 

@@ -350,8 +350,6 @@ export interface InvestSettings {
   style: { answers: number[]; mix: StyleMix; at: number } | null;
   /** A person's correction when a counter's REIT tag is wrong. */
   typeOverrides: Record<string, SecurityType>;
-  /** The goal a monthly buy is paid from by default. */
-  budgetGoalId: string | null;
   /** Epoch ms the fee-mismatch question was last answered; only trades after it count. */
   feePromptAt: number;
   /**

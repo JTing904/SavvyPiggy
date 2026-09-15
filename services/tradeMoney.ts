@@ -19,6 +19,17 @@ import { fromCents, toCents } from './money';
 
 export type MoneyChoice = { mode: 'goal'; goalId: string } | { mode: 'split' } | { mode: 'pot' } | { mode: 'none' };
 
+/**
+ * The money stamp a trade will carry for a choice, before the History row's id
+ * is known — enough to tell a back-filled buy from a paid one.
+ */
+export const stampOf = (choice: MoneyChoice): TradeMoney =>
+  choice.mode === 'goal'
+    ? { mode: 'goal', goalId: choice.goalId, activityId: '' }
+    : choice.mode === 'split'
+      ? { mode: 'split', activityId: '' }
+      : { mode: choice.mode };
+
 export interface TradeSide {
   kind: 'buy' | 'sell';
   /** What moved: a buy's cost with fees, a sale's proceeds after them. */
@@ -48,6 +59,12 @@ export interface TradeMoneyInput {
   takeBack?: GoneShareChoice;
   /** The investment pot's balance now, in sen. */
   potCents?: number;
+  /**
+   * What the change does to dividends already paid into the pot (see
+   * reconcileDividends), in sen. Moves the pot with the trade, so it is held
+   * to the same never-below-zero rule.
+   */
+  dividendDeltaCents?: number;
 }
 
 export type TradeMoneyProblem =
@@ -80,8 +97,10 @@ export interface TradeMoneyPlan {
   loanDeltas: Record<string, number>;
   /** Outstanding after the plan, for the debts it touched — to settle or reopen them. */
   loanOutstanding: Record<string, number>;
-  /** Change to the investment pot, in sen. */
+  /** Change to the investment pot, in sen, dividends adjusted included. */
   potDelta: number;
+  /** The part of potDelta that corrects dividends already paid in. */
+  dividendCents: number;
   activity:
     | { write: 'none' }
     | { write: 'delete'; id: string }
@@ -180,14 +199,18 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
 
   if (next) {
     const { choice, totalCents } = next;
-    if (choice.mode === 'none' || totalCents === 0 || (next.kind === 'buy' && totalCents < 0)) {
+    if (choice.mode === 'none') {
       money = { mode: 'none' };
     } else if (choice.mode === 'pot') {
+      // Kept as a pot trade even when it comes to nothing: stored as "none", a
+      // later correction to a real amount would skip the pot without a word.
       // The investment pot: a buy comes out of it, a sale's proceeds (negative
       // when the fees were bigger) go into it. No savings History row — the
       // savings side never sees it.
       potDelta += next.kind === 'buy' ? -totalCents : totalCents;
       money = { mode: 'pot' };
+    } else if (totalCents === 0 || (next.kind === 'buy' && totalCents < 0)) {
+      money = { mode: 'none' };
     } else if (next.kind === 'sell' && totalCents < 0) {
       // The fees were bigger than the sale, so it cost money: the shortfall is
       // taken from one goal. Splitting a cost like a deposit would read as
@@ -245,6 +268,9 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
     }
   }
 
+  const dividendCents = input.dividendDeltaCents ?? 0;
+  potDelta += dividendCents;
+
   // The pot never goes below zero, whatever brought it there: a buy it cannot
   // pay for, a sale whose fees it cannot cover, or undoing a sale already spent.
   if (potDelta < 0 && potCents + potDelta < 0) {
@@ -270,5 +296,5 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
       ? { write: 'delete', id: (existingId ?? staleId) as string }
       : { write: 'none' };
 
-  return { plan: { bankDeltas, loanDeltas, loanOutstanding, potDelta, activity, money } };
+  return { plan: { bankDeltas, loanDeltas, loanOutstanding, potDelta, dividendCents, activity, money } };
 };

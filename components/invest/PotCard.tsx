@@ -17,6 +17,7 @@ const PotCard: React.FC<{
   const t = useT();
   const w = t.invest.potCard;
   const cents = toCents(balance);
+  const shown = formatMoney(fromCents(cents));
 
   return (
     <div className="rounded-[2rem] bg-surface border border-accent/25 p-5 shadow-xl">
@@ -26,7 +27,14 @@ const PotCard: React.FC<{
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.invest.pot}</p>
-          <p className="text-white text-2xl font-black tracking-tight truncate">{formatMoney(fromCents(cents))}</p>
+          {/* Money is never cut off: a long balance gets a smaller size instead. */}
+          <p
+            className={`text-white font-black tracking-tight break-all ${
+              shown.length > 15 ? 'text-lg' : shown.length > 12 ? 'text-xl' : 'text-2xl'
+            }`}
+          >
+            {shown}
+          </p>
         </div>
       </div>
       <p className="text-slate-500 text-[11px] font-bold mt-2 leading-relaxed">{w.hint}</p>

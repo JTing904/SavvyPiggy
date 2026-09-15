@@ -89,7 +89,7 @@ export const goals: typeof English = {
     moneyHeading: '钱搬去哪里',
     schedules: (count, name) => `有 ${count} 条自动存入是存进「${name}」的，以后改存到哪里？`,
     scheduleSplitSub: '按各钱罐的比例分',
-    scheduleSplitWaiting: '现在没有钱罐参与分配——会先等着，设好比例再存',
+    scheduleSplitWaiting: '现在没有钱罐参与分配——设好比例之前的日子会跳过，不会补存',
     confirmEmpty: '删除',
   },
   archiveSchedules: {

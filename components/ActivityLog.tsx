@@ -10,6 +10,9 @@ import { useT } from '../contexts/LanguageContext';
 import { dateLocale, noteText, type Messages } from '../i18n';
 import { goneShareCents, type GoneShareChoice } from '../services/ledger';
 import GoneShareSheet from './GoneShareSheet';
+import OlderRecordsNotice from './OlderRecordsNotice';
+import { historyNeedsFrom } from '../services/ledgerWindow';
+import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 
 const STYLES: Record<
   ActivityType,
@@ -28,6 +31,8 @@ const STYLES: Record<
 
 interface ActivityLogProps {
   activities: Activity[];
+  /** How far back `activities` goes; an older month asks for its records. */
+  ledger: Ledger;
   banks: PiggyBank[];
   /** `takeBack` settles the share of a goal deleted since; only asked for when there is one. */
   onDeleteActivity: (id: string, takeBack?: GoneShareChoice) => void;
@@ -96,6 +101,7 @@ interface Day {
 
 const ActivityLog: React.FC<ActivityLogProps> = ({
   activities,
+  ledger,
   banks,
   onDeleteActivity,
   onEditActivity,
@@ -115,6 +121,18 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   const [editValue, setEditValue] = useState('');
   /** An entry being deleted that went through a goal deleted since. */
   const [settling, setSettling] = useState<Activity | null>(null);
+
+  /*
+    Only three months are live. A month older than that — and the month
+    before it, which its comparison needs — is read when it is picked, and the
+    picker only lists earlier months once asked to, so jumping between recent
+    months costs nothing.
+  */
+  const [wantEarlier, setWantEarlier] = useState(false);
+  const monthNeed = historyNeedsFrom(month, ledger.liveFrom, ledger.keptFrom);
+  useLedgerRange(ledger, wantEarlier ? ledger.keptFrom : monthNeed);
+  const monthStatus = ledger.status(monthNeed);
+  const earlierStatus = ledger.status(ledger.keptFrom);
 
   useBackHandler(pickMonth, () => setPickMonth(false));
   useBackHandler(pickingFor !== null, () => setPickingFor(null));
@@ -215,7 +233,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
 
   const handleSaveEdit = (id: string) => {
     const val = parseFloat(editValue);
-    if (!isNaN(val) && val >= 0) onEditActivity(id, val);
+    // Zero (or under a sen) is refused: an entry that moved nothing is a delete.
+    if (!isNaN(val) && toCents(val) > 0) onEditActivity(id, val);
     setEditingId(null);
   };
 
@@ -227,9 +246,13 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       return;
     }
     const style = STYLES[activity.type];
-    const undo = style.outgoing
-      ? t.history.undoOutgoing(money(activity.amount))
-      : t.history.undoIncoming(money(activity.amount));
+    // Spending ahead never touched a goal, so there is nothing of it to hand back.
+    const undo =
+      activity.type === 'borrow'
+        ? t.history.undoBorrow
+        : style.outgoing
+          ? t.history.undoOutgoing(money(activity.amount))
+          : t.history.undoIncoming(money(activity.amount));
     const ok = await confirm({
       title: t.history.removeTitle,
       body: undo,
@@ -415,7 +438,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
           </p>
           <div className="flex items-end gap-3 mt-2 flex-wrap">
             <h3 className="text-white text-3xl font-black tracking-tight">{money(fromCents(savedThisMonth))}</h3>
-            {change !== null && (
+            {change !== null && monthStatus === 'ready' && (
               <span
                 className={`flex items-center gap-0.5 text-sm font-black ${change < 0 ? 'text-slate-400' : 'text-primary'}`}
               >
@@ -427,10 +450,16 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
               </span>
             )}
           </div>
-          <p className="text-slate-500 text-xs font-medium mt-1">
-            {change === null ? t.history.nothingSavedBefore : t.history.comparedWithBefore}
-          </p>
+          {/* The month before is not read yet: no comparison rather than a wrong one. */}
+          {monthStatus === 'ready' && (
+            <p className="text-slate-500 text-xs font-medium mt-1">
+              {change === null ? t.history.nothingSavedBefore : t.history.comparedWithBefore}
+            </p>
+          )}
         </div>
+        {monthStatus !== 'ready' && (
+          <OlderRecordsNotice status={monthStatus} onRetry={ledger.retry} className="mt-3" />
+        )}
       </div>
 
       {/* Timeline */}
@@ -684,6 +713,19 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
                   </button>
                 );
               })}
+              {/* Months before the live three are read only when asked for. */}
+              {earlierStatus !== 'ready' &&
+                (wantEarlier ? (
+                  <OlderRecordsNotice status={earlierStatus} onRetry={ledger.retry} />
+                ) : (
+                  <button
+                    onClick={() => setWantEarlier(true)}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl px-5 h-14 border border-dashed border-white/15 text-slate-300 font-black active:scale-[0.98] transition-transform"
+                  >
+                    <span className="material-symbols-rounded text-lg">history</span>
+                    {t.history.showEarlierMonths}
+                  </button>
+                ))}
             </div>
           </div>
         </div>

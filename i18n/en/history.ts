@@ -41,12 +41,14 @@ export const history = {
   remove: 'Remove',
   undoOutgoing: (amount: string) => `The ${amount} goes back into your goals.`,
   undoIncoming: (amount: string) => `The ${amount} is taken back out of your goals.`,
+  undoBorrow: 'This spend-ahead is cancelled. Any part your deposits already covered goes back into your goals.',
 
   whatWasThisFor: 'What was this for?',
   labelOnly: 'Changes the label only — the money stays exactly where it is.',
 
   jumpToMonth: 'Jump to a month',
   onlyMonthsWithRecords: 'Only months holding records are listed.',
+  showEarlierMonths: 'Show earlier months',
 
   /** The sort sheet. */
   sortAria: (label: string) => `Sort: ${label}`,

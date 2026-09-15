@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-path name="my_images" path="." />
+    <!-- Exports are written to the app cache (services/share.ts, Directory.Cache)
+         and handed to the share sheet from there; nothing is shared from external storage. -->
     <cache-path name="my_cache_images" path="." />
 </paths>

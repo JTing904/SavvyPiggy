@@ -159,42 +159,7 @@ export const costCents = (units: number, pricePoints: number, broker: Broker, ty
   return value + totalFees(feesFor(value, broker, type));
 };
 
-/**
- * The most units a budget buys once fees are paid.
- *
- * It starts from a guess and walks both ways. Walking only down leaves units
- * on the table whenever the guess starts low — which it does, because the
- * minimum brokerage is taken off before dividing.
- */
-export const maxUnits = (cashCents: number, pricePoints: number, broker: Broker, type: SecurityType = 'EQUITY') => {
-  if (cashCents <= 0 || pricePoints <= 0) return 0;
-  let units = Math.max(0, Math.floor(((cashCents - 1_000) * 100) / pricePoints));
-  while (units > 0 && costCents(units, pricePoints, broker, type) > cashCents) units--;
-  while (costCents(units + 1, pricePoints, broker, type) <= cashCents) units++;
-  return units;
-};
-
 export const BOARD_LOT = 100;
-
-export type LotPlan =
-  | { kind: 'none'; units: 0 }
-  /** Short of a full lot; `shortCents` is what one lot still needs. */
-  | { kind: 'shortOfLot'; units: number; shortCents: number }
-  /** Full lots, with `odd` more affordable only on the odd-lot market. */
-  | { kind: 'lots'; units: number; lots: number; odd: number };
-
-export const lotPlan = (cashCents: number, pricePoints: number, broker: Broker, type: SecurityType = 'EQUITY'): LotPlan => {
-  const units = maxUnits(cashCents, pricePoints, broker, type);
-  if (units === 0) return { kind: 'none', units: 0 };
-  const lots = Math.floor(units / BOARD_LOT);
-  if (lots === 0) {
-    return { kind: 'shortOfLot', units, shortCents: costCents(BOARD_LOT, pricePoints, broker, type) - cashCents };
-  }
-  return { kind: 'lots', units, lots, odd: units % BOARD_LOT };
-};
-
-/** Fees as a share of what was bought. Over 1% eats a real part of a year's dividend. */
-export const feeDrag = (fees: TradeFees, value: number) => (value > 0 ? totalFees(fees) / value : 0);
 
 /* ------------------------------------------------------------------- REITs */
 

@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import type { Activity, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
+import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
+import type { CreditedDividend } from '../services/dividends';
 import { ordered, pricePointsOf, tradeTotalCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
+import { OlderRecordsSheet } from './OlderRecordsNotice';
+import { useTradeRow } from '../hooks/useTradeRow';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, type Messages } from '../i18n';
 
@@ -12,10 +15,16 @@ interface TradesProps {
   onBack: () => void;
   /** Passed through to the trade sheet, which moves goal money with a trade. */
   activities: Activity[];
+  /** Where the kept ledger starts, for finding an older trade's History row. */
+  keptFrom: Date;
   banks: PiggyBank[];
   loans: Loan[];
   savings: SavingsSettings;
   invest: InvestSettings;
+  /** Dividends already paid in (null until known), and the announcements: a correction can move them. */
+  credited: CreditedDividend[] | null;
+  dividends: Dividend[];
+  alertIds: string[];
   onEditBroker: () => void;
   onCreateGoal?: () => void;
 }
@@ -71,10 +80,26 @@ const TAG: Record<Trade['kind'], { className: string; amountClass: string }> = {
  * lines, so correcting a wrong number here fixes that line and leaves the
  * rest of the history — and any dividend already worked out from it — alone.
  */
-const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks, loans, savings, invest, onEditBroker, onCreateGoal }) => {
+const Trades: React.FC<TradesProps> = ({
+  uid,
+  trades,
+  onBack,
+  activities,
+  keptFrom,
+  banks,
+  loans,
+  savings,
+  invest,
+  credited,
+  dividends,
+  alertIds,
+  onEditBroker,
+  onCreateGoal,
+}) => {
   const t = useT();
   const [draft, setDraft] = useState<TradeDraft | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const row = useTradeRow(uid, draft, activities, keptFrom);
   const now = new Date();
 
   const say = (text: string) => {
@@ -147,8 +172,8 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks,
                       </div>
                       {/* The money that actually moved: a buy with its fees, a sale after them. */}
                       <p className={`text-[13px] font-black shrink-0 ${tag.amountClass}`}>
-                        {trade.kind === 'buy' ? '' : '+'}
-                        {money(tradeTotalCents(trade))}
+                        {/* A sale below its fees came to less than nothing: the sign follows the figure. */}
+                        {trade.kind === 'buy' ? money(tradeTotalCents(trade)) : money(tradeTotalCents(trade), { signed: true })}
                       </p>
                     </button>
                   );
@@ -165,15 +190,21 @@ const Trades: React.FC<TradesProps> = ({ uid, trades, onBack, activities, banks,
         )}
       </div>
 
-      {draft && (
+      {draft && row.status !== 'ready' && (
+        <OlderRecordsSheet status={row.status} onRetry={row.retry} onClose={() => setDraft(null)} />
+      )}
+      {draft && row.status === 'ready' && (
         <TradeSheet
           uid={uid}
           trades={trades}
-          activities={activities}
+          activities={row.activities}
           banks={banks}
           loans={loans}
           savings={savings}
           invest={invest}
+          credited={credited}
+          dividends={dividends}
+          alertIds={alertIds}
           draft={draft}
           onClose={() => setDraft(null)}
           onDone={say}

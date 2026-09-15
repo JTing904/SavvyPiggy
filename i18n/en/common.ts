@@ -18,6 +18,13 @@ export const common = {
   viewAll: 'View All',
   somethingWentWrong: 'Something went wrong.',
 
+  /** Figures that need records older than the last three months, read on demand. */
+  older: {
+    loading: 'Loading older records…',
+    failed: "Older records couldn't be loaded — you may be offline. Nothing is shown rather than an incomplete total.",
+    retry: 'Try again',
+  },
+
   /** What each kind of ledger entry is called wherever it is listed. */
   activity: {
     autoSave: 'Scheduled deposit',

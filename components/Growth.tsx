@@ -112,7 +112,11 @@ const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) =>
               <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
                 {t.invest.totalReturn}
               </p>
-              <p className={`text-4xl font-black tracking-tight mt-1 ${tone(total.totalCents)}`}>
+              <p
+                className={`font-black tracking-tight mt-1 ${
+                  money(total.totalCents, { signed: true }).length > 12 ? 'text-3xl' : 'text-4xl'
+                } ${tone(total.totalCents)}`}
+              >
                 {money(total.totalCents, { signed: true })}
               </p>
               <p className="text-slate-500 text-xs font-bold mt-1">

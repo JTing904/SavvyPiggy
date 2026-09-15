@@ -3,7 +3,7 @@ import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMem
 import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings, InvestSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
-import { formatMoney, fromCents, toCents } from '../services/money';
+import { formatMoney, fromCents, percentReached, toCents } from '../services/money';
 import { ledgerAmount } from '../services/export';
 import { sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
@@ -134,6 +134,15 @@ const Dashboard: React.FC<DashboardProps> = ({
   const { user } = useAuth();
   const t = useT();
   const [mode, setMode] = useState<Mode | null>(null);
+  /**
+   * Whether the investing half has been on screen yet. It stays mounted
+   * behind a class so swiping back is instant, but the pick card downloads
+   * monthly price history, which someone who only saves should never pay for.
+   */
+  const [investSeen, setInvestSeen] = useState(navMode === 'invest');
+  useEffect(() => {
+    if (navMode === 'invest') setInvestSeen(true);
+  }, [navMode]);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [category, setCategory] = useState<string>(UNCATEGORISED);
@@ -477,7 +486,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="min-w-full text-center py-10 opacity-30 italic">{t.home.noPiggyBanks}</div>
             ) : (
               sortedBanks.map((bank) => {
-                const overspent = bank.currentAmount < 0;
+                const overspent = toCents(bank.currentAmount) < 0;
                 const progress =
                   bank.targetAmount > 0
                     ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
@@ -527,7 +536,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           {t.home.amountState(formatMoney(bank.currentAmount), overspent ? t.home.overspent : t.home.saved)}
                         </p>
                         {bank.targetAmount > 0 ? (
-                          <p className="text-white text-sm font-black shrink-0">{Math.round(progress)}%</p>
+                          <p className="text-white text-sm font-black shrink-0">{percentReached(bank.currentAmount, bank.targetAmount)}%</p>
                         ) : (
                           <p className="text-primary text-sm font-black shrink-0 leading-none">&infin;</p>
                         )}
@@ -610,9 +619,10 @@ const Dashboard: React.FC<DashboardProps> = ({
               <PotCard balance={investSettings.potBalance ?? 0} onMoveIn={() => onPotMove('in')} onMoveOut={() => onPotMove('out')} />
             </div>
           )}
-          {investSettings && onOpenMonthlyBuy && (
+          {/* Only once the investing side has been shown: the pick fetches months of prices. */}
+          {investSeen && investSettings && onOpenMonthlyBuy && (
             <div className="mb-6">
-              <PickCard banks={banks} invest={investSettings} quotes={quotes} onOpen={onOpenMonthlyBuy} />
+              <PickCard invest={investSettings} quotes={quotes} onOpen={onOpenMonthlyBuy} />
             </div>
           )}
           {holdings.length === 0 ? (

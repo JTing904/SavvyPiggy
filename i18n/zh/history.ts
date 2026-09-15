@@ -34,6 +34,7 @@ export const history: typeof English = {
   removeTitle: '删除这笔记录？',
   remove: '删除',
   undoOutgoing: (amount) => `这 ${amount} 会回到你的钱罐。`,
+  undoBorrow: '这笔预支会取消。已经被存入还掉的部分会回到你的钱罐。',
   undoIncoming: (amount) => `这 ${amount} 会从你的钱罐里扣回。`,
 
   whatWasThisFor: '这笔花在哪里？',
@@ -41,6 +42,7 @@ export const history: typeof English = {
 
   jumpToMonth: '跳到某个月',
   onlyMonthsWithRecords: '只列出有记录的月份。',
+  showEarlierMonths: '显示更早的月份',
 
   sortAria: (label) => `排序：${label}`,
   sortBy: '排序方式',

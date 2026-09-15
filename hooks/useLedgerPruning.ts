@@ -28,11 +28,12 @@ export const useLedgerPruning = (
   savings: SavingsSettings,
   ready: boolean
 ) => {
-  const ran = useRef(false);
+  // Keyed by account: signing into another one clears that account too.
+  const ran = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!uid || !ready || ran.current || savings.retentionMonths === null) return;
-    ran.current = true;
+    if (!uid || !ready || ran.current === uid || savings.retentionMonths === null) return;
+    ran.current = uid;
 
     void (async () => {
       try {

@@ -43,7 +43,7 @@ export const alerts = {
   housekeepingBody: (months: number | undefined) =>
     `The app reads your whole history every time it opens, so records older than ${months ?? ''} months are cleared to keep that quick. Nothing is removed until it has been listed there. Open Report → Statements to save those months first, or to change how long they are kept. Your balances are never affected.`,
   dividendBody: (units: string) =>
-    `Worked out on the ${units} units you held on the ex-date and split across your goals like any other deposit. Companies deduct tax and fees, so check the amount that actually landed and correct it in Trades if it differs.`,
+    `Worked out on the ${units} units you held on the ex-date and paid into your investment pot at the amount announced. Check what actually reached your account — if less arrived, move the difference out of the pot.`,
 
   // Reminder card and warnings
   dailySavingsReminder: 'Daily savings reminder',

@@ -1,16 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank } from '../types';
-import { PERIODS, spendingByCategory, summarize, type Period } from '../services/analytics';
+import { PERIODS, spendingByCategory, summarize, type Period, type StreakRun } from '../services/analytics';
 import { categoryOf } from '../services/categories';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
 import Avatar from './Avatar';
+import OlderRecordsNotice from './OlderRecordsNotice';
 import { formatMoney, fromCents } from '../services/money';
+import { reportNeedsFrom } from '../services/ledgerWindow';
+import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
 
 interface ReportProps {
   banks: PiggyBank[];
   activities: Activity[];
+  /** How far back `activities` goes; a year or "all" asks for the older part. */
+  ledger: Ledger;
+  /** The saving streak, counted by the app rather than from the loaded window. */
+  streak: StreakRun;
   onOpenStrategy: () => void;
   onOpenProfile: () => void;
   onOpenStatements: () => void;
@@ -67,7 +74,7 @@ const Line: React.FC<{
   </div>
 );
 
-const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOpenProfile, onOpenStatements }) => {
+const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOpenStrategy, onOpenProfile, onOpenStatements }) => {
   const [period, setPeriod] = useState<Period>('month');
   const [message, setMessage] = useState<string | null>(null);
   // Which cadence bar the user tapped, so it can show what it is worth.
@@ -75,6 +82,9 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
   const t = useT();
 
   const now = new Date();
+  // A quarter's comparison, a year or "all" reach past the live three months.
+  const needFrom = reportNeedsFrom(period, now, ledger.liveFrom, ledger.keptFrom);
+  const older = useLedgerRange(ledger, needFrom);
   // `t` is a dependency so the period's labels are reworded when the language changes.
   const summary = useMemo(() => summarize(activities, banks, period, now), [activities, banks, period, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -109,8 +119,8 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
   const sliceTotal = slices.reduce((s, x) => s + x.value, 0);
   const maxBucket = Math.max(0, ...summary.buckets.map((b) => b.amount));
 
-  return (
-    <div className="flex flex-col min-h-full pb-40 safe-pt">
+  const head = (
+    <>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-6 pt-6">
         <div className="min-w-0">
@@ -137,6 +147,25 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
           </button>
         ))}
       </div>
+    </>
+  );
+
+  // Nothing is summed from part of a period: until its older records are
+  // here, the figures wait rather than read as a smaller total.
+  if (older !== 'ready') {
+    return (
+      <div className="flex flex-col min-h-full pb-40 safe-pt">
+        {head}
+        <div className="px-6 mt-5">
+          <OlderRecordsNotice status={older} onRetry={ledger.retry} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col min-h-full pb-40 safe-pt">
+      {head}
       <div className="flex items-center justify-between gap-3 px-6 mt-4">
         <div className="flex items-center gap-2 min-w-0">
           <span className="material-symbols-rounded text-primary text-lg">calendar_month</span>
@@ -418,7 +447,7 @@ const Report: React.FC<ReportProps> = ({ banks, activities, onOpenStrategy, onOp
               {
                 // Only a window of history is loaded, so a streak reaching its
                 // first day may be longer than it can be counted to.
-                value: summary.streakCapped ? t.report.streakAtLeast(summary.streak) : t.report.streakValue(summary.streak),
+                value: streak.capped ? t.report.streakAtLeast(streak.days) : t.report.streakValue(streak.days),
                 label: t.report.streak,
               },
               { value: `${summary.activeDays}/${summary.range.days}`, label: t.report.daysSaved },

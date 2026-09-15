@@ -16,6 +16,12 @@ export const common: typeof English = {
   viewAll: '查看全部',
   somethingWentWrong: '出了点问题。',
 
+  older: {
+    loading: '正在载入较早的记录……',
+    failed: '较早的记录载入不了，可能没有联网。为免显示不完整的总额，这里先不显示。',
+    retry: '再试一次',
+  },
+
   activity: {
     autoSave: '自动存入',
     manual: '存入',

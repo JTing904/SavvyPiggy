@@ -1,12 +1,10 @@
-import type { InvestSettings, PiggyBank, StyleMix } from '../../types';
+import type { InvestSettings, StyleMix } from '../../types';
 import type { Quote, Quotes } from '../../services/holdings';
-import { BOARD_LOT, costCents, feeDrag, feesFor, lotPlan, totalFees, valueCents, type Broker, type SecurityType, type TradeFees } from '../../services/fees';
 import type { BlendedCounter, Feature, Features, Style } from '../../services/advisor/model';
 import { STYLES } from '../../services/advisor/model';
-import { toCents } from '../../services/money';
 
 /**
- * The arithmetic behind the monthly buy page and its Home card, kept apart
+ * The arithmetic behind the recommendation page and its Home card, kept apart
  * from React so it can be tested. Nothing here writes anything: the page only
  * ever hands a draft to the Buy sheet, which is where money moves.
  */
@@ -20,46 +18,6 @@ export const STYLE_COLORS: Record<Style, string> = {
 
 /** Styles that carry any weight, in the fixed order they are always listed. */
 export const activeStyles = (mix: StyleMix): Style[] => STYLES.filter((s) => mix[s] > 0);
-
-/* ------------------------------------------------------------ pay from */
-
-export type PayFrom = { mode: 'goal'; goalId: string } | { mode: 'none' };
-
-const activeGoals = (banks: PiggyBank[]) => banks.filter((b) => !b.archivedAt);
-
-/**
- * Which goal the page starts on. The saved choice wins while that goal still
- * exists. With nothing saved, the goal holding the most money is the one most
- * likely set aside for this. A saved goal that has since been deleted is not
- * swapped for a different one behind the person's back — they pick again.
- */
-export const defaultPayFrom = (banks: PiggyBank[], budgetGoalId: string | null): PayFrom => {
-  const goals = activeGoals(banks);
-  if (budgetGoalId !== null) {
-    return goals.some((b) => b.id === budgetGoalId) ? { mode: 'goal', goalId: budgetGoalId } : { mode: 'none' };
-  }
-  if (goals.length === 0) return { mode: 'none' };
-  const richest = goals.reduce((best, b) => (b.currentAmount > best.currentAmount ? b : best), goals[0]);
-  return { mode: 'goal', goalId: richest.id };
-};
-
-/**
- * What the plan may spend, in sen. From a goal it is never more than the goal
- * holds — a buy bigger than the balance would be refused anyway — and a goal
- * that is overspent has nothing to give. `typedCents` null means "all of it".
- */
-export const planBudget = (
-  payFrom: PayFrom,
-  typedCents: number | null,
-  banks: PiggyBank[]
-): { cashCents: number; balanceCents: number | null; over: boolean } => {
-  if (payFrom.mode === 'none') return { cashCents: Math.max(0, typedCents ?? 0), balanceCents: null, over: false };
-  const bank = banks.find((b) => b.id === payFrom.goalId);
-  const balance = Math.max(0, toCents(bank?.currentAmount ?? 0));
-  if (typedCents === null) return { cashCents: balance, balanceCents: balance, over: false };
-  const typed = Math.max(0, typedCents);
-  return { cashCents: Math.min(typed, balance), balanceCents: balance, over: typed > balance };
-};
 
 /* -------------------------------------------------------------- prices */
 
@@ -88,60 +46,6 @@ export const priceText = (points: number) => {
 
 /** 0.0633 → "6.3%". */
 export const pct = (x: number, decimals = 1) => `${(x * 100).toFixed(decimals)}%`;
-
-/* -------------------------------------------------------------- sizing */
-
-export interface Order {
-  units: number;
-  valueCents: number;
-  fees: TradeFees;
-  totalCents: number;
-  /** Fees as a share of the value bought. */
-  drag: number;
-  /** What the budget has left once this is paid. */
-  leftCents: number;
-}
-
-export type Sizing =
-  /** Not even one unit plus fees fits. */
-  | { kind: 'none'; oneUnitCents: number }
-  /** Under a full lot. `order` is set only when buying the odd units now was chosen. */
-  | { kind: 'shortOfLot'; units: number; shortCents: number; lotCents: number; order: Order | null }
-  /** At least one full lot; `odd` more units only fit on the odd-lot market. */
-  | { kind: 'lots'; units: number; lots: number; odd: number; order: Order };
-
-const orderFor = (units: number, pricePoints: number, broker: Broker, type: SecurityType, cashCents: number): Order => {
-  const value = valueCents(units, pricePoints);
-  const fees = feesFor(value, broker, type);
-  const total = value + totalFees(fees);
-  return { units, valueCents: value, fees, totalCents: total, drag: feeDrag(fees, value), leftCents: cashCents - total };
-};
-
-/**
- * What the budget buys. Full lots are the default; `allNow` is the person's
- * choice to take the odd units too, which trade on a thinner market.
- */
-export const sizeBuy = (
-  cashCents: number,
-  pricePoints: number,
-  broker: Broker,
-  type: SecurityType,
-  allNow: boolean
-): Sizing => {
-  const plan = lotPlan(cashCents, pricePoints, broker, type);
-  if (plan.kind === 'none') return { kind: 'none', oneUnitCents: costCents(1, pricePoints, broker, type) };
-  if (plan.kind === 'shortOfLot') {
-    return {
-      kind: 'shortOfLot',
-      units: plan.units,
-      shortCents: plan.shortCents,
-      lotCents: plan.shortCents + cashCents,
-      order: allNow ? orderFor(plan.units, pricePoints, broker, type, cashCents) : null,
-    };
-  }
-  const units = allNow ? plan.units : plan.lots * BOARD_LOT;
-  return { kind: 'lots', units: plan.units, lots: plan.lots, odd: plan.odd, order: orderFor(units, pricePoints, broker, type, cashCents) };
-};
 
 /* ---------------------------------------------------------------- pick */
 

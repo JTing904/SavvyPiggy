@@ -36,6 +36,9 @@ export const invest = {
   tradeDeleted: 'Trade deleted.',
   editTitle: (kind: string) => `Edit · ${kind}`,
   dividendIntro:
+    'This is the record of a dividend the app paid into your investment pot. It is worked out from your trades, so there is nothing here to type over.',
+  /** A dividend paid before the investment pot existed, when it went into the goals. */
+  dividendIntroLegacy:
     'This is the record of a payment the app made into your goals. The money itself lives in your history — if the amount that reached your account was different, correct it there.',
   editIntro:
     'Fixing one trade leaves every other one alone, so how many units you held on a past ex-date is worked out again from scratch — correctly.',
@@ -44,9 +47,13 @@ export const invest = {
   sellIntro:
     'Selling after an ex-date still leaves that dividend yours, which is why the date matters here too.',
   paidOn: 'Paid on',
-  paidIntoGoals: 'Paid into your goals',
+  paidIntoPot: 'Paid into the investment pot',
   dividendReceiptNote:
-    'Companies deduct tax and fees, so what reaches your account is often less than what was announced. The money is an ordinary deposit in your history — correct the amount there and every figure follows.',
+    'Recorded at the amount the company announced. If less reached your account, move the difference out of the investment pot.',
+  /** Legacy: a dividend paid before the investment pot existed. */
+  paidIntoGoals: 'Paid into your goals',
+  dividendReceiptNoteLegacy:
+    'This was paid before the investment pot existed, so the money is an ordinary deposit in your history — correct the amount there and every figure follows.',
   whichCounter: 'Which counter',
   nothingToSell: 'Nothing is held right now, so there is nothing to sell.',
   counter: 'Counter',
@@ -72,6 +79,7 @@ export const invest = {
     dividend: 'Record this dividend',
   },
   deleteTrade: 'Delete this trade',
+  dividendsLoading: 'Checking the dividends already paid in…',
   deleteMoneyBack: 'Any money it moved in your goals is put back as well.',
   prefilledIntro: 'Filled in for you. Change anything to match your contract note.',
 
@@ -115,9 +123,7 @@ export const invest = {
   // Where a trade's money comes from or goes
   paidFrom: 'Paid from',
   depositTo: 'Deposit to',
-  notFromGoalSub: 'Only records the trade — no goal changes',
   notIntoGoal: 'Not into a goal',
-  notIntoGoalSub: 'Only records the trade',
   notIntoGoalLegacySub: 'Recorded before a sale had to go into a goal',
   chooseWhereSaleGoes: 'Choose where the money from this sale goes.',
   noGoalForSale: 'You have no goals yet. The money from a sale has to go into one — create a goal first.',
@@ -155,12 +161,12 @@ export const invest = {
     noGoals: 'You have no savings goals yet.',
     inConfirm: (amount: string) => `Move in ${amount}`,
     outConfirm: (amount: string) => `Move back ${amount}`,
-    movedIn: (amount: string) => `${amount} moved into the investment pot.`,
-    movedOut: (amount: string) => `${amount} moved back to savings.`,
   },
   potBuySub: 'Buys only ever come out of here',
   potSellSub: 'Sale proceeds come back here',
   potAfter: 'Investment pot after this',
+  dividendsAdjusted: 'Dividends adjusted',
+  dividendsAdjustedBody: (amount: string) => `Dividends already paid into the investment pot change by ${amount}.`,
   potShort: (available: string, needed: string) => `The investment pot holds ${available}; this needs ${needed}. Move money in from savings first.`,
   notFromPotSub: 'For filling in an old trade: only the shares are recorded',
   nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
@@ -203,18 +209,19 @@ export const invest = {
     'Only what has actually been announced. A counter that has declared nothing for a quarter adds nothing here — this is not a forecast.',
   comingUp: 'COMING UP',
   nothingAnnounced:
-    'Nothing announced for the counters you hold. A dividend appears here as soon as the company declares it, and is paid into your goals on its pay date.',
+    'Nothing announced for the counters you hold. A dividend appears here as soon as the company declares it, and is paid into your investment pot on its pay date.',
   couldNotFetch:
     'Announcements could not be fetched, so this is not a list of nothing — it is no answer at all. Pull the refresh above once you are back online.',
   exDate: 'Ex-date',
   payDate: 'Pay date',
   comesTo: 'Comes to',
   owedToYou: 'Owed to you',
+  holdToQualify: (date: string) => `Nothing is held for this one yet. Shares held before ${date} qualify.`,
   notYours:
     'Nothing was held before this ex-date, so this one is not yours. Buying now does not qualify — the shares had to be held the day before.',
   paidIn: 'PAID IN',
   dividendsFooter:
-    'A dividend belongs to whoever held the shares the day before the ex-date, so these are worked out from your trade log rather than from what you hold today. Companies deduct tax and fees — if the amount that reaches your account differs, correct that payment in Trades.',
+    'A dividend belongs to whoever held the shares the day before the ex-date, so these are worked out from your trade log rather than from what you hold today. Each is paid into the investment pot at the amount announced — if less reaches your account, move the difference out of the pot.',
 
   // Growth
   growthTitle: 'Growth',
@@ -227,7 +234,7 @@ export const invest = {
   onSold: 'On what you have sold',
   onSoldNote: 'Banked, cannot change',
   dividendsPaidIn: 'Dividends paid in',
-  dividendsPaidInNote: 'Already split into your goals',
+  dividendsPaidInNote: 'Into the investment pot (older ones, your goals)',
   heldNow: 'Held now',
   cost: (amount: string) => `cost ${amount}`,
   income: 'Income',
@@ -245,5 +252,5 @@ export const invest = {
   byCounter: 'BY COUNTER',
   shareOfPortfolio: (percent: number, units: string) => `${percent}% of the portfolio · ${units}`,
   growthFooter:
-    'Dividends are counted here as income, and they have already been split into your goals — so they show in your savings as well. This screen is about the investing; it is not added to your total savings anywhere.',
+    'Dividends are counted here as income. They are paid into the investment pot, which is kept apart from your total savings, and nothing on this screen is added to your savings anywhere. Dividends paid before the pot existed went into your goals, so those are in your savings too.',
 };

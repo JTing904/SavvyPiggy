@@ -91,7 +91,7 @@ export const goals = {
     schedules: (count: number, name: string) =>
       `${count} auto deposit${count === 1 ? '' : 's'} save${count === 1 ? 's' : ''} into ${name}. Where should ${count === 1 ? 'it' : 'they'} save from now on?`,
     scheduleSplitSub: 'By your goals’ shares',
-    scheduleSplitWaiting: 'No goal takes a share yet — it waits until one does',
+    scheduleSplitWaiting: 'No goal takes a share yet — its days are skipped until one does, not saved up',
     confirmEmpty: 'Delete',
   },
   archiveSchedules: {

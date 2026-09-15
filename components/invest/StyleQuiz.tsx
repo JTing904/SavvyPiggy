@@ -3,6 +3,7 @@ import type { InvestSettings, StyleMix } from '../../types';
 import { QUESTION_POINTS, STYLES, adjustMix, mixFromAnswers, type Style, type StyleRecord } from '../../services/advisor/model';
 import { useT } from '../../contexts/LanguageContext';
 import { useBackHandler } from '../../hooks/useBackHandler';
+import { STYLE_COLORS } from './monthlyPlan';
 
 interface StyleQuizProps {
   /** Existing answers to start from, or null for a first run. */
@@ -16,13 +17,6 @@ interface StyleQuizProps {
   onDone: (style: { answers: number[]; mix: StyleMix; at: number }) => void;
   onClose: () => void;
 }
-
-/** One colour per style, the same wherever a style is drawn. */
-export const STYLE_COLORS: Record<Style, string> = {
-  income: '#2DD4BF',
-  cash: '#FBBF24',
-  price: '#A78BFA',
-};
 
 const QUESTIONS = QUESTION_POINTS.length;
 
@@ -252,7 +246,7 @@ const StyleQuiz: React.FC<StyleQuizProps> = ({ initial, records, required, start
                 disabled={!complete(answers)}
                 className="w-full h-14 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
               >
-                {required ? s.continueToBuy : t.common.save}
+                {required ? s.continueToPick : t.common.save}
               </button>
               <p className="text-slate-500 text-[11px] font-bold mt-3 text-center leading-relaxed">{s.redoNote}</p>
             </div>

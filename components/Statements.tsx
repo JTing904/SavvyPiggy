@@ -18,9 +18,13 @@ import { saveFile } from '../services/share';
 import { formatMoney } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
+import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
+import OlderRecordsNotice from './OlderRecordsNotice';
 
 interface StatementsProps {
   activities: Activity[];
+  /** Every kept month is listed, so the part older than the live window is read here. */
+  ledger: Ledger;
   banks: PiggyBank[];
   trades: Trade[];
   quotes: Quotes;
@@ -52,6 +56,7 @@ const clearingSoon = (at: Date | null, now: Date) =>
  */
 const Statements: React.FC<StatementsProps> = ({
   activities,
+  ledger,
   banks,
   trades,
   quotes,
@@ -66,6 +71,9 @@ const Statements: React.FC<StatementsProps> = ({
   const { user } = useAuth();
   const uid = user?.uid;
   const now = new Date();
+  // The kept months older than the live three: until they are here the list,
+  // its totals and the month next to clear would all be short, so they wait.
+  const kept = useLedgerRange(ledger, ledger.keptFrom);
 
   /**
    * The live feed only reaches back to the window's start, and the records
@@ -120,7 +128,8 @@ const Statements: React.FC<StatementsProps> = ({
    * covered: the warning comes back and nothing more goes until this screen
    * has listed it.
    */
-  const shownFor = older && older.cutoffIso === cutoffIso ? older.shownCutoff : null;
+  // Not shown until the list is on screen, which waits for the kept months too.
+  const shownFor = kept === 'ready' && older && older.cutoffIso === cutoffIso ? older.shownCutoff : null;
   const olderNote =
     !uid || savings.retentionMonths === null
       ? null
@@ -227,7 +236,9 @@ const Statements: React.FC<StatementsProps> = ({
           </div>
         )}
 
-        {months.length === 0 ? (
+        {kept !== 'ready' ? (
+          <OlderRecordsNotice status={kept} onRetry={ledger.retry} />
+        ) : months.length === 0 ? (
           <div className="text-center py-20">
             <span className="material-symbols-rounded text-slate-700 text-5xl">description</span>
             <p className="text-white font-black mt-4">{t.profile.nothingToReport}</p>
@@ -315,7 +326,11 @@ const Statements: React.FC<StatementsProps> = ({
         </p>
 
         <div className="rounded-3xl bg-amber-500/8 border border-amber-500/25 p-5 mt-4">
-          {going ? (
+          {kept !== 'ready' ? (
+            <p className="text-amber-200/70 text-[11.5px] font-bold leading-relaxed">
+              {kept === 'loading' ? t.common.older.loading : t.common.older.failed}
+            </p>
+          ) : going ? (
             <>
               <p className="text-amber-300 font-black text-sm">{t.profile.nextToClear}</p>
               <p className="text-amber-200/70 text-[11.5px] font-bold mt-2 leading-relaxed">

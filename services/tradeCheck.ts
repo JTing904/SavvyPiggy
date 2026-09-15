@@ -1,4 +1,5 @@
 import type { Trade } from '../types';
+import { ordered } from './holdings';
 
 /** A sale that sells more units than were held at that point in the log. */
 export interface ShortSale {
@@ -6,8 +7,8 @@ export interface ShortSale {
   heldUnits: number;
 }
 
-/** The same order replay walks the log in: by trade day, then by when it was entered. */
-const ordered = (trades: Trade[]) => [...trades].sort((a, b) => a.tradedAt - b.tradedAt || a.createdAt - b.createdAt);
+// The same order replay walks the log in: by trade day, buys before sales on
+// one day, then by when it was entered.
 
 /**
  * The first sale in one counter's log that sells units that were not held.

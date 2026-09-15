@@ -1,6 +1,7 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { auth } from '../lib/firebase';
 import type { Dividend } from '../types';
+import { bursaCode } from './dividends';
 
 /**
  * Talking to the dividend Worker.
@@ -100,8 +101,16 @@ export interface DividendAnswer {
   known: boolean;
 }
 
-/** One batch of counters. Null on any failure, so the caller can keep what it had. */
-const fetchBatch = async (symbols: string[], token: string): Promise<Dividend[] | null> => {
+/**
+ * One batch of counters. Null on any failure, so the caller can keep what it had.
+ * `unknown` is the counters the Worker could not read and has nothing cached
+ * for (a blocked or unreadable page): they came back empty, but that is not an
+ * answer. A Worker from before this field existed sends none.
+ */
+const fetchBatch = async (
+  symbols: string[],
+  token: string
+): Promise<{ dividends: Dividend[]; unknown: string[] } | null> => {
   const url = `${API!.replace(/\/$/, '')}/dividends`;
   const params = { symbols: symbols.join(',') };
   const headers = { Authorization: `Bearer ${token}` };
@@ -117,8 +126,11 @@ const fetchBatch = async (symbols: string[], token: string): Promise<Dividend[] 
     payload = await res.json();
   }
 
-  const rows = (payload as { dividends?: Dividend[] } | null)?.dividends;
-  return Array.isArray(rows) ? rows.filter(isSound) : null;
+  const body = payload as { dividends?: Dividend[]; unknown?: unknown } | null;
+  const rows = body?.dividends;
+  if (!Array.isArray(rows)) return null;
+  const unknown = Array.isArray(body?.unknown) ? body.unknown.filter((u): u is string => typeof u === 'string') : [];
+  return { dividends: rows.filter(isSound), unknown };
 };
 
 export const loadDividends = async (
@@ -149,7 +161,7 @@ export const loadDividends = async (
     for (let i = 0; i < wanted.length; i += BATCH) batches.push(wanted.slice(i, i + BATCH));
     // One after another rather than together: each batch can make the Worker
     // read up to 25 pages, and there is no hurry that justifies a burst.
-    const answers: (Dividend[] | null)[] = [];
+    const answers: ({ dividends: Dividend[]; unknown: string[] } | null)[] = [];
     for (const batch of batches) {
       try {
         answers.push(await fetchBatch(batch, token));
@@ -163,18 +175,28 @@ export const loadDividends = async (
     /*
       A batch that failed keeps what the cache already had for its counters —
       real announcements from an earlier answer, never a guess — and those
-      counters are left out of `symbols`, so the next call asks again.
+      counters are left out of `symbols`, so the next call asks again. So is
+      a counter the Worker named as unknown: its empty list is no answer.
     */
-    const answered = new Set(batches.flatMap((batch, i) => (answers[i] ? batch : [])));
+    const answered = new Set(
+      batches.flatMap((batch, i) => {
+        const answer = answers[i];
+        if (!answer) return [];
+        const unknown = new Set(answer.unknown.map((u) => bursaCode(u) ?? u));
+        return batch.filter((s) => !unknown.has(bursaCode(s) ?? s));
+      })
+    );
     const dividends = [
-      ...answers.flatMap((a) => a ?? []),
+      ...answers.flatMap((a) => a?.dividends ?? []),
       ...cached.filter((d) => !answered.has(d.symbol)),
     ];
     localStorage.setItem(
       CACHE_KEY,
       JSON.stringify({ at: Date.now(), dividends, symbols: [...answered] } satisfies Cache)
     );
-    return { dividends, known: true };
+    // "Nothing announced" is only fair when every counter has been answered,
+    // now or by the answer before this one.
+    return { dividends, known: wanted.every((s) => answered.has(s) || covered.has(s)) };
   } catch (e) {
     console.warn('[dividends] request failed', e instanceof Error ? e.message : e);
     return fallback();

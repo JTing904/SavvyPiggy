@@ -156,33 +156,43 @@ const isOurUser = async (token: string, projectId: string) => {
  * One counter's announcements, from cache when it is fresh.
  *
  * A failed fetch or an unreadable page returns whatever was cached, however
- * old, and an empty list if there is nothing. It never throws and never
- * guesses: the app's rule is that a dividend it cannot read is a dividend it
- * does not record.
+ * old. With nothing cached there is no answer at all, and that is said
+ * (`known: false`) rather than passed off as an empty list: a blocked request
+ * or a challenge page parses to nothing, and "nothing announced" would be a
+ * guess. Such an empty first read is not cached either, so the next request
+ * tries again instead of repeating the guess for 20 hours. It never throws:
+ * the app's rule is that a dividend it cannot read is a dividend it does not
+ * record.
  */
-const load = async (env: Env, symbol: string, force = false): Promise<Dividend[]> => {
+const load = async (env: Env, symbol: string, force = false): Promise<{ dividends: Dividend[]; known: boolean }> => {
   const code = codeOf(symbol);
-  if (!code) return [];
+  if (!code) return { dividends: [], known: false };
 
   const key = `${KEY_PREFIX}${code}`;
   const cached = (await env.DIVIDENDS.get<Entry>(key, 'json')) ?? null;
-  if (!force && cached && Date.now() - cached.fetchedAt < FRESH_MS) return cached.dividends;
+  const fallback = () => (cached ? { dividends: cached.dividends, known: true } : { dividends: [], known: false });
+  if (!force && cached && Date.now() - cached.fetchedAt < FRESH_MS) return { dividends: cached.dividends, known: true };
 
   try {
     const res = await fetch(`${SOURCE}${code}`, {
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html' },
     });
-    if (!res.ok) return cached?.dividends ?? [];
+    if (!res.ok) return fallback();
 
-    const dividends = parseDividends(await res.text(), `${code}.KL`);
+    const html = await res.text();
+    const dividends = parseDividends(html, `${code}.KL`);
     // An empty parse is either a counter that pays nothing or a page we can no
-    // longer read. Neither is worth throwing away a good cache for.
-    if (dividends.length === 0 && cached) return cached.dividends;
+    // longer read. A real stock page (it always shows the market cap) that
+    // lists nothing is an answer, and is cached like any other so a counter
+    // that never pays is not fetched on every request. Anything else — a
+    // challenge page, a changed layout — is not worth throwing away a good
+    // cache for, and with no cache it is not an answer at all.
+    if (dividends.length === 0 && (!html.includes('Market Cap') || (cached?.dividends.length ?? 0) > 0)) return fallback();
 
     await env.DIVIDENDS.put(key, JSON.stringify({ fetchedAt: Date.now(), dividends } satisfies Entry));
-    return dividends;
+    return { dividends, known: true };
   } catch {
-    return cached?.dividends ?? [];
+    return fallback();
   }
 };
 
@@ -210,7 +220,13 @@ export default {
     if (symbols.length === 0) return json({ dividends: [] });
 
     const lists = await Promise.all(symbols.map((code) => load(env, code)));
-    return json({ dividends: lists.flat(), at: Date.now() });
+    // `unknown` names the counters there is no answer for yet, as the app
+    // writes them. Older builds of the app ignore it and read `dividends` as before.
+    return json({
+      dividends: lists.flatMap((l) => l.dividends),
+      unknown: symbols.filter((_, i) => !lists[i].known).map((code) => `${code}.KL`),
+      at: Date.now(),
+    });
   },
 
   /**

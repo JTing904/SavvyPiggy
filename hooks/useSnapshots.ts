@@ -30,7 +30,8 @@ export const useSnapshots = (
   ready: boolean
 ) => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
-  const written = useRef(false);
+  // Keyed by account, so another account signed into this session still gets its month.
+  const written = useRef<string | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -41,7 +42,7 @@ export const useSnapshots = (
   }, [uid]);
 
   useEffect(() => {
-    if (!uid || !ready || written.current || trades.length === 0) return;
+    if (!uid || !ready || written.current === uid || trades.length === 0) return;
 
     // Only a month that has finished can be recorded: a value written today
     // for a month still running would be replaced by a different truth
@@ -89,10 +90,10 @@ export const useSnapshots = (
     const value = holdings.reduce((sum, h, i) => sum + quoteValueCents(h, fresh[i]), 0);
     const cost = holdings.reduce((sum, h) => sum + h.costCents, 0);
 
-    written.current = true;
+    written.current = uid;
     void writeSnapshot(uid, { id, at: end.getTime(), valueCents: value, costCents: cost }).catch(() => {
       // Nothing depends on this having happened; next month asks again.
-      written.current = false;
+      written.current = null;
     });
   }, [uid, ready, trades, quotes, snapshots]);
 

@@ -3,10 +3,7 @@ import {
   cleanFeeInput,
   brokerageCents,
   costCents,
-  feeDrag,
   feesFor,
-  lotPlan,
-  maxUnits,
   securityTypeOf,
   stampCents,
   totalFees,
@@ -48,34 +45,16 @@ const spec: Broker = { id: 'spec', name: 'spec', short: 'SP', color: '#000', rul
     sstCents: 0,
   });
   eq('T1: RM9.24 in fees', totalFees(fees), 924);
-  eq('T1: fee drag is 1.17%, over the 1% warning', Math.round(feeDrag(fees, 79_000) * 10_000), 117);
 }
 
 {
-  eq('T2: RM1,000 at RM7.90 buys 125 units', maxUnits(100_000, 79_000, spec), 125);
   eq('T2: 125 units cost RM996.80 with fees', costCents(125, 79_000, spec), 99_680);
-  eq('T2: a 126th would cost RM1,004.70 — over', costCents(126, 79_000, spec), 100_470);
-  eq('T2: one full lot and 25 odd', lotPlan(100_000, 79_000, spec), { kind: 'lots', units: 125, lots: 1, odd: 25 });
+  eq('T2: 126 units cost RM1,004.70 with fees', costCents(126, 79_000, spec), 100_470);
 }
 
-// --- sizing walks both ways
+// --- half-sen prices
 
-{
-  // A cheap counter where the starting guess lands well under the answer.
-  const cash = 50_000;
-  const best = maxUnits(cash, 3_450, mplus);
-  eq('never overspends', costCents(best, 3_450, mplus) <= cash, true);
-  eq('never leaves a unit it could afford', costCents(best + 1, 3_450, mplus) > cash, true);
-  eq('half-sen prices are kept exactly: 1,000 units of RM0.345 is RM345.00', valueCents(1_000, 3_450), 34_500);
-}
-
-eq('nothing to spend buys nothing', maxUnits(0, 79_000, spec), 0);
-eq('short of one unit is "none"', lotPlan(500, 79_000, spec), { kind: 'none', units: 0 });
-{
-  const plan = lotPlan(50_000, 79_000, spec);
-  eq('RM500 at RM7.90 is short of a lot', plan.kind, 'shortOfLot');
-  eq('and says what a lot still needs', plan.kind === 'shortOfLot' ? plan.shortCents : -1, costCents(100, 79_000, spec) - 50_000);
-}
+eq('half-sen prices are kept exactly: 1,000 units of RM0.345 is RM345.00', valueCents(1_000, 3_450), 34_500);
 
 // --- brokers
 

@@ -1,9 +1,8 @@
-/** The monthly buy page, the watchlist sheet and the pick card on the investing Home. */
+/** The recommendation page, the watchlist sheet and the pick card on the investing Home. */
 export const plan = {
   title: 'Recommendation',
   buyThis: (name: string) => `Buy ${name}`,
   buyThisHint: 'Opens the Buy sheet: fill in units and price from your contract note. The money comes out of the investment pot.',
-  changeBroker: 'Change broker',
 
   /** The three styles, by their key in services/advisor/model.ts. */
   styles: {
@@ -11,15 +10,6 @@ export const plan = {
     cash: 'Big payouts',
     price: 'Share price',
   },
-
-  // Pay from and budget
-  payFrom: 'Pay from',
-  notFromGoalHint: 'Only records the trade — no goal changes',
-  spendUpTo: 'Spend up to',
-  monthBudget: "This month's budget",
-  allOfIt: 'All of it',
-  overBalance: (goal: string, balance: string) =>
-    `That is more than ${goal} holds (${balance}), so the plan uses ${balance}.`,
 
   // Style
   yourStyle: 'Your style',
@@ -48,13 +38,6 @@ export const plan = {
   countsFor: 'Counts for it',
   countsAgainst: 'Counts against it',
   tie: (other: string) => `${other} is almost as good a match for your style — treat them as a tie.`,
-  pill: {
-    buy: 'BUY',
-    lots: 'FULL LOTS',
-    odd: 'ODD LOTS',
-    wait: 'NOT A LOT YET',
-    skip: 'SKIP',
-  },
 
   /** A reason is one plain sentence about the number that moved the score. */
   reason: {
@@ -81,35 +64,6 @@ export const plan = {
     steadier: 'Its price moves less than most',
     swingsMore: (p: string) => `Its price swings more than most (about ${p} a month)`,
   },
-
-  // Sizing
-  noPrice: 'No price yet — it arrives when you are online.',
-  chooseBroker: 'Choose your broker to see what this costs',
-  chooseBrokerButton: 'Choose broker',
-  notOneUnit: 'Not enough for one unit',
-  oneUnitCosts: (amount: string) => `One unit plus fees costs ${amount}. Carry this into next month.`,
-  oneLotCosts: 'One lot costs',
-  notALot: (amount: string) => `Not a lot yet · ${amount} still to go`,
-  waitForLot: 'Wait for a full lot',
-  waitForLotHint: 'Keep the money where it is until it covers 100 units',
-  fullLotsOnly: (units: string) => `Full lots only · ${units} units`,
-  fullLotsHint: (odd: string) => `The other ${odd} wait for next month`,
-  buyAllNow: (units: string) => `Buy all ${units} now`,
-  buyAllNowHint: (odd: string) => `${odd} of them as odd lots — the price there can sit away from the main board`,
-  unitsAt: (units: string, price: string) => `${units} units @ ${price}`,
-  brokerage: 'Brokerage',
-  clearing: 'Clearing fee',
-  stamp: 'Stamp duty',
-  sst: 'SST',
-  total: 'Total',
-  staysIn: (goal: string) => `Stays in ${goal}`,
-  leftOfBudget: 'Left of the budget',
-  feeDrag: (p: string) => `Fees are ${p} of this buy. The minimum charge weighs more on small buys.`,
-  oddNote: (price: string, odd: string) =>
-    `Odd lots are matched on a separate market with fewer buyers and sellers. You may pay more than ${price} for those ${odd} — enter the price on your contract note.`,
-  ratesOf: (broker: string) => `Fees at ${broker} rates`,
-  ownRates: 'your own',
-  recordBuy: 'Record this buy',
 
   // Ranked list
   ranked: 'Your list, ranked',
@@ -161,8 +115,6 @@ export const plan = {
   // Home card
   card: {
     pick: (month: string) => `${month} pick`,
-    unitsWithFees: (units: string, amount: string) => `${units} units · ${amount} with fees`,
-    notALot: 'Not enough for a full lot yet',
     bestMatchFor: (mix: string) => `Best match for ${mix}`,
     setUp: 'Set up recommendations',
     setUpHint: 'Answer six questions and pick the counters you would buy.',

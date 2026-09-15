@@ -23,6 +23,9 @@ const CACHE_KEY = 'savvypiggy.quotes';
 /** Long enough that flicking between apps costs nothing, short enough to feel live. */
 const FRESH_MS = 60_000;
 
+/** Price requests in flight at once, as the advisor's history download does. */
+const QUOTE_CONCURRENCY = 4;
+
 const native = () => Capacitor.isNativePlatform();
 
 /**
@@ -127,13 +130,19 @@ export const loadQuotes = async (symbols: string[], force = false): Promise<Quot
   if (stale.length === 0) return cached;
 
   // One request per counter: the batch endpoint needs a session Yahoo will not
-  // hand out. They go out together and a failure only loses its own symbol.
-  const fetched = await Promise.all(
-    stale.map(async (symbol) => {
-      lastFetched.set(symbol, now);
-      return [symbol, await fetchQuote(symbol)] as const;
-    })
-  );
+  // hand out. At most QUOTE_CONCURRENCY at a time — a long watchlist used to
+  // fire every request at once on each resume — and a failure only loses its
+  // own symbol.
+  stale.forEach((symbol) => lastFetched.set(symbol, now));
+  const fetched: (readonly [string, Quote | null])[] = new Array(stale.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < stale.length) {
+      const i = next++;
+      fetched[i] = [stale[i], await fetchQuote(stale[i]).catch(() => null)] as const;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(QUOTE_CONCURRENCY, stale.length) }, worker));
 
   const merged = { ...cached };
   const landed = Date.now();

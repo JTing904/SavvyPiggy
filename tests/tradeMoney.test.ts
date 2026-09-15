@@ -274,4 +274,19 @@ const invested = (amount: number, goalId = 'stocks'): Activity => ({
   eq("correcting a pot buy moves the pot by the difference", corrected.potDelta, -1_000);
 }
 
+{
+  const sale = { kind: "sell" as const, totalCents: 0, choice: { mode: "pot" as const }, counter: "X", units: 10 };
+  eq("a pot sale that comes to nothing is still a pot trade", plan({ next: sale, potCents: 0 }).money, { mode: "pot" });
+  const zero: Trade = { ...buy({ mode: "pot" }), kind: "sell", units: 10, priceCents: 90, fees: { brokerageCents: 900, clearingCents: 0, stampCents: 0, sstCents: 0 } };
+  eq("so correcting it to a real amount moves the pot", plan({ previous: { trade: zero, activity: null }, next: { ...sale, totalCents: 500 }, potCents: 0 }).potDelta, 500);
+  eq("a goal sale that comes to nothing still records nothing moving", plan({ next: { ...sale, choice: { mode: "goal", goalId: "car" } } }).money, { mode: "none" });
+}
+
+{
+  const next = { kind: "buy" as const, totalCents: 10_000, choice: { mode: "pot" as const }, counter: "X", units: 100 };
+  const p = plan({ next, potCents: 50_000, dividendDeltaCents: 3_300 });
+  eq("a dividend top-up rides with the trade's pot movement", [p.potDelta, p.dividendCents], [-6_700, 3_300]);
+  eq("a dividend taken back is held to the pot's floor", run({ previous: null, next: { ...next, choice: { mode: "none" } }, potCents: 1_000, dividendDeltaCents: -3_300 }), { problem: { kind: "potShort", availableCents: 1_000, neededCents: 3_300 } });
+}
+
 report();

@@ -1,68 +1,20 @@
-import type { PiggyBank } from '../types';
-import { brokerById, costCents } from '../services/fees';
 import type { Features } from '../services/advisor/model';
 import {
   activeStyles,
-  defaultPayFrom,
   factsText,
   groupReasons,
   isTie,
   mergeQuotes,
-  planBudget,
   pricePointsOfQuote,
   priceText,
   reasonText,
   reasonLine,
   beatsRandom,
   recordSpan,
-  sizeBuy,
 } from '../components/invest/monthlyPlan';
 import { plan as en } from '../i18n/en/plan';
 import { plan as zh } from '../i18n/zh/plan';
 import { eq, report } from './harness';
-
-const bank = (id: string, currentAmount: number, extra: Partial<PiggyBank> = {}): PiggyBank => ({
-  id,
-  name: id,
-  targetAmount: 0,
-  currentAmount,
-  splitPercentage: 0,
-  icon: 'savings',
-  imageUrl: '',
-  isLocked: false,
-  autoSplit: true,
-  createdAt: 0,
-  ...extra,
-});
-
-const mplus = brokerById('mplus')!;
-
-// --- which goal the page starts on
-
-{
-  const banks = [bank('car', 4200), bank('stocks', 1500), bank('old', 9000, { archivedAt: 1 })];
-  eq('saved goal wins while it exists', defaultPayFrom(banks, 'stocks'), { mode: 'goal', goalId: 'stocks' });
-  eq('nothing saved: the active goal holding the most', defaultPayFrom(banks, null), { mode: 'goal', goalId: 'car' });
-  eq('a saved goal that is gone is not swapped for another', defaultPayFrom(banks, 'deleted'), { mode: 'none' });
-  eq('no goals at all: not from a goal', defaultPayFrom([], null), { mode: 'none' });
-}
-
-// --- the budget
-
-{
-  const banks = [bank('stocks', 1500), bank('minus', -20)];
-  const goal = { mode: 'goal', goalId: 'stocks' } as const;
-  eq('all of it is the balance', planBudget(goal, null, banks), { cashCents: 150_000, balanceCents: 150_000, over: false });
-  eq('lower than the balance is kept', planBudget(goal, 50_000, banks), { cashCents: 50_000, balanceCents: 150_000, over: false });
-  eq('more than the balance uses the balance and says so', planBudget(goal, 200_000, banks), {
-    cashCents: 150_000,
-    balanceCents: 150_000,
-    over: true,
-  });
-  eq('an overspent goal has nothing to give', planBudget({ mode: 'goal', goalId: 'minus' }, null, banks).cashCents, 0);
-  eq('not from a goal is whatever was typed', planBudget({ mode: 'none' }, 80_000, banks), { cashCents: 80_000, balanceCents: null, over: false });
-  eq('not from a goal with nothing typed is zero', planBudget({ mode: 'none' }, null, banks).cashCents, 0);
-}
 
 // --- prices
 
@@ -83,33 +35,6 @@ eq(
     C: { priceCents: 3, previousCloseCents: 3, at: 1 },
   }
 );
-
-// --- sizing the buy
-
-{
-  // RM1,500 at RM7.90 on M+: 188 units fit (RM1,495.65 with fees), one full lot and 88 odd.
-  const full = sizeBuy(150_000, 79_000, mplus, 'EQUITY', false);
-  eq('full lots by default', full.kind === 'lots' ? [full.lots, full.odd, full.order.units] : null, [1, 88, 100]);
-  eq('the full-lot order is priced like a contract note', full.kind === 'lots' ? full.order.totalCents : null, costCents(100, 79_000, mplus));
-  eq('what stays of the budget', full.kind === 'lots' ? full.order.leftCents : null, 150_000 - costCents(100, 79_000, mplus));
-
-  const all = sizeBuy(150_000, 79_000, mplus, 'EQUITY', true);
-  eq('buy all now takes the odd units too', all.kind === 'lots' ? all.order.units : null, all.kind === 'lots' ? all.units : -1);
-  eq('buy all now still fits the budget', all.kind === 'lots' ? all.order.totalCents <= 150_000 : null, true);
-
-  const short = sizeBuy(50_000, 79_000, mplus, 'EQUITY', false);
-  eq('short of a lot waits by default', short.kind === 'shortOfLot' ? short.order : 'wrong', null);
-  eq('short of a lot says what one lot costs', short.kind === 'shortOfLot' ? short.lotCents : null, costCents(100, 79_000, mplus));
-  eq('and what is still to go', short.kind === 'shortOfLot' ? short.shortCents : null, costCents(100, 79_000, mplus) - 50_000);
-  const shortAll = sizeBuy(50_000, 79_000, mplus, 'EQUITY', true);
-  eq('short of a lot, buy all now', shortAll.kind === 'shortOfLot' ? shortAll.order?.units : null, shortAll.kind === 'shortOfLot' ? shortAll.units : -1);
-
-  const none = sizeBuy(500, 79_000, mplus, 'EQUITY', false);
-  eq('not enough for one unit', none, { kind: 'none', oneUnitCents: costCents(1, 79_000, mplus) });
-
-  const reit = sizeBuy(150_000, 79_000, mplus, 'REIT', false);
-  eq('a REIT carries SST', reit.kind === 'lots' ? reit.order.fees.sstCents > 0 : null, true);
-}
 
 // --- the pick
 

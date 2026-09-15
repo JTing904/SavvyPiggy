@@ -6,7 +6,7 @@
 export const setup = {
   styleTitle: 'Your style',
   notNow: 'Not now',
-  gate: 'Answer six questions before your first buy. Picks are matched to what you want from shares.',
+  gate: 'Answer six questions to see a recommendation. Picks are matched to what you want from shares.',
   questionOf: (n: number, total: number) => `Question ${n} of ${total}`,
   seeMyStyle: 'See my style',
 
@@ -49,8 +49,8 @@ export const setup = {
   noBetter: ' — no better than chance',
   noRecord: 'Not enough history on your list to test this yet',
   redoQuestions: 'Redo the questions',
-  continueToBuy: 'Continue to buy',
-  redoNote: 'You can redo this any time from the monthly buy page.',
+  continueToPick: 'See my pick',
+  redoNote: 'You can redo this any time from the recommendation page.',
 
   brokerTitle: 'Your broker',
   brokerFirstTitle: 'Where do you buy?',

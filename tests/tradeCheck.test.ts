@@ -19,7 +19,8 @@ const held = [trade('b1', 'buy', 100, 1)];
 eq('selling what was held is fine', shortSale([...held, trade('s1', 'sell', 100, 2)]), null);
 eq('selling 1,000 of 100 is short', shortSale([...held, trade('s1', 'sell', 1000, 2)])?.heldUnits, 100);
 eq('a sale dated before its buy is short', shortSale([...held, trade('s1', 'sell', 100, 0)])?.trade.id, 's1');
-eq('same day: the order entered decides', shortSale([trade('s1', 'sell', 100, 1, 1), trade('b1', 'buy', 100, 1, 2)])?.trade.id, 's1');
+eq('same day: a buy counts before a sale, whichever was entered first', shortSale([trade('s1', 'sell', 100, 1, 1), trade('b1', 'buy', 100, 1, 2)]), null);
+eq('same day: two sales keep the order entered', shortSale([...held, trade('s1', 'sell', 80, 2, 1), trade('s2', 'sell', 80, 2, 2)])?.trade.id, 's2');
 eq('two sales that add up to more than held: the second is short', shortSale([...held, trade('s1', 'sell', 60, 2), trade('s2', 'sell', 60, 3)])?.trade.id, 's2');
 {
   const log = [...held, trade('s1', 'sell', 100, 5)];

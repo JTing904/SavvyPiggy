@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { Activity, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
+import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
 import {
   averageCostCents,
   buildHoldings,
+  dayStart,
   normalizeSymbol,
   pricePointsOf,
   replay,
@@ -26,7 +27,8 @@ import {
   type SecurityType,
   type TradeFees,
 } from '../services/fees';
-import { planTradeMoney, type MoneyChoice, type TradeMoneyProblem } from '../services/tradeMoney';
+import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from '../services/tradeMoney';
+import { dividendsAfterChange, type CreditedDividend } from '../services/dividends';
 import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt';
 import { isInSplit, type GoneShareChoice } from '../services/ledger';
 import { newShortSale, type ShortSale } from '../services/tradeCheck';
@@ -55,7 +57,6 @@ export type TradeDraft =
       name?: string;
       units?: number;
       pricePoints?: number;
-      choice?: MoneyChoice;
     }
   | { mode: 'edit'; trade: Trade };
 
@@ -70,6 +71,14 @@ interface TradeSheetProps {
   loans: Loan[];
   savings: SavingsSettings;
   invest: InvestSettings;
+  /**
+   * Dividends already paid in, and the announcements: correcting a trade can
+   * move them. Null while still being read — nothing is saved until it is known.
+   */
+  credited?: CreditedDividend[] | null;
+  dividends?: Dividend[];
+  /** Alerts on the phone, so a corrected dividend's alert is only touched if it is still there. */
+  alertIds?: string[];
   draft: TradeDraft;
   onClose: () => void;
   onDone: (message: string) => void;
@@ -91,6 +100,9 @@ const feeText = (cents: number) => (cents / 100).toFixed(2);
 
 /** A fee as typed. Contract notes print to the sen, so that is what is kept. */
 const parseFee = (text: string) => Math.max(0, Math.round((Number(text) || 0) * 100));
+
+const NO_CREDITED: CreditedDividend[] = [];
+const NO_DIVIDENDS: Dividend[] = [];
 
 const sameChoice = (a: MoneyChoice, b: MoneyChoice) =>
   a.mode === b.mode && (a.mode !== 'goal' || (b.mode === 'goal' && a.goalId === b.goalId));
@@ -135,6 +147,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   loans,
   savings,
   invest,
+  credited: creditedIn = NO_CREDITED,
+  dividends = NO_DIVIDENDS,
+  alertIds,
   draft,
   onClose,
   onDone,
@@ -142,6 +157,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   onCreateGoal,
   onSyncError,
 }) => {
+  // Saved before the paid-in dividends arrive, a correction would leave them uncorrected.
+  const creditedLoaded = creditedIn !== null;
+  const credited = creditedIn ?? NO_CREDITED;
   const confirm = useConfirm();
   const t = useT();
   // Looked up at render, so a trade's kind is named in the current language.
@@ -238,6 +256,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       if (m?.mode === 'goal') return banks.some((b) => b.id === m.goalId) ? { mode: 'goal', goalId: m.goalId } : { mode: 'none' };
       if (m?.mode === 'split') return { mode: 'split' };
       if (m?.mode === 'pot') return { mode: 'pot' };
+      // A pot sale that came to exactly nothing used to be stored as "none";
+      // it is a pot trade, so a correction to a real amount moves the pot.
+      if (editing.kind === 'sell' && tradeTotalCents(editing) === 0) return { mode: 'pot' };
       return { mode: 'none' };
     }
     // Every new trade goes through the investment pot; savings goals are never touched.
@@ -352,6 +373,22 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const totalCents = candidate ? tradeTotalCents(candidate) : 0;
   const ready = !!candidate && unitsIn > 0 && pricePointsIn > 0;
 
+  /**
+   * What this change does to dividends already paid into the pot — the same
+   * reckoning the save makes, so the preview and the pot agree.
+   */
+  const dividendAdjust = useMemo(() => {
+    if (!ready || !candidate) return null;
+    return dividendsAfterChange({
+      trades,
+      credited,
+      dividends,
+      previousId: editing?.id ?? null,
+      next: { ...candidate, tradedAt: dayStart(candidate.tradedAt), money: stampOf(choice) },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, trades, credited, dividends, editing, symbol, kind, unitsIn, tradedAt, choice, openedAt]);
+
   const previous = useMemo(
     () =>
       editing
@@ -399,6 +436,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       loans,
       overflow: savings.overflow,
       potCents,
+      dividendDeltaCents: dividendAdjust?.deltaCents ?? 0,
     };
     const first = planTradeMoney(input);
     if ('problem' in first && first.problem.kind === 'goalGone') {
@@ -409,7 +447,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     }
     return { result: first, refundPending: false, takeBackPending: false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, kind, totalCents, choice, name, symbol, unitsIn, previous, banks, loans, savings.overflow, potCents]);
+  }, [ready, kind, totalCents, choice, name, symbol, unitsIn, previous, banks, loans, savings.overflow, potCents, dividendAdjust]);
 
   const bankName = (id: string) => banks.find((b) => b.id === id)?.name ?? t.invest.aGoal;
 
@@ -439,7 +477,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
    * before this rule, whose money may already have been deposited by hand;
    * forcing it into a goal now would count that money twice.
    */
-  const legacyNone = !!editing && editing.kind === 'sell' && (!editing.money || editing.money.mode === 'none');
+  const legacyNone =
+    !!editing && editing.kind === 'sell' && (!editing.money || editing.money.mode === 'none') && tradeTotalCents(editing) !== 0;
   const needsChoice = (legacyGoalMoney && kind === 'sell' && choice.mode === 'none' && !legacyNone) || !picked;
   const hasDestination = banks.some((b) => !b.archivedAt);
 
@@ -460,7 +499,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     : preview && 'problem' in preview.result
       ? describe(preview.result.problem)
       : null;
-  const canSave = ready && !busy && !blocked && !needsChoice;
+  const canSave = ready && creditedLoaded && !busy && !blocked && !needsChoice;
 
   const fail = (e: unknown, removing: boolean) => {
     setBusy(false);
@@ -484,7 +523,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   };
 
   const save = async (refund?: MoneyChoice, takeBack?: GoneShareChoice) => {
-    if (!candidate || candidate.kind === 'dividend' || !ready || busy) return;
+    if (!candidate || candidate.kind === 'dividend' || !ready || !creditedLoaded || busy) return;
     setBusy(true);
     setProblem(null);
     const body: NonNullable<TradeWrite['trade']> = {
@@ -500,7 +539,21 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       feeEdits,
     };
     try {
-      const { id, committed } = saveTrade(uid, { previous, trade: body, choice, refund, takeBack, banks, loans, savings, potBalance: invest.potBalance });
+      const { id, committed } = saveTrade(uid, {
+        previous,
+        trade: body,
+        choice,
+        refund,
+        takeBack,
+        banks,
+        loans,
+        savings,
+        potBalance: invest.potBalance,
+        trades,
+        credited,
+        dividends,
+        alertIds,
+      });
       committed.catch((e) => onSyncError?.(e));
       setRefundAsk(null);
       setTakeBackAsk(null);
@@ -521,11 +574,25 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   };
 
   const removeWith = async (refund?: MoneyChoice, takeBack?: GoneShareChoice) => {
-    if (!editing) return;
+    if (!editing || !creditedLoaded) return;
     setBusy(true);
     setProblem(null);
     try {
-      const { committed } = saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, takeBack, banks, loans, savings, potBalance: invest.potBalance });
+      const { committed } = saveTrade(uid, {
+        previous,
+        trade: null,
+        choice: { mode: 'none' },
+        refund,
+        takeBack,
+        banks,
+        loans,
+        savings,
+        potBalance: invest.potBalance,
+        trades,
+        credited,
+        dividends,
+        alertIds,
+      });
       committed.catch((e) => onSyncError?.(e));
       setRefundAsk(null);
       setTakeBackAsk(null);
@@ -537,7 +604,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   };
 
   const remove = async () => {
-    if (!editing || busy) return;
+    if (!editing || busy || !creditedLoaded) return;
     // Deleting a buy can leave a later sale selling units that were never held.
     const leftShort = newShortSale(symbolTrades, symbolTrades.filter((tr) => tr.id !== editing.id));
     if (leftShort) {
@@ -545,9 +612,11 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       return;
     }
     const moved = !!editing.money && editing.money.mode !== 'none';
+    const adjusted = dividendsAfterChange({ trades, credited, dividends, previousId: editing.id, next: null }).deltaCents;
+    const body = moved ? `${t.invest.deleteBody} ${t.invest.deleteMoneyBack}` : t.invest.deleteBody;
     const ok = await confirm({
       title: t.invest.deleteTitle,
-      body: moved ? `${t.invest.deleteBody} ${t.invest.deleteMoneyBack}` : t.invest.deleteBody,
+      body: adjusted !== 0 ? `${body} ${t.invest.dividendsAdjustedBody(money(adjusted, { signed: true }))}` : body,
       tone: 'danger',
       confirmLabel: t.common.delete,
       detail: {
@@ -584,8 +653,24 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
 
   const plan = preview && 'plan' in preview.result ? preview.result.plan : null;
 
-  /** The lines under the totals that say what happens to the goals. */
+  /** The lines under the totals that say what happens to the pot and the goals. */
   const moneyLines = () => {
+    if (!plan) return null;
+    const showsPot = choice.mode === 'pot' || (plan.potDelta !== 0 && Object.keys(plan.bankDeltas).length === 0);
+    return (
+      <>
+        {plan.dividendCents !== 0 && (
+          <Line label={t.invest.dividendsAdjusted} value={money(plan.dividendCents, { signed: true })} tone="text-amber-300" />
+        )}
+        {savingsLines()}
+        {!showsPot && plan.potDelta !== 0 && (
+          <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />
+        )}
+      </>
+    );
+  };
+
+  const savingsLines = () => {
     if (!plan) return null;
     if (choice.mode === 'pot' || (plan.potDelta !== 0 && Object.keys(plan.bankDeltas).length === 0)) {
       return <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />;
@@ -650,7 +735,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
         </div>
         <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
           {kind === 'dividend'
-            ? t.invest.dividendIntro
+            ? editing?.money?.mode === 'pot' ? t.invest.dividendIntro : t.invest.dividendIntroLegacy
             : editing
             ? t.invest.editIntro
             : prefilled
@@ -687,14 +772,14 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               </div>
               <div className="h-px bg-white/10" />
               <div className="flex items-center">
-                <span className="flex-1 text-accent font-black text-sm">{t.invest.paidIntoGoals}</span>
+                <span className="flex-1 text-accent font-black text-sm">{editing?.money?.mode === 'pot' ? t.invest.paidIntoPot : t.invest.paidIntoGoals}</span>
                 <span className="text-accent font-black text-lg">
                   {money(editing ? tradeCents(editing) : 0)}
                 </span>
               </div>
             </div>
             <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
-              {t.invest.dividendReceiptNote}
+              {editing?.money?.mode === 'pot' ? t.invest.dividendReceiptNote : t.invest.dividendReceiptNoteLegacy}
             </p>
             <button
               onClick={onClose}
@@ -959,6 +1044,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>
             )}
 
+            {!creditedLoaded && <p className="text-slate-500 text-xs font-bold mt-4 leading-relaxed">{t.invest.dividendsLoading}</p>}
+
             <button
               onClick={() => void save()}
               disabled={!canSave}
@@ -970,7 +1057,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             {editing && (
               <button
                 onClick={() => void remove()}
-                disabled={busy}
+                disabled={busy || !creditedLoaded}
                 className="w-full h-12 mt-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black disabled:opacity-30 active:scale-95 transition-transform"
               >
                 {t.invest.deleteTrade}

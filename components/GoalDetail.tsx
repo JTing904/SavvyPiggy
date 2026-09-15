@@ -5,7 +5,9 @@ import { uploadGoalImage } from '../services/storage';
 import { isStorageEnabled } from '../lib/firebase';
 import { archiveStrategy, isArchived, isFull, isInSplit } from '../services/ledger';
 import { useBackHandler } from '../hooks/useBackHandler';
-import { formatMoney } from '../services/money';
+import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
+import OlderRecordsNotice from './OlderRecordsNotice';
+import { formatMoney, percentReached, toCents } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, deviceDateLocale, noteText, type Messages } from '../i18n';
 
@@ -28,6 +30,8 @@ interface GoalDetailProps {
   bank: PiggyBank;
   banks: PiggyBank[];
   activities: Activity[];
+  /** The goal's history covers everything kept, so the older part is read when it opens. */
+  ledger: Ledger;
   onBack: () => void;
   onEditStrategy: () => void;
   onChangePhoto: (imageUrl: string) => Promise<void> | void;
@@ -42,6 +46,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   bank,
   banks,
   activities,
+  ledger,
   onBack,
   onEditStrategy,
   onChangePhoto,
@@ -86,7 +91,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   const paidIn = entries.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0);
   const takenOut = entries.filter((e) => e.amount < 0).reduce((sum, e) => sum - e.amount, 0);
 
-  const overspent = bank.currentAmount < 0;
+  const overspent = toCents(bank.currentAmount) < 0;
   const hasTarget = bank.targetAmount > 0;
   const progress = hasTarget
     ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
@@ -100,10 +105,14 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
     .map((b) => ({ name: b.name, gained: b.splitPercentage - (banks.find((x) => x.id === b.id)?.splitPercentage ?? 0) }))
     .filter((b) => b.gained > 0);
 
+  // Paid in and taken out are over everything kept; until the part older than
+  // the live three months is read they show nothing rather than a smaller sum.
+  const history = useLedgerRange(ledger, ledger.keptFrom);
+  const complete = history === 'ready';
   const stats = [
-    { label: t.goals.paidIn, value: formatMoney(paidIn) },
-    { label: t.goals.takenOut, value: formatMoney(takenOut) },
-    { label: t.goals.entries, value: String(entries.length) },
+    { label: t.goals.paidIn, value: complete ? formatMoney(paidIn) : '—' },
+    { label: t.goals.takenOut, value: complete ? formatMoney(takenOut) : '—' },
+    { label: t.goals.entries, value: complete ? String(entries.length) : '—' },
   ];
 
   return (
@@ -197,8 +206,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           </div>
           <p className="text-slate-500 text-xs font-medium">
             {hasTarget
-              ? remaining > 0
-                ? t.goals.toGo(formatMoney(remaining), Math.round(progress))
+              ? toCents(remaining) > 0
+                ? t.goals.toGo(formatMoney(remaining), percentReached(bank.currentAmount, bank.targetAmount))
                 : t.goals.targetReached
               : t.goals.noFinishLine}
           </p>
@@ -263,7 +272,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
       <div className="px-6 mt-8">
         <h3 className="text-white text-lg font-bold mb-4">{t.goals.activity}</h3>
         <div className="space-y-3">
-          {entries.length === 0 ? (
+          {history !== 'ready' && <OlderRecordsNotice status={history} onRetry={ledger.retry} />}
+          {entries.length === 0 && history !== 'ready' ? null : entries.length === 0 ? (
             <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
               <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">receipt_long</span>
               <p className="text-slate-500 font-bold">{t.goals.nothingYet}</p>
@@ -341,7 +351,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           onClick={() => setConfirmArchive(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-white text-2xl font-black">{t.goals.archiveTitle(bank.name)}</h3>

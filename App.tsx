@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Tab, PiggyBank, Schedule, NotificationPrefs, SavingsSettings } from './types';
+import { Tab, PiggyBank, Schedule, NotificationPrefs, SavingsSettings, type Activity } from './types';
 import Dashboard from './components/Dashboard';
 import StrategyEditor from './components/StrategyEditor';
 import ActivityLog from './components/ActivityLog';
@@ -40,9 +40,13 @@ import { cachedRecords } from './hooks/useAdvisor';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
+import { fromCents, toCents } from './services/money';
 import type { GoalMoneyChoice, GoneShareChoice } from './services/ledger';
-import { staleAlerts, streakAlert } from './services/alerts';
-import { retentionCutoff } from './services/analytics';
+import { staleAlerts, staleAlertsCutoff, streakAlertFor } from './services/alerts';
+import { coveringRows, knownStreak } from './services/ledgerWindow';
+import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
+import { useTradeRow } from './hooks/useTradeRow';
+import { OlderRecordsSheet } from './components/OlderRecordsNotice';
 import { checkPermission, onNotificationOpen, requestPermission, syncNotifications } from './services/notifications';
 
 const Splash: React.FC<{ label: string }> = ({ label }) => (
@@ -79,11 +83,14 @@ const App: React.FC = () => {
   /** Moving money between savings and the investment pot. */
   const [potSheet, setPotSheet] = useState<'in' | 'out' | null>(null);
   /**
-   * The two questions a first buy has to answer — style, then broker — and
-   * the buy waiting behind them. Also used to edit either on its own, with no
-   * buy waiting.
+   * The questions asked before something can open: the broker before a first
+   * buy (its fees depend on it), with the buy waiting behind it; the style
+   * questions before the recommendation page, which is `forPick`. Also used to
+   * edit either on its own, with nothing waiting.
    */
-  const [setup, setSetup] = useState<{ step: 'style' | 'broker'; pending: TradeDraft | null; editing?: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ step: 'style' | 'broker'; pending: TradeDraft | null; forPick?: boolean; editing?: boolean } | null>(
+    null
+  );
 
   // A tab belongs to one half of the app, so the bar follows it. Screens reached
   // from Profile or an alert (the split, the report) used to open under the
@@ -93,13 +100,13 @@ const App: React.FC = () => {
     else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
   }, [activeTab]);
 
-  const { banks, activities, schedules, loans, alerts, prefs, savings, trades, holdings, invest, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
   // position still matters, because its last dividend can pay weeks later.
-  // Counters on the watchlist are priced too, so the monthly pick can size a
-  // buy of something not held yet.
+  // Counters on the watchlist are priced too, so the recommendation can show
+  // the price of something not held yet.
   const symbols = useMemo(
     () => [...new Set([...trades.map((t) => t.symbol), ...invest.watchlist.map((w) => w.symbol)])],
     [trades, invest.watchlist]
@@ -112,10 +119,12 @@ const App: React.FC = () => {
   );
   const {
     dividends,
+    credited: creditedDividends,
     busy: dividendsBusy,
     known: dividendsKnown,
     refresh: refreshDividends,
-  } = useDividends({ uid, trades, banks, loans, prefs, savings, ready: !dataLoading });
+  } = useDividends({ uid, trades, ready: !dataLoading });
+  const alertIds = useMemo(() => alerts.map((a) => a.id), [alerts]);
 
   useLedgerPruning(uid, savings, !dataLoading);
   const snapshots = useSnapshots(uid, trades, quotes, !dataLoading);
@@ -138,11 +147,17 @@ const App: React.FC = () => {
     if (!uid || dataLoading || offline || schedules.length === 0) return;
 
     const catchUp = async () => {
-      if (catchingUp.current || document.visibilityState !== 'visible') return;
+      // `offline` only turns true after two seconds of cached data, and a
+      // catch-up started inside that window failed with "the client is
+      // offline" on every open without a connection. The phone knows sooner.
+      if (catchingUp.current || document.visibilityState !== 'visible' || !navigator.onLine) return;
       catchingUp.current = true;
       try {
         await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings });
       } catch (e) {
+        // The connection dropped under it. Each day posts in its own
+        // transaction, so nothing is half-done, and it runs again once online.
+        if ((e as { code?: string } | null)?.code === 'unavailable') return;
         // This one posts real deposits and nobody asked it to run, so a
         // failure has to be visible: a rule pointing at a goal deleted on
         // another device used to stop posting silently, on every open,
@@ -155,27 +170,58 @@ const App: React.FC = () => {
 
     void catchUp();
     document.addEventListener('visibilitychange', catchUp);
-    return () => document.removeEventListener('visibilitychange', catchUp);
+    window.addEventListener('online', catchUp);
+    return () => {
+      document.removeEventListener('visibilitychange', catchUp);
+      window.removeEventListener('online', catchUp);
+    };
   }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings]);
+
+  /*
+    The saving streak, shared by the alert, Profile and the Report.
+
+    Only three months are live, which is always longer than the 7- and 30-day
+    cards need. A run reaching the live window's start is extended with the run
+    an earlier open verified (kept on the phone per account); only when nothing
+    remembered joins up with it is the kept ledger read — once, and only if
+    streak cards are switched on. A 100- or 365-day card therefore fires on the
+    day it always did, and never from a guess: a run that cannot be counted
+    stays "at least", which earns no card.
+  */
+  const streak = useMemo(
+    () => knownStreak(activities, new Date(), ledger.loadedFrom, ledger.keptFrom, readStreakMemory(uid)),
+    [uid, activities, ledger.loadedFrom.getTime(), ledger.keptFrom.getTime()] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  useEffect(() => {
+    if (!uid || dataLoading) return;
+    if (!streak.needsOlder) writeStreakMemory(uid, streak.memory);
+    else if (prefs.milestones) ledger.need(ledger.keptFrom);
+  }, [uid, dataLoading, streak, prefs.milestones]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A trade opened for correcting waits for its History row when that is older than what is loaded.
+  const tradeRow = useTradeRow(uid, tradeDraft, activities, ledger.keptFrom);
 
   // A streak milestone is judged on the live ledger rather than at deposit
   // time, so a catch-up run that lands on day 30 earns its card too.
   useEffect(() => {
-    if (!uid || dataLoading || !prefs.milestones) return;
-    const now = new Date();
-    const draft = streakAlert(activities, alerts, now, retentionCutoff(now, savings.retentionMonths));
+    if (!uid || dataLoading || !prefs.milestones || streak.needsOlder) return;
+    const draft = streakAlertFor(streak.run, alerts, new Date());
     if (draft) run(() => api.addAlert(uid, draft));
-  }, [uid, dataLoading, activities, alerts, prefs.milestones, savings.retentionMonths]);
+  }, [uid, dataLoading, streak, alerts, prefs.milestones]);
 
   // Alerts are disposable: anything older than the retention window goes,
-  // once per session, without asking.
-  const swept = useRef(false);
+  // once per session per account, without asking. The bell only reads the
+  // newest few, so when it is full anything stale past them is found by a
+  // bounded query instead.
+  const swept = useRef<string | null>(null);
   useEffect(() => {
-    if (!uid || dataLoading || swept.current) return;
-    swept.current = true;
-    const stale = staleAlerts(alerts, new Date());
+    if (!uid || dataLoading || swept.current === uid) return;
+    swept.current = uid;
+    const now = new Date();
+    const stale = staleAlerts(alerts, now);
     if (stale.length > 0) run(() => api.pruneAlerts(uid, stale.map((a) => a.id)));
-  }, [uid, dataLoading, alerts]);
+    if (alertsCapped) run(() => api.pruneAlertsBefore(uid, staleAlertsCutoff(now)));
+  }, [uid, dataLoading, alerts, alertsCapped]);
 
   // The language follows the account. Whichever was chosen more recently —
   // on this phone or on the account — wins, so picking 中文 on a new phone's
@@ -241,16 +287,20 @@ const App: React.FC = () => {
   useBackHandler(tradeDraft !== null, () => setTradeDraft(null));
 
   /**
-   * Opening a trade. A first buy is held back until the style questions and
-   * the broker are answered, in that order; a sale never is — someone who has
-   * sold has to be able to write it down.
+   * Opening a trade. A first buy is held back until the broker is chosen, since
+   * its fees come from the broker's rates; a sale never is — someone who has
+   * sold has to be able to write it down. The style questions belong to the
+   * recommendation, not to buying, so they are asked by openMonthlyBuy instead.
    */
   const openTrade = (draft: TradeDraft) => {
-    if (draft.mode === 'new' && draft.kind === 'buy') {
-      if (!invest.style) return setSetup({ step: 'style', pending: draft });
-      if (!invest.brokerId) return setSetup({ step: 'broker', pending: draft });
-    }
+    if (draft.mode === 'new' && draft.kind === 'buy' && !invest.brokerId) return setSetup({ step: 'broker', pending: draft });
     setTradeDraft(draft);
+  };
+
+  /** The recommendation page, behind the style questions the pick is made from. */
+  const openMonthlyBuy = () => {
+    if (!invest.style) return setSetup({ step: 'style', pending: null, forPick: true });
+    setShowMonthlyBuy(true);
   };
 
   const openTradeById = (tradeId: string) => {
@@ -317,11 +367,15 @@ const App: React.FC = () => {
     // spending takes money back out again. Money moved into or back from shares
     // is neither saving nor spending, so a buy does not turn today negative —
     // and nor is a deleted goal's money moving into another goal.
-    return activities
-      .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest'].includes(a.type))
-      .filter((a) => new Date(a.date).toLocaleDateString() === today)
-      .flatMap((a) => a.distributions)
-      .reduce((sum, d) => sum + d.amount, 0);
+    // Summed in cents: RM50.30 in and RM20.10 + RM30.20 out came to a hair
+    // below zero in floats.
+    return fromCents(
+      activities
+        .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest'].includes(a.type))
+        .filter((a) => new Date(a.date).toLocaleDateString() === today)
+        .flatMap((a) => a.distributions)
+        .reduce((sum, d) => sum + toCents(d.amount), 0)
+    );
   }, [activities, dayStamp]);
 
   /**
@@ -367,7 +421,10 @@ const App: React.FC = () => {
   };
 
   const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
-    if (uid) await api.createBank(uid, newGoal);
+    // Not awaited: addDoc settles only when the server confirms, so offline the
+    // sheet spun forever over a goal the phone had already saved. A refusal
+    // still surfaces through run.
+    if (uid) run(() => api.createBank(uid, newGoal));
     setShowCreateGoal(false);
     // A goal can be started from the investing side (a sale with nowhere to go);
     // the goals page belongs to saving, so its tab bar has to come with it.
@@ -407,16 +464,49 @@ const App: React.FC = () => {
     if (uid) run(() => api.deleteBank(uid, banks, id, choice, savings, retarget));
   };
 
-  const handleDeleteActivity = (id: string, takeBack?: GoneShareChoice) => {
-    const activity = activities.find((a) => a.id === id);
+  /**
+   * A spent ahead waiting for the rest of the kept ledger before it is deleted,
+   * because a deposit that covered it is older than what is loaded.
+   */
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; takeBack?: GoneShareChoice } | null>(null);
+
+  const deleteNow = (activity: Activity, takeBack?: GoneShareChoice) => {
+    if (!uid) return;
     // Deleting spending that was already covered puts that money back into
     // the goals, so the strategy travels with it — and so do the deposits
     // that covered it, which are the entries that get corrected.
-    const covering = activity?.loanId
-      ? activities.filter((a) => a.repayments?.some((r) => r.loanId === activity.loanId))
-      : [];
-    if (uid && activity) run(() => api.deleteActivity(uid, activity, banks, savings, covering, takeBack));
+    const covering = activity.loanId ? coveringRows(activity.loanId, undefined, activities).rows : [];
+    run(() => api.deleteActivity(uid, activity, banks, savings, covering, takeBack));
   };
+
+  const handleDeleteActivity = (id: string, takeBack?: GoneShareChoice) => {
+    const activity = activities.find((a) => a.id === id);
+    if (!uid || !activity) return;
+    if (activity.loanId && ledger.status(ledger.keptFrom) !== 'ready') {
+      // Only the last three months are loaded. When those rows do not account
+      // for everything already covered, the rest is read first — once a
+      // session — rather than leaving the goals short by what was missed.
+      const { complete } = coveringRows(activity.loanId, loans.find((l) => l.id === activity.loanId), activities);
+      if (!complete) {
+        ledger.need(ledger.keptFrom);
+        ledger.retry();
+        setPendingDelete({ id, takeBack });
+        return;
+      }
+    }
+    deleteNow(activity, takeBack);
+  };
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    const status = ledger.status(ledger.keptFrom);
+    if (status === 'loading') return;
+    setPendingDelete(null);
+    if (status === 'failed') return fail(new Error(t.errors.coveringUnavailable));
+    const activity = activities.find((a) => a.id === pendingDelete.id);
+    if (activity) deleteNow(activity, pendingDelete.takeBack);
+    else fail(new Error(t.errors.recordGone));
+  }, [pendingDelete, ledger, activities]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEditActivity = (id: string, newAmount: number) => {
     const activity = activities.find((a) => a.id === id);
@@ -454,6 +544,7 @@ const App: React.FC = () => {
           bank={selectedGoal}
           banks={banks}
           activities={activities}
+          ledger={ledger}
           onChangePhoto={(imageUrl) => api.updateBank(uid!, selectedGoal.id, { imageUrl })}
           onBack={() => setSelectedGoalId(null)}
           onArchive={() => {
@@ -490,7 +581,6 @@ const App: React.FC = () => {
       return (
         <MonthlyBuy
           uid={uid}
-          banks={activeBanks}
           trades={trades}
           invest={invest}
           quotes={quotes}
@@ -505,6 +595,7 @@ const App: React.FC = () => {
       return (
         <Statements
           activities={activities}
+          ledger={ledger}
           banks={banks}
           trades={trades}
           quotes={quotes}
@@ -521,6 +612,7 @@ const App: React.FC = () => {
         <Profile
           banks={banks}
           activities={activities}
+          streak={streak.run}
           schedules={schedules}
           savings={savings}
           unreadAlerts={unread}
@@ -591,7 +683,7 @@ const App: React.FC = () => {
             onTrade={(holding, kind) => openTrade({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })}
             investSettings={invest}
             onPotMove={setPotSheet}
-            onOpenMonthlyBuy={() => setShowMonthlyBuy(true)}
+            onOpenMonthlyBuy={openMonthlyBuy}
             onOpenTrade={openTradeById}
             onOpenTrades={() => setActiveTab(Tab.TRADES)}
             holdings={holdings}
@@ -608,6 +700,8 @@ const App: React.FC = () => {
           <Report
             banks={banks}
             activities={activities}
+            ledger={ledger}
+            streak={streak.run}
             onOpenStrategy={() => setActiveTab(Tab.BANKS)}
             onOpenProfile={() => setShowProfile(true)}
             onOpenStatements={() => setShowStatements(true)}
@@ -630,6 +724,7 @@ const App: React.FC = () => {
         return (
           <ActivityLog
             activities={activities}
+            ledger={ledger}
             banks={banks}
             onDeleteActivity={handleDeleteActivity}
             onEditActivity={handleEditActivity}
@@ -643,10 +738,14 @@ const App: React.FC = () => {
             uid={uid!}
             trades={trades}
             activities={activities}
+            keptFrom={ledger.keptFrom}
             banks={banks}
             loans={loans}
             savings={savings}
             invest={invest}
+            credited={creditedDividends}
+            dividends={dividends}
+            alertIds={alertIds}
             onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
             onCreateGoal={() => setShowCreateGoal(true)}
             onBack={() => setActiveTab(Tab.HOME)}
@@ -656,6 +755,7 @@ const App: React.FC = () => {
         return (
           <Dividends
             dividends={dividends}
+            credited={creditedDividends}
             trades={trades}
             busy={dividendsBusy}
             known={dividendsKnown}
@@ -743,15 +843,21 @@ const App: React.FC = () => {
         />
       )}
 
-      {tradeDraft && uid && (
+      {tradeDraft && uid && tradeRow.status !== 'ready' && (
+        <OlderRecordsSheet status={tradeRow.status} onRetry={tradeRow.retry} onClose={() => setTradeDraft(null)} />
+      )}
+      {tradeDraft && uid && tradeRow.status === 'ready' && (
         <TradeSheet
           uid={uid}
           trades={trades}
-          activities={activities}
+          activities={tradeRow.activities}
           banks={banks}
           loans={loans}
           savings={savings}
           invest={invest}
+          credited={creditedDividends}
+          dividends={dividends}
+          alertIds={alertIds}
           draft={tradeDraft}
           onClose={() => setTradeDraft(null)}
           onDone={() => undefined}
@@ -769,16 +875,13 @@ const App: React.FC = () => {
         <StyleQuiz
           initial={invest.style}
           records={quizRecords}
-          required={!!setup.pending}
+          required={!!setup.forPick}
           startOnMix={!!setup.editing && !!invest.style}
           onDone={(style) => {
             void api.saveInvest(uid, { style }).catch(fail);
-            const pending = setup.pending;
-            if (pending && !invest.brokerId) setSetup({ step: 'broker', pending });
-            else {
-              setSetup(null);
-              if (pending) setTradeDraft(pending);
-            }
+            const forPick = setup.forPick;
+            setSetup(null);
+            if (forPick) setShowMonthlyBuy(true);
           }}
           onClose={() => setSetup(null)}
         />
@@ -835,7 +938,7 @@ const App: React.FC = () => {
           onClick={() => setShowQuickPick(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
             {/* The same button, two jobs: which one follows the card on Home. */}

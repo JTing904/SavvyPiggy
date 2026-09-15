@@ -276,13 +276,234 @@ export const dueDividends = (
     .sort((a, b) => a.dividend.payDate - b.dividend.payDate || slotOf(a.dividend) - slotOf(b.dividend));
 };
 
+/**
+ * Whether a trade's units can earn a dividend paid on `payDay` (a local
+ * midnight).
+ *
+ * A buy recorded with no money moving ("not from the pot") is someone filling
+ * in a trade from before they used the app. The dividends those shares earned
+ * back then were received outside the app, so such a buy only earns dividends
+ * paid on or after the day it was entered. A buy paid from the pot or a goal,
+ * and every sale, counts from its trade date.
+ */
+export const countsForDividend = (trade: Trade, payDay: number) =>
+  trade.kind !== 'buy' || (!!trade.money && trade.money.mode !== 'none') || dayStart(trade.createdAt) <= payDay;
+
+/**
+ * The units a dividend is owed on: held at the close before the ex-date, not
+ * counting back-filled buys entered after it paid (see countsForDividend).
+ * When a buy is left out, the sales come off what is left and the figure stops
+ * at zero — the sales may well have been of the shares left out.
+ */
+export const dividendUnits = (trades: Trade[], d: Pick<Dividend, 'symbol' | 'exDate' | 'payDate'>) => {
+  const exDay = exchangeDay(d.exDate);
+  const payDay = exchangeDay(d.payDate);
+  const cutoff = dayStart(exDay - 1);
+  const mine = trades.filter((t) => t.symbol === d.symbol && t.tradedAt <= cutoff);
+  if (mine.every((t) => countsForDividend(t, payDay))) return unitsOnExDate(mine, exDay);
+  let units = 0;
+  for (const t of mine) {
+    if (t.kind === 'buy' && countsForDividend(t, payDay)) units += t.units;
+    else if (t.kind === 'sell') units -= t.units;
+  }
+  return Math.max(0, units);
+};
+
 /** What one announcement comes to on the units held the day before its ex-date. */
 const owed = (d: Dividend, trades: Trade[]): DueDividend => {
-  const units = unitsOnExDate(
-    trades.filter((t) => t.symbol === d.symbol),
-    exchangeDay(d.exDate)
-  );
+  const units = dividendUnits(trades, d);
   return { id: dividendId(d), dividend: d, units, amountCents: dividendCents(units, d.perUnitPoints) };
+};
+
+/* ------------------------------------------------------- already paid in */
+
+/**
+ * The marker a credited dividend leaves (users/{uid}/dividendsPaid/{id}).
+ * Markers written before the investment pot carry only symbol, exDate, units
+ * and amountCents; `pot`, `perUnitPoints` and `payDate` came with it.
+ */
+export interface CreditedDividend {
+  id: string;
+  symbol?: string;
+  exDate?: number;
+  payDate?: number;
+  perUnitPoints?: number;
+  units?: number;
+  amountCents?: number;
+  /** Paid into the investment pot, rather than split into goals as before it. */
+  pot?: boolean;
+}
+
+export interface DividendChange {
+  id: string;
+  symbol: string;
+  exDate: number;
+  payDate: number;
+  perUnitPoints: number;
+  /** What the marker and the log row should say now. */
+  units: number;
+  amountCents: number;
+  /** Into the pot (negative: out of it): the new amount less what was paid. */
+  deltaCents: number;
+}
+
+/**
+ * What correcting or deleting a trade does to dividends already paid into
+ * the pot.
+ *
+ * Each credited dividend moves by exactly what the change moves: the units the
+ * log owed it on before and after the change (by dividendUnits) are compared,
+ * and only the difference is applied to what was actually paid. A dividend the
+ * change does not touch is left exactly as it was, even if today's rules would
+ * work it out differently — nothing is reversed or topped up just because the
+ * rules moved. One the change makes eligible (a pot buy back-dated before its
+ * ex-date) grows the same way.
+ *
+ * Dividends paid into goals before the pot existed are left alone: their money
+ * is in savings, and the pot must not pay for it. So is any marker the app
+ * cannot find a per-unit amount and dates for — nothing is guessed.
+ */
+export const reconcileDividends = ({
+  credited,
+  dividends,
+  before,
+  after,
+}: {
+  credited: CreditedDividend[];
+  /** Announcements, for markers that do not carry their own amount and dates. */
+  dividends: Dividend[];
+  /** The whole log as it stands (dividend rows included), and as it would be. */
+  before: Trade[];
+  after: Trade[];
+}): { deltaCents: number; changes: DividendChange[] } => {
+  const rows = new Map(before.filter((t) => t.kind === 'dividend').map((t) => [t.id, t]));
+  const announced = new Map(dividends.map((d) => [dividendId(d), d]));
+  const changes: DividendChange[] = [];
+
+  for (const marker of credited) {
+    const row = rows.get(marker.id);
+    const pot = marker.pot === true || row?.money?.mode === 'pot';
+    if (!pot || typeof marker.units !== 'number' || typeof marker.amountCents !== 'number') continue;
+    const ann = announced.get(marker.id);
+    const symbol = marker.symbol ?? ann?.symbol ?? row?.symbol;
+    const exDate = marker.exDate ?? ann?.exDate ?? row?.exDate;
+    const payDate = marker.payDate ?? ann?.payDate ?? row?.tradedAt;
+    const perUnitPoints = marker.perUnitPoints ?? ann?.perUnitPoints ?? row?.perUnitPoints;
+    if (!symbol || typeof exDate !== 'number' || typeof payDate !== 'number' || !perUnitPoints) continue;
+
+    const d = { symbol, exDate, payDate };
+    const moved = dividendUnits(after, d) - dividendUnits(before, d);
+    if (moved === 0) continue;
+    const units = Math.max(0, marker.units + moved);
+    const amountCents = dividendCents(units, perUnitPoints);
+    if (units === marker.units && amountCents === marker.amountCents) continue;
+    changes.push({ id: marker.id, symbol, exDate, payDate, perUnitPoints, units, amountCents, deltaCents: amountCents - marker.amountCents });
+  }
+
+  return { deltaCents: changes.reduce((sum, c) => sum + c.deltaCents, 0), changes };
+};
+
+/** reconcileDividends for one trade recorded, corrected (same id) or deleted (`next` null). */
+export const dividendsAfterChange = ({
+  trades,
+  credited,
+  dividends,
+  previousId,
+  next,
+}: {
+  trades: Trade[];
+  credited: CreditedDividend[];
+  dividends: Dividend[];
+  previousId: string | null;
+  next: Trade | null;
+}) =>
+  reconcileDividends({
+    credited,
+    dividends,
+    before: trades,
+    after: [...trades.filter((t) => t.id !== previousId), ...(next ? [next] : [])],
+  });
+
+/**
+ * Pins dividends that share a counter and an ex-date to the ids they were
+ * already paid under.
+ *
+ * The Worker numbers them by their order on the page, and the page is newest
+ * first. A special dividend announced after an interim that was already paid
+ * lands above it, takes slot 0 and with it the interim's id — so the special
+ * read as paid and the interim fell due a second time.
+ *
+ * Here each paid marker for that ex-date is matched back to the announcement
+ * it paid by its per-unit amount (stored on the marker, on its log row, or
+ * failing both read back from its units and amount). A matched announcement
+ * keeps the marker's slot; the rest take the free slots in page order. When a
+ * marker does not match exactly one amount — an amended announcement, a record
+ * with nothing to tell — the page order stands, as it always did.
+ */
+export const settleSlots = (dividends: AnnouncedDividend[], credited: CreditedDividend[], trades: Trade[]): AnnouncedDividend[] => {
+  if (credited.length === 0) return dividends;
+  const groups = new Map<string, Dividend[]>();
+  for (const d of dividends) {
+    const key = dividendTradeId(d.symbol, d.exDate);
+    const list = groups.get(key);
+    if (list) list.push(d);
+    else groups.set(key, [d]);
+  }
+
+  const rows = new Map(trades.filter((t) => t.kind === 'dividend').map((t) => [t.id, t]));
+  const slotFor = new Map<Dividend, number>();
+
+  for (const [base, list] of groups) {
+    const markers = credited
+      .map((m) => ({
+        m,
+        slot: m.id === base ? 0 : m.id.startsWith(`${base}_`) && /^\d+$/.test(m.id.slice(base.length + 1)) ? Number(m.id.slice(base.length + 1)) - 1 : -1,
+      }))
+      .filter((x) => x.slot >= 0)
+      .sort((a, b) => a.slot - b.slot);
+    if (markers.length === 0) continue;
+
+    const byPage = [...list].sort((a, b) => slotOf(a) - slotOf(b));
+    const taken = new Map<Dividend, number>();
+    let settled = true;
+    for (const { m, slot } of markers) {
+      const points = m.perUnitPoints ?? rows.get(m.id)?.perUnitPoints;
+      const free = byPage.filter((d) => !taken.has(d));
+      const units = m.units ?? 0;
+      const matches =
+        points !== undefined
+          ? free.filter((d) => d.perUnitPoints === points)
+          : units > 0 && typeof m.amountCents === 'number'
+            ? free.filter((d) => dividendCents(units, d.perUnitPoints) === m.amountCents)
+            : [];
+      // Two different amounts that both fit is a guess; equal amounts are the same money either way.
+      if (matches.length === 0 || matches.some((d) => d.perUnitPoints !== matches[0].perUnitPoints)) {
+        settled = false;
+        break;
+      }
+      taken.set(matches[0], slot);
+    }
+    if (!settled) continue;
+
+    const used = new Set(taken.values());
+    let next = 0;
+    for (const d of byPage) {
+      if (taken.has(d)) continue;
+      while (used.has(next)) next++;
+      taken.set(d, next);
+      used.add(next);
+    }
+    for (const [d, slot] of taken) slotFor.set(d, slot);
+  }
+
+  if (slotFor.size === 0) return dividends;
+  return dividends.map((d) => {
+    const slot = slotFor.get(d);
+    if (slot === undefined || slot === slotOf(d)) return d;
+    const rest: AnnouncedDividend = { ...d };
+    delete rest.slot;
+    return slot === 0 ? rest : { ...rest, slot };
+  });
 };
 
 /**
@@ -335,12 +556,12 @@ export interface DeclaredRow extends DueDividend {
  * the shares are still held on the day. Presenting them as one number would
  * claim a certainty the second half does not have.
  */
-export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Date.now()) => {
+export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Date.now(), credited: Iterable<string> = []) => {
   const today = dayStart(now);
   const start = new Date(today);
   const horizon = new Date(start.getFullYear() + 1, start.getMonth(), start.getDate()).getTime();
 
-  const rows: DeclaredRow[] = upcomingDividends(dividends, trades, now)
+  const rows: DeclaredRow[] = upcomingDividends(dividends, trades, now, credited)
     .filter((r) => exchangeDay(r.dividend.payDate) < horizon)
     // Nothing held on the ex-date, nothing owed — the same rule dueDividends
     // applies, so the two lists never disagree about a counter.
@@ -357,12 +578,15 @@ export const declaredIncome = (dividends: Dividend[], trades: Trade[], now = Dat
 
 /**
  * Dividends still to come, for the screen that lists them. Includes today's,
- * since a pay date arrives before the money does.
+ * since a pay date arrives before the money does — until it has been paid in,
+ * when it belongs with what was received instead of being counted twice.
  */
-export const upcomingDividends = (dividends: Dividend[], trades: Trade[], now = Date.now()) => {
+export const upcomingDividends = (dividends: Dividend[], trades: Trade[], now = Date.now(), credited: Iterable<string> = []) => {
   const today = dayStart(now);
+  const paid = new Set(credited);
   return dividends
     .filter((d) => exchangeDay(d.payDate) >= today)
+    .filter((d) => !paid.has(dividendId(d)))
     .map((d) => owed(d, trades))
     .sort((a, b) => a.dividend.payDate - b.dividend.payDate || slotOf(a.dividend) - slotOf(b.dividend));
 };

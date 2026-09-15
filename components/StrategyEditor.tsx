@@ -8,7 +8,7 @@ import { formatMoney } from '../services/money';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useT } from '../contexts/LanguageContext';
 import MoveGoalMoneySheet from './MoveGoalMoneySheet';
-import { toCents } from '../services/money';
+import { percentReached, toCents } from '../services/money';
 import type { GoalMoneyChoice } from '../services/ledger';
 
 interface StrategyEditorProps {
@@ -311,7 +311,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
             const inSplitNow = bank.autoSplit !== false;
             const color = colorOf(bank.id);
             const hasTarget = bank.targetAmount > 0;
-            const overspent = bank.currentAmount < 0;
+            const overspent = toCents(bank.currentAmount) < 0;
             const progress = hasTarget
               ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
               : 0;
@@ -382,11 +382,11 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                   </div>
                   <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
                     <span className="text-slate-500">
-                      {overspent ? t.goals.overspent : hasTarget ? t.goals.goalFunded(Math.round(progress)) : t.goals.openEnded}
+                      {overspent ? t.goals.overspent : hasTarget ? t.goals.goalFunded(percentReached(bank.currentAmount, bank.targetAmount)) : t.goals.openEnded}
                     </span>
                     {hasTarget && !overspent && (
                       <span className="text-slate-500 tabular-nums">
-                        {remaining > 0 ? t.goals.remaining(formatMoney(remaining, { decimals: 0 })) : t.goals.targetReached}
+                        {toCents(remaining) > 0 ? t.goals.remaining(formatMoney(remaining, { decimals: 0 })) : t.goals.targetReached}
                       </span>
                     )}
                   </div>

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { InvestSettings, PiggyBank } from '../../types';
+import type { InvestSettings } from '../../types';
 import type { Quotes } from '../../services/holdings';
 import { readCache as readQuoteCache } from '../../services/quotes';
 import { useAdvisor } from '../../hooks/useAdvisor';
@@ -8,7 +8,6 @@ import { dateLocale } from '../../i18n';
 import { activeStyles, mergeQuotes, monthDate, watchSymbols } from './monthlyPlan';
 
 interface PickCardProps {
-  banks: PiggyBank[];
   invest: InvestSettings;
   quotes: Quotes;
   onOpen: () => void;
@@ -22,7 +21,7 @@ interface PickCardProps {
  * the network for prices: whatever the app last priced is what it sizes with,
  * and without a price it simply names the counter.
  */
-const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) => {
+const PickCard: React.FC<PickCardProps> = ({ invest, quotes, onOpen }) => {
   const t = useT();
   const c = t.plan.card;
   const symbols = useMemo(() => watchSymbols(invest.watchlist), [invest.watchlist]);
@@ -40,7 +39,6 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
   const nothingScored = advisor.status === 'ready' && !pick;
 
   let headline: string;
-  const meta: string | null = null;
   let why: string | null = null;
   let icon = 'chevron_right';
 
@@ -84,7 +82,6 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
       <p className={`mt-1 font-black tracking-tight truncate ${pick ? 'text-white text-xl' : working ? 'text-slate-400 text-sm' : 'text-white text-base'}`}>
         {headline}
       </p>
-      {meta && <p className="mt-0.5 text-slate-300 text-xs font-bold tabular-nums truncate">{meta}</p>}
       {why && <p className="mt-2 text-slate-500 text-[11px] font-bold leading-snug">{why}</p>}
     </button>
   );

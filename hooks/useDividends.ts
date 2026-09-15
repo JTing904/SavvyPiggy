@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Dividend, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Trade } from '../types';
-import { dividendTradeId, dueDividends, slotOf } from '../services/dividends';
+import type { Dividend, Trade } from '../types';
+import { dividendTradeId, dueDividends, settleSlots, slotOf, type CreditedDividend } from '../services/dividends';
 import { loadDividends, readCache } from '../services/dividendApi';
 import { creditDividend, subscribeToCreditedDividends } from '../services/firestore';
 
 interface Options {
   uid: string | undefined;
   trades: Trade[];
-  banks: PiggyBank[];
-  loans: Loan[];
-  prefs: NotificationPrefs;
-  savings: SavingsSettings;
   /** Nothing is credited until the ledger has actually arrived. */
   ready: boolean;
 }
@@ -20,8 +16,8 @@ interface Options {
  *
  * The crediting happens here rather than on a screen because it is not a
  * screen's job — a payment lands whether or not anyone is looking at the
- * investments, and it should be in the savings the next time the app is
- * opened, not the next time that tab is visited.
+ * investments, and it should be in the pot the next time the app is opened,
+ * not the next time that tab is visited.
  *
  * Three rules keep this from going wrong:
  *
@@ -36,8 +32,8 @@ interface Options {
  * payment recorded late is a small annoyance; a payment invented is a lie in
  * someone's savings.
  */
-export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready }: Options) => {
-  const [dividends, setDividends] = useState<Dividend[]>(() => readCache());
+export const useDividends = ({ uid, trades, ready }: Options) => {
+  const [announced, setAnnounced] = useState<Dividend[]>(() => readCache());
   const [busy, setBusy] = useState(false);
   /**
    * Whether anyone has ever got an answer. A cache that has never been filled
@@ -47,19 +43,26 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
   const [known, setKnown] = useState(false);
 
   /**
-   * Which dividends have already been paid in. Kept apart from the trade log
-   * on purpose: the log is a record the user may tidy away, and whether the
-   * money moved is not something a tidy-up should be able to change.
+   * Which dividends have already been paid in, and on what. Kept apart from
+   * the trade log on purpose: the log is a record the user may tidy away, and
+   * whether the money moved is not something a tidy-up should be able to
+   * change.
+   *
+   * `null` until the listener's first answer. Before it, every past dividend
+   * looks unpaid, and a fresh install would run a transaction for each one
+   * only to find it already paid.
    */
-  const [credited, setCredited] = useState<string[]>([]);
+  const [credited, setCredited] = useState<CreditedDividend[] | null>(null);
 
   useEffect(() => {
-    if (!uid) {
-      setCredited([]);
-      return;
-    }
+    setCredited(null);
+    if (!uid) return;
     return subscribeToCreditedDividends(uid, setCredited, () => undefined);
   }, [uid]);
+
+  // Same-ex-date dividends keep the ids they were paid under, whatever order the page lists them in.
+  const dividends = useMemo(() => settleSlots(announced, credited ?? [], trades), [announced, credited, trades]);
+  const creditedIds = useMemo(() => (credited ?? []).map((c) => c.id), [credited]);
 
   // Every counter ever traded, not just those still held: a dividend can pay
   // weeks after the position that earned it was closed.
@@ -74,7 +77,7 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
       setBusy(true);
       try {
         const answer = await loadDividends(symbols.split(','), force);
-        setDividends(answer.dividends);
+        setAnnounced(answer.dividends);
         setKnown(answer.known);
       } finally {
         setBusy(false);
@@ -97,10 +100,11 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
   const running = useRef(false);
 
   useEffect(() => {
-    if (!uid || !ready || running.current || dividends.length === 0 || banks.length === 0) return;
+    // Dividends go into the investment pot, so a person with no goals is paid too.
+    if (!uid || !ready || credited === null || running.current || dividends.length === 0) return;
 
-    const paid = new Set(credited);
-    const due = dueDividends(dividends, trades, credited).filter(
+    const paid = new Set(creditedIds);
+    const due = dueDividends(dividends, trades, creditedIds).filter(
       /*
         A second dividend on the same ex-date waits until the first is
         recorded as paid. The first keeps the id every earlier version used,
@@ -132,7 +136,8 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
         running.current = false;
       }
     })();
-  }, [uid, ready, dividends, trades, credited, banks, loans, prefs, savings]);
+  }, [uid, ready, dividends, trades, credited, creditedIds]);
 
-  return { dividends, busy, known, refresh };
+  // Still null before the first answer: a trade saved then would skip correcting dividends already paid.
+  return { dividends, credited, busy, known, refresh };
 };

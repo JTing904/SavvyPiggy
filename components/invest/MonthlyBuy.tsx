@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { InvestSettings, PiggyBank, Trade } from '../../types';
+import type { InvestSettings, Trade } from '../../types';
 import type { Quotes } from '../../services/holdings';
 import { securityTypeOf } from '../../services/fees';
 import { reasonsFor, STYLES, type Style } from '../../services/advisor/model';
@@ -32,7 +32,6 @@ export interface MonthlyBuyDraft {
 
 interface MonthlyBuyProps {
   uid: string;
-  banks: PiggyBank[];
   trades: Trade[];
   invest: InvestSettings;
   /** Live quotes; the page also fetches its own for watched counters not held. */
@@ -65,7 +64,6 @@ const MixBar: React.FC<{ mix: Record<Style, number>; className?: string }> = ({ 
  */
 const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
   uid,
-  banks,
   trades,
   invest,
   quotes,

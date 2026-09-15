@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useT } from '../contexts/LanguageContext';
 import LanguageSheet from './LanguageSheet';
 import { isArchived, isFull, isInSplit, seedSampleBanks } from '../services/firestore';
-import { retentionCutoff, streakRun, summarize } from '../services/analytics';
+import { summarize, type StreakRun } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
 import { APP_VERSION } from '../services/version';
 import { SLICE_COLORS } from './DonutChart';
@@ -14,6 +14,8 @@ import { dateLocale } from '../i18n';
 interface ProfileProps {
   banks: PiggyBank[];
   activities: Activity[];
+  /** The current saving streak, counted by the app. */
+  streak: StreakRun;
   schedules: Schedule[];
   savings: SavingsSettings;
   unreadAlerts: number;
@@ -90,6 +92,7 @@ const Row: React.FC<{
 const Profile: React.FC<ProfileProps> = ({
   banks,
   activities,
+  streak: streakRun,
   schedules,
   savings,
   unreadAlerts,
@@ -125,7 +128,8 @@ const Profile: React.FC<ProfileProps> = ({
 
   const summary = useMemo(() => summarize(activities, banks, 'month', now), [activities, banks]); // eslint-disable-line react-hooks/exhaustive-deps
   // Counted from loaded history only; a streak reaching back to the window start is shown as "at least".
-  const run = useMemo(() => streakRun(activities, now, retentionCutoff(now, savings.retentionMonths)), [activities, savings.retentionMonths]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Counted once for the whole app (see knownStreak), so the live window's start does not cut it short.
+  const run = streakRun;
   const streak = run.days;
 
   const colorOf = (id: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === id)) % SLICE_COLORS.length];

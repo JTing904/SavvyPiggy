@@ -1,14 +1,16 @@
 import React, { useMemo } from 'react';
 import type { Dividend, Trade } from '../types';
-import { declaredIncome, exchangeDay, upcomingDividends, yieldOnCost } from '../services/dividends';
+import { declaredIncome, exchangeDay, upcomingDividends, yieldOnCost, type CreditedDividend } from '../services/dividends';
 import { isDividendApiConfigured } from '../services/dividendApi';
-import { tradeCents, unitsOnExDate } from '../services/holdings';
+import { dayStart, tradeCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
 
 interface DividendsProps {
   dividends: Dividend[];
+  /** Already paid in: listed under what was received, not still to come. */
+  credited: CreditedDividend[] | null;
   trades: Trade[];
   busy: boolean;
   /** False until a fetch has actually succeeded at least once. */
@@ -40,10 +42,12 @@ const Row: React.FC<{ label: string; value: string; strong?: boolean }> = ({ lab
  * units the trade log says were held on the ex-date — so what this screen
  * shows before a payment is exactly what lands after it.
  */
-const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, known, onRefresh, onBack }) => {
+const Dividends: React.FC<DividendsProps> = ({ dividends, credited, trades, busy, known, onRefresh, onBack }) => {
   const t = useT();
-  const upcoming = useMemo(() => upcomingDividends(dividends, trades), [dividends, trades]);
-  const year = useMemo(() => declaredIncome(dividends, trades), [dividends, trades]);
+  const paidIds = useMemo(() => (credited ?? []).map((c) => c.id), [credited]);
+  const upcoming = useMemo(() => upcomingDividends(dividends, trades, Date.now(), paidIds), [dividends, trades, paidIds]);
+  const year = useMemo(() => declaredIncome(dividends, trades, Date.now(), paidIds), [dividends, trades, paidIds]);
+  const today = dayStart(Date.now());
 
   const paid = useMemo(
     () =>
@@ -193,10 +197,19 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, trades, busy, known, o
                   <Row label={t.invest.unitsOnExDate} value={units.toLocaleString('en-US')} />
                 </div>
                 <div className="h-px bg-white/10 my-4" />
-                <Row label={units > 0 ? t.invest.comesTo : t.invest.owedToYou} value={money(amountCents)} strong />
+                {/* Owed once the ex-date has passed; before it, only what it would come to. */}
+                {units > 0 && (
+                  <Row
+                    label={exchangeDay(dividend.exDate) <= today ? t.invest.owedToYou : t.invest.comesTo}
+                    value={money(amountCents)}
+                    strong
+                  />
+                )}
                 {units === 0 && (
-                  <p className="text-slate-500 text-[11px] font-bold mt-3 leading-relaxed">
-                    {t.invest.notYours}
+                  <p className="text-slate-500 text-[11px] font-bold leading-relaxed">
+                    {exchangeDay(dividend.exDate) > today
+                      ? t.invest.holdToQualify(day(exchangeDay(dividend.exDate)))
+                      : t.invest.notYours}
                   </p>
                 )}
               </div>
