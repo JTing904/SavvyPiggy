@@ -4,6 +4,7 @@ import { PiggyBank } from '../types';
 import { uploadGoalImage } from '../services/storage';
 import { compressImage } from '../services/image';
 import { isStorageEnabled } from '../lib/firebase';
+import { useT } from '../contexts/LanguageContext';
 
 interface CreateGoalProps {
   uid: string;
@@ -11,24 +12,10 @@ interface CreateGoalProps {
   onCreate: (goal: Partial<PiggyBank>) => Promise<void> | void;
 }
 
-const ICONS = ['directions_car', 'flight', 'home', 'shopping_bag', 'restaurant', 'devices', 'pets', 'fitness_center', 'movie', 'Celebration', 'School', 'Medical_Services'];
-
-const CATEGORIES: Record<string, string> = {
-  directions_car: 'Transport',
-  flight: 'Travel',
-  home: 'Home',
-  shopping_bag: 'Shopping',
-  restaurant: 'Food',
-  devices: 'Tech',
-  pets: 'Pets',
-  fitness_center: 'Health',
-  movie: 'Fun',
-  Celebration: 'Fun',
-  School: 'Education',
-  Medical_Services: 'Health',
-};
+const ICONS = ['directions_car', 'flight', 'home', 'shopping_bag', 'restaurant', 'devices', 'pets', 'fitness_center', 'movie', 'celebration', 'school', 'medical_services'];
 
 const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
+  const t = useT();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [selectedIcon, setSelectedIcon] = useState(ICONS[2]); // Default to 'home'
@@ -74,7 +61,7 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
         autoSplit,
       });
     } catch (e) {
-      setError((e as Error).message || 'Could not create this goal.');
+      setError((e as Error).message || t.goals.couldNotCreate);
       setBusy(false);
     }
   };
@@ -89,20 +76,20 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
         >
           <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
         </button>
-        <h2 className="text-white text-lg font-bold tracking-tight">New Piggy Bank</h2>
+        <h2 className="text-white text-lg font-bold tracking-tight">{t.goals.newPiggyBank}</h2>
         <div className="size-10"></div> {/* Spacer for alignment */}
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4">
         <div className="mb-8">
-          <h1 className="text-white text-4xl font-black tracking-tight mb-2">Create Goal</h1>
-          <p className="text-slate-500 font-medium">What are you saving up for?</p>
+          <h1 className="text-white text-4xl font-black tracking-tight mb-2">{t.goals.createGoal}</h1>
+          <p className="text-slate-500 font-medium">{t.goals.whatSavingFor}</p>
         </div>
 
         <div className="space-y-8">
           {/* Cover Image */}
           <div className="space-y-3">
-            <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">Cover Image</label>
+            <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">{t.goals.coverImage}</label>
             <input
               ref={fileInput}
               type="file"
@@ -122,12 +109,12 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
                   <img src={preview} alt="" className="absolute inset-0 size-full object-cover" />
                   <div className="absolute inset-0 bg-black/40"></div>
                   <span className="material-symbols-rounded text-white text-3xl relative">edit</span>
-                  <span className="text-white text-xs font-bold relative">Change image</span>
+                  <span className="text-white text-xs font-bold relative">{t.goals.changeImage}</span>
                 </>
               ) : (
                 <>
                   <span className="material-symbols-rounded text-3xl">add_photo_alternate</span>
-                  <span className="text-xs font-bold">Optional &mdash; tap to upload</span>
+                  <span className="text-xs font-bold">{t.goals.optionalUpload}</span>
                 </>
               )}
             </button>
@@ -135,12 +122,12 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
 
           {/* Goal Name Input */}
           <div className="space-y-3">
-            <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">Goal Name</label>
+            <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">{t.goals.goalName}</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full h-16 px-6 rounded-3xl bg-surface border border-white/5 text-xl font-bold focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 text-white shadow-xl"
-              placeholder="e.g. Dream Wedding"
+              placeholder={t.goals.goalNamePlaceholder}
               type="text"
             />
           </div>
@@ -148,21 +135,21 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
           {/* Target Amount Input */}
           <div className="space-y-3">
             <div className="flex justify-between items-center px-1 gap-3">
-              <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Target Amount</label>
+              <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.goals.targetAmount}</label>
               <button
                 onClick={() => setNoTarget((on) => !on)}
                 className={`shrink-0 px-3 h-8 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors ${
                   noTarget ? 'bg-primary text-black' : 'bg-white/5 text-slate-400'
                 }`}
               >
-                No limit
+                {t.goals.noLimit}
               </button>
             </div>
             {noTarget ? (
               <div className="w-full h-20 px-6 rounded-3xl bg-surface border border-white/5 flex items-center gap-4 shadow-xl">
                 <span className="text-primary text-4xl font-black leading-none">&infin;</span>
                 <p className="text-slate-500 text-xs font-medium leading-relaxed">
-                  Open-ended &mdash; keep saving with no finish line.
+                  {t.goals.openEndedHint}
                 </p>
               </div>
             ) : (
@@ -182,9 +169,9 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
           {/* Icon Selection */}
           <div className="space-y-4">
             <div className="flex justify-between items-center px-1">
-              <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Select Icon</label>
+              <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.goals.selectIcon}</label>
               <span className="text-primary text-[10px] font-black uppercase tracking-widest">
-                Category: {CATEGORIES[selectedIcon] ?? 'Other'}
+                {t.goals.categoryIs(t.goals.iconCategories[selectedIcon] ?? t.common.categories.other)}
               </span>
             </div>
             <div className="grid grid-cols-4 gap-4 pb-2">
@@ -217,11 +204,11 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
             className="w-full bg-surface rounded-3xl p-6 border border-white/5 flex items-center justify-between gap-4 shadow-xl text-left"
           >
             <div className="flex flex-col gap-1 min-w-0">
-              <p className="font-bold text-white text-base">Automatic Split</p>
+              <p className="font-bold text-white text-base">{t.goals.automaticSplit}</p>
               <p className="text-xs text-slate-500 font-medium">
                 {autoSplit
-                  ? 'This goal takes a share of every deposit'
-                  : 'This goal is skipped when a deposit is split'}
+                  ? t.goals.takesShare
+                  : t.goals.skippedInSplit}
               </p>
             </div>
             <div
@@ -240,7 +227,7 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
           </button>
 
           <p className="text-slate-600 text-xs font-medium leading-relaxed px-1">
-            New goals start at a 0% split. Set their share of each deposit on the Strategy tab.
+            {t.goals.newGoalsStartAtZero}
           </p>
         </div>
       </div>
@@ -256,7 +243,7 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
             : 'bg-white/5 text-slate-700 cursor-not-allowed'
           }`}
         >
-          {busy ? 'Saving...' : 'Confirm Goal'}
+          {busy ? t.goals.saving : t.goals.confirmGoal}
         </button>
       </div>
     </div>

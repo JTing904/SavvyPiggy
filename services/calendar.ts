@@ -1,4 +1,5 @@
 import { dayStart } from './holdings';
+import { dateLocale } from '../i18n';
 
 /**
  * Days, as the app writes them down and as a calendar lays them out.
@@ -49,11 +50,11 @@ export const addMonths = (year: number, month: number, delta: number) => {
 export const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export const monthLabel = (year: number, month: number) =>
-  new Date(year, month, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  new Date(year, month, 1).toLocaleDateString(dateLocale('en-GB'), { month: 'long', year: 'numeric' });
 
 /** "Fri, 19 Jun 2026" — the date as a person reads it. */
 export const readableDate = (key: string) =>
-  new Date(fromInputDate(key)).toLocaleDateString('en-GB', {
+  new Date(fromInputDate(key)).toLocaleDateString(dateLocale('en-GB'), {
     weekday: 'short',
     day: 'numeric',
     month: 'short',

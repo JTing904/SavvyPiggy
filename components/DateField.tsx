@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useT } from '../contexts/LanguageContext';
 import {
   addDays,
   addMonths,
@@ -8,7 +9,6 @@ import {
   monthLabel,
   readableDate,
   toInputDate,
-  WEEKDAYS,
 } from '../services/calendar';
 
 /**
@@ -40,9 +40,10 @@ const DateField: React.FC<DateFieldProps> = ({
   value,
   onChange,
   max,
-  title = 'When was this?',
+  title,
   hint,
 }) => {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const selected = fromInputDate(value);
   const [view, setView] = useState(() => {
@@ -113,23 +114,23 @@ const DateField: React.FC<DateFieldProps> = ({
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
-            <h3 className="text-white text-2xl font-black tracking-tight">{title}</h3>
+            <h3 className="text-white text-2xl font-black tracking-tight">{title ?? t.pickers.whenWasThis}</h3>
             {hint && <p className="text-slate-400 text-sm font-medium mt-2 leading-relaxed">{hint}</p>}
 
             <div className="flex gap-2 mt-5">
-              {quick('Today', today)}
-              {quick('Yesterday', addDays(today, -1))}
+              {quick(t.common.today, today)}
+              {quick(t.common.yesterday, addDays(today, -1))}
             </div>
 
             <div className="flex items-center justify-between mt-6">
               <button
                 type="button"
                 onClick={() => step(-1)}
-                aria-label="Previous month"
+                aria-label={t.pickers.previousMonth}
                 className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
               >
                 <span className="material-symbols-rounded text-xl">chevron_left</span>
@@ -139,7 +140,7 @@ const DateField: React.FC<DateFieldProps> = ({
                 type="button"
                 onClick={() => step(1)}
                 disabled={atCeilingMonth}
-                aria-label="Next month"
+                aria-label={t.pickers.nextMonth}
                 className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform disabled:opacity-30 disabled:active:scale-100"
               >
                 <span className="material-symbols-rounded text-xl">chevron_right</span>
@@ -147,7 +148,7 @@ const DateField: React.FC<DateFieldProps> = ({
             </div>
 
             <div className="grid grid-cols-7 mt-4">
-              {WEEKDAYS.map((d, i) => (
+              {t.common.weekdaysNarrow.map((d, i) => (
                 <span
                   key={i}
                   className="text-center text-slate-500 text-[10px] font-black tracking-wider"

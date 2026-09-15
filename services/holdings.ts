@@ -1,5 +1,6 @@
 import type { Holding, Trade } from '../types';
 import { toCents } from './money';
+import { totalFees, valueCents } from './fees';
 
 /**
  * The arithmetic behind the holdings screen. Everything here is pure so the
@@ -13,7 +14,11 @@ import { toCents } from './money';
 /** A price already turned into whole sen, with when it was read. */
 export interface Quote {
   priceCents: number;
+  /** The same price in ten-thousandths of a ringgit, which keeps half-sen prices (RM0.345) exact. */
+  pricePoints?: number;
   previousCloseCents: number;
+  /** The previous close in points, for the same reason. Absent on quotes cached before it existed. */
+  previousClosePoints?: number;
   /** Epoch ms of the exchange's own timestamp, not of our request. */
   at: number;
 }
@@ -30,7 +35,8 @@ export const normalizeSymbol = (input: string) => {
   const raw = input.trim().toUpperCase();
   if (!raw) return '';
   if (raw.endsWith('.KL')) return raw;
-  return /^\d{3,5}$/.test(raw) ? `${raw}.KL` : raw;
+  // KLCC is a stapled security and only trades as 5235SS.
+  return /^\d{3,5}(SS)?$/.test(raw) ? `${raw}.KL` : raw;
 };
 
 /**
@@ -50,7 +56,9 @@ export const parseQuote = (payload: unknown): Quote | null => {
 
   return {
     priceCents: toCents(price),
+    pricePoints: Math.round(price * 10_000),
     previousCloseCents: toCents(Number.isFinite(previous) && previous > 0 ? previous : price),
+    previousClosePoints: Math.round((Number.isFinite(previous) && previous > 0 ? previous : price) * 10_000),
     at: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : Date.now(),
   };
 };
@@ -63,6 +71,26 @@ export const averageCostCents = (holding: Pick<Holding, 'units' | 'costCents'>) 
 export const marketValueCents = (holding: Pick<Holding, 'units'>, priceCents: number) =>
   holding.units * priceCents;
 
+/** A quote's price in points, whichever way it was cached. */
+export const quotePricePoints = (quote: Pick<Quote, 'priceCents' | 'pricePoints'>) =>
+  quote.pricePoints ?? quote.priceCents * 100;
+
+/**
+ * What a number of units is worth at a price in points, in whole sen.
+ *
+ * Valuing at `priceCents` rounded every half-sen price down before
+ * multiplying: 1,000 units of a RM0.345 counter showed as RM340, not RM345.
+ * Multiplying in points first keeps it exact, and only the final fraction of
+ * a sen — possible on an odd lot — is dropped. Down, not to the nearest as a
+ * contract note's value is (fees.ts `valueCents`): this is what a holding is
+ * worth, and the app never rounds a worth up.
+ */
+export const pointsValueCents = (units: number, pricePoints: number) => Math.floor((units * pricePoints) / 100);
+
+/** A position's value at a live quote. */
+export const quoteValueCents = (holding: Pick<Holding, 'units'>, quote: Pick<Quote, 'priceCents' | 'pricePoints'>) =>
+  pointsValueCents(holding.units, quotePricePoints(quote));
+
 /** Paper gain against what was actually paid. */
 export const gain = (holding: Pick<Holding, 'units' | 'costCents'>, priceCents: number) => {
   const cents = marketValueCents(holding, priceCents) - holding.costCents;
@@ -74,7 +102,11 @@ export const gain = (holding: Pick<Holding, 'units' | 'costCents'>, priceCents: 
 
 /** Today's move on the position, from the previous close. */
 export const dayChangeCents = (holding: Pick<Holding, 'units'>, quote: Quote) =>
-  holding.units * (quote.priceCents - quote.previousCloseCents);
+  // In points only when both prices have them: a live price in points against
+  // a close cached in sen would invent a move of up to half a sen a unit.
+  quote.pricePoints !== undefined && quote.previousClosePoints !== undefined
+    ? pointsValueCents(holding.units, quote.pricePoints) - pointsValueCents(holding.units, quote.previousClosePoints)
+    : holding.units * (quote.priceCents - quote.previousCloseCents);
 
 /**
  * Buying more of something already held. Units and money paid are simply added
@@ -85,9 +117,12 @@ export const applyBuy = (
   holding: Pick<Holding, 'units' | 'costCents'>,
   units: number,
   priceCents: number
-) => ({
+) => buyInto(holding, units, units * priceCents);
+
+/** A buy by what it cost in total — shares and fees — which is what the average is made of. */
+export const buyInto = (holding: Pick<Holding, 'units' | 'costCents'>, units: number, paidCents: number) => ({
   units: holding.units + units,
-  costCents: holding.costCents + units * priceCents,
+  costCents: holding.costCents + paidCents,
 });
 
 /**
@@ -99,14 +134,17 @@ export const applySell = (
   holding: Pick<Holding, 'units' | 'costCents'>,
   units: number,
   priceCents: number
-) => {
+) => sellFrom(holding, units, Math.min(Math.max(0, Math.floor(units)), holding.units) * priceCents);
+
+/** A sale by what actually came back — the sale less its fees. */
+export const sellFrom = (holding: Pick<Holding, 'units' | 'costCents'>, units: number, receivedCents: number) => {
   const sold = Math.min(Math.max(0, Math.floor(units)), holding.units);
   // Round the cost coming out so a full sale empties the position exactly.
   const costOut = sold === holding.units ? holding.costCents : Math.round(sold * averageCostCents(holding));
   return {
     units: holding.units - sold,
     costCents: holding.costCents - costOut,
-    realisedCents: sold * priceCents - costOut,
+    realisedCents: receivedCents - costOut,
   };
 };
 
@@ -123,9 +161,16 @@ export const dayStart = (ms: number) => {
   return date.getTime();
 };
 
-/** Oldest first; two trades on the same day keep the order they were entered. */
+/** Buys before anything else on the same day: a day's units are all in before any of them is sold. */
+const sameDayRank = (trade: Pick<Trade, 'kind'>) => (trade.kind === 'buy' ? 0 : 1);
+
+/**
+ * Oldest first. On the same trade day buys come before sales, so a buy and a
+ * sale of the same shares entered in the wrong order still read as held;
+ * beyond that, trades keep the order they were entered.
+ */
 export const ordered = (trades: Trade[]) =>
-  [...trades].sort((a, b) => a.tradedAt - b.tradedAt || a.createdAt - b.createdAt);
+  [...trades].sort((a, b) => a.tradedAt - b.tradedAt || sameDayRank(a) - sameDayRank(b) || a.createdAt - b.createdAt);
 
 /**
  * The position a log of trades adds up to. Nothing stores units and cost —
@@ -139,9 +184,9 @@ export const replay = (trades: Trade[]): Pick<Holding, 'units' | 'costCents'> =>
   let position = { units: 0, costCents: 0 };
   for (const trade of ordered(trades)) {
     if (trade.kind === 'buy') {
-      position = applyBuy(position, trade.units, trade.priceCents);
+      position = buyInto(position, trade.units, tradeTotalCents(trade));
     } else if (trade.kind === 'sell') {
-      const after = applySell(position, trade.units, trade.priceCents);
+      const after = sellFrom(position, trade.units, tradeTotalCents(trade));
       position = { units: after.units, costCents: after.costCents };
     }
   }
@@ -197,10 +242,29 @@ export const unitsOnExDate = (trades: Trade[], exDateMs: number) =>
  * the price paid; a dividend is quoted per unit in ten-thousandths of a
  * ringgit, because Bursa pays amounts like RM0.0125.
  */
-export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints'>) =>
+export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints'>) =>
   trade.kind === 'dividend'
     ? Math.floor((trade.units * (trade.perUnitPoints ?? 0)) / 100)
-    : trade.units * trade.priceCents;
+    : trade.pricePoints
+      ? valueCents(trade.units, trade.pricePoints)
+      : trade.units * trade.priceCents;
+
+/**
+ * The money a trade actually moved: what a buy cost with its fees, what a sale
+ * brought home after them. A dividend is its value. Older trades have no fees
+ * recorded, and none are guessed.
+ */
+export const tradeTotalCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints' | 'fees'>) => {
+  const value = tradeCents(trade);
+  if (trade.kind === 'buy') return value + totalFees(trade.fees);
+  // What the sale really brought home. When the fees are bigger than the sale
+  // this is negative: the shortfall is taken from the goal the sale went to.
+  if (trade.kind === 'sell') return value - totalFees(trade.fees);
+  return value;
+};
+
+/** A price as ten-thousandths of a ringgit, whichever way the trade stored it. */
+export const pricePointsOf = (trade: Pick<Trade, 'priceCents' | 'pricePoints'>) => trade.pricePoints ?? trade.priceCents * 100;
 
 /**
  * What the investing has actually come to, in the three parts it is made of.
@@ -277,10 +341,18 @@ export const performance = (trades: Trade[], quotes: Quotes): Performance => {
     let position = { units: 0, costCents: 0 };
     for (const trade of ordered(list)) {
       if (trade.kind === 'buy') {
-        investedCents += trade.units * trade.priceCents;
-        position = applyBuy(position, trade.units, trade.priceCents);
+        investedCents += tradeTotalCents(trade);
+        position = buyInto(position, trade.units, tradeTotalCents(trade));
       } else if (trade.kind === 'sell') {
-        const after = applySell(position, trade.units, trade.priceCents);
+        /*
+          What the sale really came to: its value less its fees, even when the
+          fees are larger. tradeTotalCents stops a sale's money at zero, which
+          is right for what can be paid into a goal but hid the part of a loss
+          that the fees made — a RM3 sale with RM8 of fees lost RM5 more than
+          it showed. Only the realised figure uses this; the cost that leaves
+          the position depends on units alone, so nothing else moves.
+        */
+        const after = sellFrom(position, trade.units, tradeCents(trade) - totalFees(trade.fees));
         realisedCents += after.realisedCents;
         position = { units: after.units, costCents: after.costCents };
       } else {
@@ -292,7 +364,9 @@ export const performance = (trades: Trade[], quotes: Quotes): Performance => {
     const quote = quotes[symbol];
     // No price means holding it at cost, the same as everywhere else: a
     // missing quote must never read as a loss.
-    valueCents += position.units * (quote ? quote.priceCents : Math.round(averageCostCents(position)));
+    valueCents += quote
+      ? quoteValueCents(position, quote)
+      : position.units * Math.round(averageCostCents(position));
   }
 
   const unrealisedCents = valueCents - costCents;
@@ -339,7 +413,7 @@ export const portfolioTotals = (holdings: Holding[], quotes: Quotes): PortfolioT
       valueCents += holding.costCents;
       continue;
     }
-    valueCents += marketValueCents(holding, quote.priceCents);
+    valueCents += quoteValueCents(holding, quote);
     dayCents += dayChangeCents(holding, quote);
     quotedAt = quotedAt === null ? quote.at : Math.min(quotedAt, quote.at);
   }

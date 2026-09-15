@@ -16,12 +16,15 @@ import { parseQuote, type Quote, type Quotes } from './holdings';
  * missing ringgit.
  */
 
-const CHART = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+export const CHART = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 const SEARCH = 'https://query1.finance.yahoo.com/v1/finance/search';
 const CACHE_KEY = 'savvypiggy.quotes';
 
 /** Long enough that flicking between apps costs nothing, short enough to feel live. */
 const FRESH_MS = 60_000;
+
+/** Price requests in flight at once, as the advisor's history download does. */
+const QUOTE_CONCURRENCY = 4;
 
 const native = () => Capacitor.isNativePlatform();
 
@@ -36,7 +39,7 @@ const HEADERS = {
 };
 
 /** One request, whichever transport this platform has. Never throws. */
-const getJson = async (url: string, params: Record<string, string>): Promise<unknown | null> => {
+export const getJson = async (url: string, params: Record<string, string>): Promise<unknown | null> => {
   try {
     if (native()) {
       const res = await CapacitorHttp.get({ url, params, headers: HEADERS, readTimeout: 12_000, connectTimeout: 12_000 });
@@ -91,6 +94,20 @@ const writeCache = (quotes: Quotes) => {
 /** When we last asked, per symbol — kept in memory so it resets with the app. */
 const lastFetched = new Map<string, number>();
 
+/**
+ * Prices that actually came back from Yahoo in this session, with when. The
+ * cache cannot say this: after a fresh install it is empty, and after a week
+ * away it is a week old, and both look like prices. Anything that records a
+ * value for good (the monthly snapshot) asks here instead.
+ */
+const fetchedThisSession = new Map<string, { quote: Quote; at: number }>();
+
+/** A price fetched this session no longer ago than `maxAgeMs`, or null. */
+export const freshQuote = (symbol: string, maxAgeMs: number, now = Date.now()): Quote | null => {
+  const hit = fetchedThisSession.get(symbol);
+  return hit && now - hit.at <= maxAgeMs ? hit.quote : null;
+};
+
 const fetchQuote = async (symbol: string): Promise<Quote | null> => {
   const payload = await getJson(`${CHART}${encodeURIComponent(symbol)}`, { range: '1d', interval: '1d' });
   return payload ? parseQuote(payload) : null;
@@ -113,16 +130,27 @@ export const loadQuotes = async (symbols: string[], force = false): Promise<Quot
   if (stale.length === 0) return cached;
 
   // One request per counter: the batch endpoint needs a session Yahoo will not
-  // hand out. They go out together and a failure only loses its own symbol.
-  const fetched = await Promise.all(
-    stale.map(async (symbol) => {
-      lastFetched.set(symbol, now);
-      return [symbol, await fetchQuote(symbol)] as const;
-    })
-  );
+  // hand out. At most QUOTE_CONCURRENCY at a time — a long watchlist used to
+  // fire every request at once on each resume — and a failure only loses its
+  // own symbol.
+  stale.forEach((symbol) => lastFetched.set(symbol, now));
+  const fetched: (readonly [string, Quote | null])[] = new Array(stale.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < stale.length) {
+      const i = next++;
+      fetched[i] = [stale[i], await fetchQuote(stale[i]).catch(() => null)] as const;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(QUOTE_CONCURRENCY, stale.length) }, worker));
 
   const merged = { ...cached };
-  for (const [symbol, quote] of fetched) if (quote) merged[symbol] = quote;
+  const landed = Date.now();
+  for (const [symbol, quote] of fetched) {
+    if (!quote) continue;
+    merged[symbol] = quote;
+    fetchedThisSession.set(symbol, { quote, at: landed });
+  }
 
   writeCache(merged);
   return merged;

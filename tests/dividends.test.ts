@@ -1,8 +1,11 @@
 import {
+  bursaCode,
   declaredIncome,
+  dividendId,
   dividendCents,
   dividendTradeId,
   dueDividends,
+  exchangeDay,
   parseDay,
   parseDividends,
   parsePoints,
@@ -12,12 +15,18 @@ import { dayStart } from '../services/holdings';
 import type { Trade } from '../types';
 import { eq, report } from './harness';
 
+/** A local midnight on this machine: how trades and "now" are dated. */
 const on = (year: number, month: number, day: number) => dayStart(new Date(year, month - 1, day).getTime());
+/** UTC midnight: how an announcement's dates arrive from the Worker. */
+const utc = (year: number, month: number, day: number) => Date.UTC(year, month - 1, day);
 
 // --- dates
-eq('a listed date becomes local midnight', parseDay('12 Mar 2026'), on(2026, 3, 12));
-eq('a leading space and comma are tolerated', parseDay(' 27 Feb, 2026 '), on(2026, 2, 27));
-eq('a full month name still reads', parseDay('1 September 2025'), on(2025, 9, 1));
+eq('a listed date becomes that day at UTC midnight', parseDay('12 Mar 2026'), utc(2026, 3, 12));
+// The exact number the Worker (which runs in UTC) has always produced, and
+// which credited dividends' ids are built from.
+eq('the number is the one ids have always used', parseDay('12 Mar 2026'), 1_773_273_600_000);
+eq('a leading space and comma are tolerated', parseDay(' 27 Feb, 2026 '), utc(2026, 2, 27));
+eq('a full month name still reads', parseDay('1 September 2025'), utc(2025, 9, 1));
 eq('a date that does not exist is refused', parseDay('31 Feb 2026'), null);
 eq('anything else is refused', parseDay('soon'), null);
 eq('an empty cell is refused', parseDay(''), null);
@@ -64,10 +73,10 @@ eq('only the cash dividends are taken', parsed.length, 2);
 eq('the newest comes first', parsed[0], {
   symbol: '1155.KL',
   subject: 'Second Interim Dividend',
-  exDate: on(2026, 3, 12),
-  payDate: on(2026, 3, 26),
+  exDate: utc(2026, 3, 12),
+  payDate: utc(2026, 3, 26),
   perUnitPoints: 3300,
-  announcedAt: on(2026, 2, 27),
+  announcedAt: utc(2026, 2, 27),
 });
 eq('a bonus issue is not money', parsed.some((d) => /bonus/i.test(d.subject)), false);
 eq('an announcement with no dates yet is left out', parsed.some((d) => d.perUnitPoints === 1000), false);
@@ -164,6 +173,77 @@ eq('and rounds down to the sen', dividendCents(333, 125), 416);
 }
 eq('an id is one per counter per ex-date',
   dividendTradeId('1155.KL', on(2026, 3, 12)), `div_1155.KL_${on(2026, 3, 12)}`);
+eq('the id is built from the stored number exactly as before',
+  dividendTradeId('1155.KL', utc(2026, 3, 12)), 'div_1155.KL_1773273600000');
+eq('exchange dates and local midnights name the same day',
+  [exchangeDay(utc(2026, 3, 12)), exchangeDay(on(2026, 3, 12))], [on(2026, 3, 12), on(2026, 3, 12)]);
+
+// --- counter codes (shared with the Worker)
+eq('a plain code is read', bursaCode('1155.KL'), '1155');
+eq('a stapled code keeps its suffix', bursaCode('5235SS.KL'), '5235SS');
+eq('an ETF code keeps its suffix', bursaCode('0800ea.kl'), '0800EA');
+eq('a bare code needs no .KL', bursaCode(' 5235SS '), '5235SS');
+eq('a name is not a code', bursaCode('MAYBANK'), null);
+eq('nor is another exchange', bursaCode('1155.SI'), null);
+eq('nor three letters of suffix', bursaCode('1155ABC.KL'), null);
+
+// --- two dividends on one ex-date
+{
+  const row = (subject: string, amount: string, announced = '20 Feb 2026') => `
+  <tbody><tr>
+    <td>${announced}</td><td>31 Dec 2025</td><td>${subject}</td>
+    <td>12 Mar 2026</td><td>26 Mar 2026</td><td>${amount}</td><td>Currency</td><td></td>
+  </tr></tbody>`;
+  const page = (...rows: string[]) => `<table>
+  <thead><tr><th>Announced</th><th>Financial Year</th><th>Subject</th>
+  <th>EX Date</th><th>Payment Date</th><th>Amount</th><th>Indicator</th><th></th></tr></thead>
+  ${rows.join('')}
+  <tbody><tr>
+    <td>27 Aug 2025</td><td>31 Dec 2025</td><td>First Interim Dividend</td>
+    <td>11 Sep 2025</td><td>26 Sep 2025</td><td>0.3000</td><td>Currency</td><td></td>
+  </tr></tbody></table>`;
+
+  const interim = row('Second Interim Dividend', '0.3300');
+  const special = row('Special Dividend', '0.0500');
+  const both = parseDividends(page(interim, special), '1155.KL');
+  eq('an interim and a special on one ex-date are two payments', both.length, 3);
+  eq('both kept, in page order', both.slice(0, 2).map((d) => d.subject), ['Second Interim Dividend', 'Special Dividend']);
+
+  // The old filter kept the first row on the page for an ex-date; that one was
+  // paid under the plain id, so it must keep it.
+  const legacy = dividendTradeId('1155.KL', utc(2026, 3, 12));
+  eq('the first keeps the id already-paid dividends were credited under', dividendId(both[0]), legacy);
+  eq('the second gets its own', dividendId(both[1]), `${legacy}_2`);
+  eq('a lone dividend is untouched, with no slot field', both[2], {
+    symbol: '1155.KL', subject: 'First Interim Dividend', exDate: utc(2025, 9, 11), payDate: utc(2025, 9, 26),
+    perUnitPoints: 3000, announcedAt: utc(2025, 8, 27),
+  });
+
+  const again = parseDividends(page(interim, special), '1155.KL');
+  eq('a re-parse gives the same ids', again.map(dividendId), both.map(dividendId));
+  eq('and the ids travel with the rows, not their order',
+    [...both].reverse().map(dividendId).reverse(), both.map(dividendId));
+  // Through JSON, as the Worker hands them over and the phone caches them.
+  eq('and survive the trip as JSON', (JSON.parse(JSON.stringify(both)) as typeof both).map(dividendId), both.map(dividendId));
+
+  eq('a row repeated word for word is still one payment',
+    parseDividends(page(interim, interim, special), '1155.KL').length, 3);
+  eq('as is one re-issued as amended',
+    parseDividends(page(row('Second Interim Dividend (Amended)', '0.3300'), interim), '1155.KL').length, 2);
+  eq('even with a corrected amount — the first on the page stands',
+    parseDividends(page(row('Second Interim Dividend (Amended)', '0.3500'), interim, special), '1155.KL')
+      .slice(0, 2).map((d) => d.perUnitPoints), [3500, 500]);
+
+  const log = [trade({ kind: 'buy', units: 1000, tradedAt: on(2026, 1, 5) })];
+  const due = dueDividends(both, log, [], on(2026, 3, 26));
+  eq('both fall due', due.map((d) => [d.id, d.amountCents]), [[legacy, 33000], [`${legacy}_2`, 5000]]);
+  // An existing user was paid the interim under the plain id; only the special is still owed.
+  eq('an already-paid first is not paid again, the second still is',
+    dueDividends(both, log, [legacy], on(2026, 3, 26)).map((d) => d.id), [`${legacy}_2`]);
+  eq('both paid, nothing due', dueDividends(both, log, [legacy, `${legacy}_2`], on(2026, 3, 26)), []);
+  eq('the upcoming list shows both',
+    upcomingDividends(both, log, on(2026, 3, 1)).map((r) => r.id), [legacy, `${legacy}_2`]);
+}
 
 {
   const log = [trade({ kind: 'buy', units: 500, tradedAt: on(2025, 8, 1) })];
@@ -203,7 +283,7 @@ eq('an id is one per counter per ex-date',
   // windows also catch the September 2025 payment, so the boundary is checked
   // on the one dividend that moves.)
   const has2026 = (at: number) =>
-    declaredIncome(parsed, log, at).rows.some((r) => r.dividend.payDate === on(2026, 3, 26));
+    declaredIncome(parsed, log, at).rows.some((r) => r.dividend.payDate === utc(2026, 3, 26));
   eq('a payment beyond twelve months is left out', has2026(on(2025, 3, 25)), false);
   eq('and one a day inside it is not', has2026(on(2025, 3, 27)), true);
 

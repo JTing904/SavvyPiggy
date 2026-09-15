@@ -15,8 +15,8 @@ android {
         applicationId "com.savvypiggy.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "1.3"
+        versionCode 10
+        versionName "1.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -41,6 +41,13 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
+        }
+    }
+    // An unsigned release APK cannot be installed over the signed one, so a
+    // release build without the key is a mistake to stop at, not to finish.
+    gradle.taskGraph.whenReady { graph ->
+        if (!keystorePropertiesFile.exists() && graph.allTasks.any { it.name.toLowerCase().contains("release") }) {
+            throw new GradleException("keystore.properties is missing: refusing to build an unsigned release.")
         }
     }
 }

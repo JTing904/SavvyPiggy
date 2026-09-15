@@ -19,6 +19,8 @@ export interface Category {
 }
 
 /** The one every entry falls back to, including every entry made before this existed. */
+import { m } from '../i18n';
+
 export const UNCATEGORISED = 'other';
 
 export const CATEGORIES: Category[] = [
@@ -35,6 +37,16 @@ export const CATEGORIES: Category[] = [
   { key: 'gifts', label: 'Gifts', icon: 'redeem', tint: 'text-fuchsia-300' },
   { key: UNCATEGORISED, label: 'Other', icon: 'more_horiz', tint: 'text-slate-400' },
 ];
+
+// The label is read in the current language each time it is shown; the
+// English above is only what a key the dictionary lacks falls back to.
+for (const category of CATEGORIES) {
+  const english = category.label;
+  Object.defineProperty(category, 'label', {
+    get: () => m().common.categories[category.key] ?? english,
+    enumerable: true,
+  });
+}
 
 const BY_KEY = new Map(CATEGORIES.map((c) => [c.key, c]));
 

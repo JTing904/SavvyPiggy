@@ -1,6 +1,7 @@
 import { doc, getDoc, onSnapshot, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
+import { m } from '../i18n';
 
 /** Codes are case-insensitive to type but stored as upper-case document IDs. */
 export const normalizeCode = (raw: string) => raw.trim().toUpperCase().replace(/\s+/g, '');
@@ -60,13 +61,13 @@ export const subscribeToMembership = (
  */
 export const redeemInvite = async (user: User, rawCode: string) => {
   const code = normalizeCode(rawCode);
-  if (!VALID_CODE.test(code)) throw new Error('That does not look like a valid code.');
+  if (!VALID_CODE.test(code)) throw new Error(m().errors.inviteInvalid);
 
   const inviteRef = doc(db, 'invites', code);
   const snap = await getDoc(inviteRef);
 
-  if (!snap.exists()) throw new Error('No such invite code.');
-  if (snap.data().claimedBy) throw new Error('That invite code has already been used.');
+  if (!snap.exists()) throw new Error(m().errors.inviteMissing);
+  if (snap.data().claimedBy) throw new Error(m().errors.inviteUsed);
 
   const batch = writeBatch(db);
   batch.update(inviteRef, { claimedBy: user.uid, claimedAt: Date.now() });
@@ -76,6 +77,6 @@ export const redeemInvite = async (user: User, rawCode: string) => {
     await batch.commit();
   } catch {
     // Almost always a rules rejection from someone claiming it a moment earlier.
-    throw new Error('That invite code was just claimed by someone else.');
+    throw new Error(m().errors.inviteJustClaimed);
   }
 };

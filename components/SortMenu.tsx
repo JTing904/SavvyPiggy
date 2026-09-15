@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SORT_OPTIONS, dirLabel, type SortOrder } from '../services/sorting';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useT } from '../contexts/LanguageContext';
 
 interface SortMenuProps {
   order: SortOrder;
@@ -14,6 +15,7 @@ interface SortMenuProps {
  * key again flips its direction, so the common "reverse it" is one tap.
  */
 const SortMenu: React.FC<SortMenuProps> = ({ order, onChange, compact = false }) => {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const active = SORT_OPTIONS.find((o) => o.key === order.key) ?? SORT_OPTIONS[0];
 
@@ -33,7 +35,7 @@ const SortMenu: React.FC<SortMenuProps> = ({ order, onChange, compact = false })
     <>
       <button
         onClick={() => setOpen(true)}
-        aria-label={`Sort: ${active.label}`}
+        aria-label={t.history.sortAria(active.label)}
         className={`shrink-0 h-8 rounded-full glass flex items-center gap-1 text-slate-300 text-xs font-bold active:scale-95 transition-transform ${
           compact ? 'px-2' : 'pl-3 pr-2'
         }`}
@@ -56,8 +58,8 @@ const SortMenu: React.FC<SortMenuProps> = ({ order, onChange, compact = false })
           >
             <div className="px-7 pt-7 pb-3 flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-white text-2xl font-black">Sort by</h3>
-                <p className="text-slate-500 text-xs font-medium mt-0.5">Tap again to flip the order</p>
+                <h3 className="text-white text-2xl font-black">{t.history.sortBy}</h3>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">{t.history.tapToFlip}</p>
               </div>
               <button
                 onClick={() => setOpen(false)}

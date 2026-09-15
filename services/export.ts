@@ -1,8 +1,10 @@
 import type { Activity, Holding, PiggyBank, Trade } from '../types';
-import { averageCostCents, marketValueCents, tradeCents, type Quotes } from './holdings';
-import { fromCents } from './money';
+import { averageCostCents, quoteValueCents, pricePointsOf, tradeCents, tradeTotalCents, type Quotes } from './holdings';
+import { totalFees } from './fees';
+import { fromCents, toCents } from './money';
 import { buildXlsx, type Cell } from './xlsx';
 import { categoryOf } from './categories';
+import { m, noteText } from '../i18n';
 
 /**
  * The monthly statement as a spreadsheet.
@@ -17,21 +19,48 @@ import { categoryOf } from './categories';
  * a real spreadsheet: the columns can be summed.
  */
 
-const TYPE_LABEL: Record<Activity['type'], string> = {
-  'auto-save': 'Scheduled deposit',
-  manual: 'Deposit',
-  withdraw: 'Withdrawal',
-  borrow: 'Spent ahead',
-};
+// Read when the sheet is built, so it comes out in the language chosen now.
+const typeLabels = (): Record<Activity['type'], string> => ({
+  'auto-save': m().common.activity.autoSave,
+  manual: m().common.activity.manual,
+  withdraw: m().files.withdrawal,
+  borrow: m().common.activity.borrow,
+  invest: m().common.activity.invest,
+  divest: m().common.activity.divest,
+  transfer: m().common.activity.transfer,
+  toInvest: m().common.activity.toInvest,
+  fromInvest: m().common.activity.fromInvest,
+});
 
-const TRADE_LABEL: Record<Trade['kind'], string> = {
-  buy: 'Buy',
-  sell: 'Sell',
-  dividend: 'Dividend',
-};
+const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
 
 /** Rounded to the sen the ledger stores, so no float tail reaches the sheet. */
 const money = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * The signed amount a ledger row is shown with.
+ *
+ * Most rows store a positive amount and their type says which way it went. A
+ * transfer — a deleted goal's money handed on — can go either way: an
+ * overspent goal hands on a debt, so its sign comes from what reached the
+ * goals rather than from the stored amount.
+ */
+export const ledgerAmount = (a: Pick<Activity, 'type' | 'amount' | 'distributions'>) => {
+  // Signed by where the money went: a transfer from an overspent goal, or a
+  // sale whose fees were bigger than the sale, took money out.
+  if (a.type === 'transfer' || a.type === 'divest') {
+    const signed = a.distributions.reduce((sum, d) => sum + toCents(d.amount), 0);
+    if (a.type === 'transfer' || signed < 0) return fromCents(signed);
+  }
+  return a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' || a.type === 'toInvest' ? -a.amount : a.amount;
+};
+
+/**
+ * A per-unit price from ten-thousandths of a ringgit: two decimals at least,
+ * four at most, so RM0.345 reads as 0.345 rather than a rounded 0.35.
+ */
+export const unitPrice = (points: number) =>
+  (points / 10_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -48,18 +77,20 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
     a.distributions.some((d) => !banks.some((b) => b.id === d.bankId))
   );
 
+  const f = m().files;
+  const TYPE_LABEL = typeLabels();
   const header: Cell[] = [
-    'Date',
-    'Time',
-    'Type',
-    'Amount',
-    'Repaid debt',
-    'Note',
+    f.date,
+    f.time,
+    f.type,
+    f.amount,
+    f.repaidDebt,
+    f.note,
     // Only spending has one; a deposit's cell stays empty rather than
     // claiming a category it was never given.
-    'Category',
+    f.category,
     ...banks.map((b) => b.name),
-    ...(orphaned ? ['Deleted goals'] : []),
+    ...(orphaned ? [f.deletedGoals] : []),
   ];
 
   const rows = [...activities]
@@ -74,13 +105,24 @@ export const savingsRows = (activities: Activity[], banks: PiggyBank[]): Cell[][
         .filter((x) => !banks.some((b) => b.id === x.bankId))
         .reduce((s, x) => s + x.amount, 0);
 
+      // Money moved for a trade names its counter, so the row reads as shares
+      // bought or sold rather than as a deposit or spending.
+      const trade = (a.type === 'invest' || a.type === 'divest') && a.counter;
       return [
         localDate(d),
         localTime(d),
         TYPE_LABEL[a.type] ?? a.type,
-        money(a.amount),
+        // Positive with the type saying which way, except a transfer, which
+        // carries its own sign.
+        money(a.type === 'transfer' ? ledgerAmount(a) : a.amount),
         a.repaid ? money(a.repaid) : null,
-        a.note ?? null,
+        trade
+          ? f.tradeNote(TYPE_LABEL[a.type], a.counter!)
+          : a.type === 'transfer' && a.fromGoal
+            ? m().common.movedFrom(TYPE_LABEL[a.type], a.fromGoal)
+            : a.note == null
+              ? null
+              : noteText(a.note),
         a.type === 'withdraw' ? categoryOf(a.category).label : null,
         ...perBank,
         ...(orphaned ? [other === 0 ? null : money(other)] : []),
@@ -112,17 +154,24 @@ export interface MonthSheetInput {
  * balance. The one place the two meet is a dividend, which appears in both
  * because it really is income from a holding and money that reached the goals.
  */
-export const monthRows = ({ label, activities, banks, trades, holdings, quotes }: MonthSheetInput): Cell[][] => {
-  const rows: Cell[][] = [['SavvyPiggy statement', label], [], ['SAVINGS']];
+export const monthRows = (
+  { label, activities, banks, trades, holdings, quotes }: MonthSheetInput,
+  now: Date = new Date()
+): Cell[][] => {
+  const f = m().files;
+  const TRADE_LABEL = tradeLabels();
+  const rows: Cell[][] = [[f.sheetTitle, label], [], [f.savingsBlock]];
 
-  if (activities.length === 0) rows.push(['No records this month']);
+  if (activities.length === 0) rows.push([f.noRecordsThisMonth]);
   else rows.push(...savingsRows(activities, banks));
 
-  rows.push([], ['INVESTMENTS']);
+  rows.push([], [f.investmentsBlock]);
   if (trades.length === 0) {
-    rows.push(['No trades this month']);
+    rows.push([f.noTradesThisMonth]);
   } else {
-    rows.push(['Date', 'Action', 'Counter', 'Name', 'Units', 'Per unit', 'Amount']);
+    // Value before fees, the fees, and what actually moved: the total is the
+    // amount the same trade shows in the savings block.
+    rows.push([f.date, f.action, f.counter, f.name, f.units, f.perUnit, f.tradeValue, f.fees, f.tradeTotal]);
     for (const t of [...trades].sort((a, b) => a.tradedAt - b.tradedAt)) {
       rows.push([
         localDate(new Date(t.tradedAt)),
@@ -130,21 +179,27 @@ export const monthRows = ({ label, activities, banks, trades, holdings, quotes }
         t.symbol,
         t.name,
         t.units,
-        // A dividend is quoted per unit in ten-thousandths of a ringgit.
-        money(fromCents(t.kind === 'dividend' ? (t.perUnitPoints ?? 0) / 100 : t.priceCents)),
+        // Prices are held in ten-thousandths of a ringgit, so half-sen and
+        // dividend rates keep their last digits.
+        (t.kind === 'dividend' ? (t.perUnitPoints ?? 0) : pricePointsOf(t)) / 10_000,
         money(fromCents(tradeCents(t))),
+        t.kind === 'dividend' ? null : money(fromCents(totalFees(t.fees))),
+        money(fromCents(tradeTotalCents(t))),
       ]);
     }
   }
 
-  rows.push([], ['POSITIONS AT MONTH END']);
+  rows.push([], [f.positionsBlock]);
   if (holdings.length === 0) {
-    rows.push(['Nothing held']);
+    rows.push([f.nothingHeld]);
   } else {
-    rows.push(['Counter', 'Name', 'Units', 'Average cost', 'Total cost', 'Market value', 'Gain']);
+    // The units and cost are the month end's; the prices are not — there is no
+    // price history to read them from — so the sheet says so.
+    rows.push([f.positionsPricesAsOf(localDate(now))]);
+    rows.push([f.counter, f.name, f.units, f.averageCost, f.totalCost, f.marketValue, f.gain]);
     for (const h of holdings) {
-      const price = quotes[h.symbol]?.priceCents ?? Math.round(averageCostCents(h));
-      const value = marketValueCents(h, price);
+      const quote = quotes[h.symbol];
+      const value = quote ? quoteValueCents(h, quote) : h.costCents;
       rows.push([
         h.symbol,
         h.name,
@@ -161,7 +216,7 @@ export const monthRows = ({ label, activities, banks, trades, holdings, quotes }
 };
 
 export const buildMonthWorkbook = (input: MonthSheetInput, now: Date = new Date()) =>
-  buildXlsx(monthRows(input), input.label, now);
+  buildXlsx(monthRows(input, now), input.label, now);
 
 /** "SavvyPiggy-August-2026.xlsx" — the month is what people look for. */
 export const monthFileName = (label: string, ext: string) =>

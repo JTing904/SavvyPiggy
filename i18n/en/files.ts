@@ -1,0 +1,80 @@
+/** Words inside the files the app writes: the PDF statement and the spreadsheet. */
+export const files = {
+  /** Ledger entry types as a statement names them. */
+  withdrawal: 'Withdrawal',
+  trade: {
+    buy: 'Buy',
+    sell: 'Sell',
+    dividend: 'Dividend',
+  },
+
+  /* ------------------------------------------------------- PDF statement */
+  statement: 'Statement',
+  generated: (when: string) => `Generated ${when}`,
+  savedIntoGoals: 'Saved into goals',
+  spentFromGoals: 'Spent from goals',
+  debtRepaid: 'Debt repaid',
+  /** Money that changed form, shown beside the savings but never counted as saved or spent. */
+  movedIntoShares: 'Moved to investing',
+  cameBackFromShares: 'Back from investing',
+  /** A trade's ledger row: "Invested · MAYBANK". */
+  tradeNote: (label: string, counter: string) => `${label} · ${counter}`,
+  spentAhead: 'Spent ahead',
+  summaryLine: (average: string, transactions: number, days: number, activeDays: number) =>
+    `Daily average ${average}  ·  ${transactions} transactions  ·  ${days} days  ·  ${activeDays} days with savings`,
+  goals: 'Goals',
+  goal: 'Goal',
+  credited: 'Credited',
+  balance: 'Balance',
+  target: 'Target',
+  funded: 'Funded',
+  openEnded: 'Open-ended',
+  balancesLive: 'Balances are live as of the moment this statement was generated.',
+  deletedGoal: 'Deleted goal',
+  transactionsHeading: (n: number) => `Transactions (${n})`,
+  noTransactions: 'No transactions in this period.',
+  date: 'Date',
+  type: 'Type',
+  amount: 'Amount',
+  category: 'Category',
+  note: 'Note',
+  debtRepaidAmount: (amount: string) => `Debt repaid ${amount}`,
+  investmentsHeading: (n: number) => `Investments (${n} trade${n === 1 ? '' : 's'})`,
+  noTrades: 'No trades in this period.',
+  action: 'Action',
+  counter: 'Counter',
+  units: 'Units',
+  perUnit: 'Per unit',
+  /** A trade's three money figures: before fees, the fees, and what actually moved. */
+  tradeValue: 'Value',
+  fees: 'Fees',
+  tradeTotal: 'Total',
+  positionsHeading: 'Positions at the end of the period',
+  avgCost: 'Avg cost',
+  cost: 'Cost',
+  value: 'Value',
+  gain: 'Gain',
+  total: 'Total',
+  pricesNote:
+    'Prices are the last seen when this statement was made. Investments are reported alongside the savings and are not part of the savings balance.',
+  page: (page: number, pages: number) => `Page ${page} of ${pages}`,
+
+  /* --------------------------------------------------------- spreadsheet */
+  time: 'Time',
+  repaidDebt: 'Repaid debt',
+  deletedGoals: 'Deleted goals',
+  sheetTitle: 'SavvyPiggy statement',
+  savingsBlock: 'SAVINGS',
+  investmentsBlock: 'INVESTMENTS',
+  positionsBlock: 'POSITIONS AT MONTH END',
+  positionsPricesAsOf: (date: string) =>
+    `Units and cost are as at month end. Market value and gain use prices as of ${date}, when this file was made — the app keeps no price history.`,
+  noRecordsThisMonth: 'No records this month',
+  noTradesThisMonth: 'No trades this month',
+  name: 'Name',
+  nothingHeld: 'Nothing held',
+  averageCost: 'Average cost',
+  totalCost: 'Total cost',
+  marketValue: 'Market value',
+  sheetName: 'Statement',
+};

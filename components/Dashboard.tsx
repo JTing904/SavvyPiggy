@@ -1,9 +1,10 @@
 
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings } from '../types';
+import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings, InvestSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
-import { formatMoney, fromCents, toCents } from '../services/money';
+import { formatMoney, fromCents, percentReached, toCents } from '../services/money';
+import { ledgerAmount } from '../services/export';
 import { sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
@@ -11,16 +12,39 @@ import Avatar from './Avatar';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
+import PickCard from './invest/PickCard';
+import PotCard from './invest/PotCard';
 import type { Mode as NavMode } from './Navigation';
 import { CATEGORIES, UNCATEGORISED } from '../services/categories';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale, deviceDateLocale, noteText, type Messages } from '../i18n';
 
 type Mode = 'deposit' | 'withdraw';
 
-const ACTIVITY_STYLES: Record<ActivityType, { label: string; icon: string; tint: string; outgoing: boolean }> = {
-  'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary', outgoing: false },
-  manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
-  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
-  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+/** Labels are looked up at render, so they follow the language. */
+const activityLabel = (t: Messages, type: ActivityType) =>
+  ({
+    'auto-save': t.home.scheduledDeposit,
+    manual: t.common.activity.manual,
+    withdraw: t.common.activity.withdraw,
+    borrow: t.common.activity.borrow,
+    invest: t.common.activity.invest,
+    divest: t.common.activity.divest,
+    transfer: t.common.activity.transfer,
+    toInvest: t.common.activity.toInvest,
+    fromInvest: t.common.activity.fromInvest,
+  })[type];
+
+const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoing: boolean }> = {
+  'auto-save': { icon: 'magic_button', tint: 'bg-primary/10 text-primary', outgoing: false },
+  manual: { icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
+  withdraw: { icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
+  borrow: { icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
+  invest: { icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
+  divest: { icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
+  transfer: { icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
+  toInvest: { icon: 'south_east', tint: 'bg-accent/10 text-accent', outgoing: true },
+  fromInvest: { icon: 'north_west', tint: 'bg-accent/10 text-accent', outgoing: false },
 };
 
 interface DashboardProps {
@@ -51,23 +75,30 @@ interface DashboardProps {
   /** Set from the nav's round button; cleared once the sheet is open. */
   quickAction: 'deposit' | 'withdraw' | null;
   onQuickActionHandled: () => void;
+  /** For this month's pick card; without it (or the opener) the card is not shown. */
+  investSettings?: InvestSettings;
+  /** Opens moving money between savings and the investment pot. */
+  onPotMove?: (direction: 'in' | 'out') => void;
+  onOpenMonthlyBuy?: () => void;
+  /** A trade's money row opens that trade, which is the only place it is edited. */
+  onOpenTrade?: (tradeId: string) => void;
 }
 
 /** "2 min ago" — how stale the worst price on screen is. */
-const ago = (at: number, now: number) => {
+const ago = (t: Messages, at: number, now: number) => {
   const minutes = Math.floor((now - at) / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1) return t.home.ago.justNow;
+  if (minutes < 60) return t.home.ago.minutes(minutes);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.floor(hours / 24)} d ago`;
+  if (hours < 24) return t.home.ago.hours(hours);
+  return t.home.ago.days(Math.floor(hours / 24));
 };
 
-const greeting = () => {
+const greeting = (t: Messages) => {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good Morning';
-  if (hour < 18) return 'Good Afternoon';
-  return 'Good Evening';
+  if (hour < 12) return t.home.greeting.morning;
+  if (hour < 18) return t.home.greeting.afternoon;
+  return t.home.greeting.evening;
 };
 
 
@@ -95,9 +126,23 @@ const Dashboard: React.FC<DashboardProps> = ({
   unreadAlerts,
   quickAction,
   onQuickActionHandled,
+  investSettings,
+  onPotMove,
+  onOpenMonthlyBuy,
+  onOpenTrade,
 }) => {
   const { user } = useAuth();
+  const t = useT();
   const [mode, setMode] = useState<Mode | null>(null);
+  /**
+   * Whether the investing half has been on screen yet. It stays mounted
+   * behind a class so swiping back is instant, but the pick card downloads
+   * monthly price history, which someone who only saves should never pay for.
+   */
+  const [investSeen, setInvestSeen] = useState(navMode === 'invest');
+  useEffect(() => {
+    if (navMode === 'invest') setInvestSeen(true);
+  }, [navMode]);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [category, setCategory] = useState<string>(UNCATEGORISED);
@@ -107,7 +152,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [order, setOrder] = useSortOrder('savvypiggy.sort.home');
   const sortedBanks = sortBanks(banks, order);
 
-  const displayName = user?.displayName || user?.email?.split('@')[0] || 'Savvy Saver';
+  const displayName = user?.displayName || user?.email?.split('@')[0] || t.home.defaultName;
   // Goals switched out of auto-split take no share and do not count here.
   const allocated = banks.reduce((sum, b) => (b.autoSplit === false ? sum : sum + b.splitPercentage), 0);
 
@@ -124,7 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const blockedReason = () => {
     if (cents <= 0) return null;
     if (mode === 'deposit' && target === null && allocated === 0 && debtCents === 0)
-      return 'No goal has a split yet — pick one above, or set percentages on Strategy.';
+      return t.home.sheet.noSplit;
     return null;
   };
 
@@ -135,6 +180,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     setAmount('');
     setNote('');
     setTarget(null);
+    // The next spend starts uncategorised rather than silently reusing this one.
+    setCategory(UNCATEGORISED);
   };
 
   useBackHandler(mode !== null, closeModal);
@@ -163,6 +210,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   // Prices are whatever the holdings screen last cached — the Home card never
   // goes to the network itself.
   const portfolio = portfolioTotals(holdings, quotes);
+  // The investing total is the shares plus the cash waiting in the pot; savings never count it.
+  const potCents = toCents(investSettings?.potBalance ?? 0);
+  const investedTotal = portfolio.valueCents + potCents;
 
   /**
    * The rail is the mode switch. Scrolling past the halfway mark changes the
@@ -248,20 +298,21 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => window.clearTimeout(release.current);
   }, [navMode]);
 
-  const confirmLabel = mode === 'deposit' ? 'Confirm Deposit' : isBorrow ? 'Record Spending' : 'Withdraw';
+  const confirmLabel =
+    mode === 'deposit' ? t.home.sheet.confirmDeposit : isBorrow ? t.home.sheet.recordSpending : t.home.sheet.withdraw;
 
   return (
     <div className="flex flex-col min-h-full pb-40 safe-pt relative">
       {/* App Bar */}
       <div className="flex items-center px-6 py-4 justify-between">
         <div>
-          <h4 className="text-slate-500 text-xs font-bold uppercase tracking-widest">{greeting()}</h4>
+          <h4 className="text-slate-500 text-xs font-bold uppercase tracking-widest">{greeting(t)}</h4>
           <h2 className="text-white text-xl font-extrabold">{displayName}</h2>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={onOpenAlerts}
-            aria-label="Alerts"
+            aria-label={t.home.alerts}
             className="relative size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
           >
             <span className="material-symbols-rounded">notifications</span>
@@ -293,7 +344,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
 
           <div className="relative z-10 flex flex-col h-full justify-between">
-            <p className="text-black/60 font-bold text-xs uppercase tracking-widest mb-1">Total Savings</p>
+            <p className="text-black/60 font-bold text-xs uppercase tracking-widest mb-1">{t.home.totalSavings}</p>
             <h1
               className={`text-black font-extrabold tracking-tight ${
                 formatMoney(totalBalance).length > 12 ? 'text-3xl' : 'text-4xl'
@@ -304,7 +355,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
             <div className="flex items-end justify-between">
               <div className="flex flex-col">
-                <p className="text-black/50 text-[10px] font-bold uppercase">Saved today</p>
+                <p className="text-black/50 text-[10px] font-bold uppercase">{t.home.savedToday}</p>
                 <div className="flex items-center gap-1">
                   <span className="material-symbols-rounded text-black text-sm">
                     {savingsToday < 0 ? 'trending_down' : 'trending_up'}
@@ -316,7 +367,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 onClick={() => open('deposit')}
                 className="bg-black text-white px-5 py-2.5 rounded-full text-sm font-bold shadow-lg active:scale-95 transition-transform"
               >
-                Deposit
+                {t.home.deposit}
               </button>
             </div>
           </div>
@@ -326,44 +377,44 @@ const Dashboard: React.FC<DashboardProps> = ({
           onClick={() => (navMode === 'invest' ? onOpenTrades() : onModeChange('invest'))}
           className="relative overflow-hidden rounded-[2rem] bg-surface border border-accent/30 p-7 shadow-2xl shrink-0 h-[11.5rem] w-full snap-center text-left active:scale-[0.99] transition-transform flex flex-col justify-between"
         >
-          <p className="text-accent text-xs font-bold uppercase tracking-widest mb-1">Investments</p>
-          {holdings.length === 0 ? (
+          <p className="text-accent text-xs font-bold uppercase tracking-widest mb-1">{t.home.investments}</p>
+          {holdings.length === 0 && potCents === 0 ? (
             <>
               <div>
 
               <h2 className="text-white text-xl font-black tracking-tight leading-snug">
-                Track your Bursa holdings
+                {t.home.trackHoldings}
               </h2>
               <p className="text-slate-500 text-xs font-medium mt-1.5 leading-relaxed">
-                Priced for you, kept apart from your savings.
+                {t.home.trackHoldingsHint}
               </p>
               </div>
               <span className="inline-flex items-center gap-1 text-accent text-xs font-black">
-                Get started <span className="material-symbols-rounded text-base">chevron_right</span>
+                {t.home.getStarted} <span className="material-symbols-rounded text-base">chevron_right</span>
               </span>
             </>
           ) : (
             <>
               <h2
                 className={`text-white font-extrabold tracking-tight ${
-                  formatMoney(fromCents(portfolio.valueCents)).length > 12 ? 'text-3xl' : 'text-4xl'
+                  formatMoney(fromCents(investedTotal)).length > 12 ? 'text-3xl' : 'text-4xl'
                 }`}
               >
-                {formatMoney(fromCents(portfolio.valueCents))}
+                {formatMoney(fromCents(investedTotal))}
               </h2>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`text-sm font-black ${portfolio.dayChangeCents < 0 ? 'text-slate-400' : 'text-primary'}`}>
                   {portfolio.dayChangeCents < 0 ? '▼' : '▲'} {formatMoney(fromCents(Math.abs(portfolio.dayChangeCents)))}
                 </span>
-                <span className="text-slate-500 text-xs font-bold">today</span>
+                <span className="text-slate-500 text-xs font-bold">{t.home.today}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-500 text-[11px] font-bold">
-                  {holdings.length} counter{holdings.length === 1 ? '' : 's'}
+                <span className="text-slate-500 text-[11px] font-bold truncate">
+                  {t.home.sharesAndPot(formatMoney(fromCents(portfolio.valueCents)), formatMoney(fromCents(potCents)))}
                 </span>
                 <div className="flex-1" />
                 <span className="inline-flex items-center gap-1 text-accent text-xs font-black">
-                  View <span className="material-symbols-rounded text-base">chevron_right</span>
+                  {t.home.view} <span className="material-symbols-rounded text-base">chevron_right</span>
                 </span>
               </div>
             </>
@@ -381,7 +432,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="rounded-[2rem] bg-amber-500/10 border border-amber-500/20 p-6 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-amber-400/70 text-xs font-bold uppercase tracking-widest mb-1">Spent ahead</p>
+                  <p className="text-amber-400/70 text-xs font-bold uppercase tracking-widest mb-1">{t.common.spentAhead}</p>
                   <h2 className="text-amber-300 text-3xl font-extrabold tracking-tight">
                     {formatMoney(fromCents(debtCents))}
                   </h2>
@@ -389,15 +440,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <span className="material-symbols-rounded text-amber-400/30 text-5xl shrink-0">account_balance</span>
               </div>
               <p className="text-amber-200/60 text-xs font-medium leading-relaxed">
-                Deposits clear this before anything reaches your goals.
+                {t.home.debtHint}
               </p>
               <div className="space-y-2">
                 {openLoans.map((loan) => (
                   <div key={loan.id} className="flex items-center justify-between gap-3 bg-black/20 rounded-2xl px-4 py-3">
                     <div className="min-w-0">
-                      <p className="text-white text-sm font-bold truncate">{loan.note || 'Spent ahead'}</p>
+                      <p className="text-white text-sm font-bold truncate">{noteText(loan.note) || t.common.spentAhead}</p>
                       <p className="text-slate-500 text-[10px] font-medium">
-                        spent {formatMoney(loan.amount)} ahead
+                        {t.home.spentAmountAhead(formatMoney(loan.amount))}
                       </p>
                     </div>
                     <p className="shrink-0 text-amber-300 text-lg font-black tabular-nums">
@@ -410,7 +461,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               {/* What the savings are really worth once the debt is settled. */}
               <div className="flex items-baseline justify-between gap-3 pt-4 border-t border-amber-500/20">
                 <p className="text-amber-400/70 text-[10px] font-black uppercase tracking-widest">
-                  Net after debt
+                  {t.home.netAfterDebt}
                 </p>
                 <p className="text-white text-2xl font-black tabular-nums">
                   {formatMoney(totalBalance - fromCents(debtCents))}
@@ -423,19 +474,19 @@ const Dashboard: React.FC<DashboardProps> = ({
         {/* Horizontal Goals */}
         <div className="mt-8">
           <div className="flex items-center justify-between gap-3 px-6 mb-4">
-            <h3 className="text-white text-lg font-bold truncate">Your Piggy Banks</h3>
+            <h3 className="text-white text-lg font-bold truncate">{t.home.yourPiggyBanks}</h3>
             <div className="flex items-center gap-2 shrink-0">
               {banks.length > 1 && <SortMenu order={order} onChange={setOrder} compact />}
-              <button onClick={onViewAll} className="text-primary text-sm font-bold">View All</button>
+              <button onClick={onViewAll} className="text-primary text-sm font-bold">{t.common.viewAll}</button>
             </div>
           </div>
 
           <div className="flex overflow-x-auto no-scrollbar gap-5 px-6 pb-4">
             {banks.length === 0 ? (
-              <div className="min-w-full text-center py-10 opacity-30 italic">No piggy banks created yet.</div>
+              <div className="min-w-full text-center py-10 opacity-30 italic">{t.home.noPiggyBanks}</div>
             ) : (
               sortedBanks.map((bank) => {
-                const overspent = bank.currentAmount < 0;
+                const overspent = toCents(bank.currentAmount) < 0;
                 const progress =
                   bank.targetAmount > 0
                     ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
@@ -482,10 +533,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <div className="space-y-2">
                       <div className="flex justify-between items-end gap-2">
                         <p className={`text-xs font-bold truncate ${overspent ? 'text-red-400' : 'text-slate-400'}`}>
-                          {formatMoney(bank.currentAmount)} {overspent ? 'overspent' : 'saved'}
+                          {t.home.amountState(formatMoney(bank.currentAmount), overspent ? t.home.overspent : t.home.saved)}
                         </p>
                         {bank.targetAmount > 0 ? (
-                          <p className="text-white text-sm font-black shrink-0">{Math.round(progress)}%</p>
+                          <p className="text-white text-sm font-black shrink-0">{percentReached(bank.currentAmount, bank.targetAmount)}%</p>
                         ) : (
                           <p className="text-primary text-sm font-black shrink-0 leading-none">&infin;</p>
                         )}
@@ -512,28 +563,46 @@ const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Activity List */}
         <div className="mt-8 px-6">
-          <h3 className="text-white text-lg font-bold mb-4">Recent Activity</h3>
+          <h3 className="text-white text-lg font-bold mb-4">{t.home.recentActivity}</h3>
           <div className="space-y-3">
             {activities.length === 0 ? (
-              <div className="text-center py-10 text-slate-600 text-sm">No recent activity.</div>
+              <div className="text-center py-10 text-slate-600 text-sm">{t.home.noRecentActivity}</div>
             ) : (
               activities.slice(0, 4).map((activity) => {
                 const style = ACTIVITY_STYLES[activity.type];
+                const trade = activity.type === 'invest' || activity.type === 'divest';
+                const { tradeId } = activity;
+                const openTrade = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : undefined;
+                // Buying shares is not spending and a sale is not saving, so a
+                // trade's row is named for the trade, never for a note.
+                const title = trade
+                  ? activity.counter
+                    ? t.home.tradeRow(activityLabel(t, activity.type), activity.counter)
+                    : activityLabel(t, activity.type)
+                  : activity.type === 'transfer' && activity.fromGoal
+                    ? t.common.movedFrom(activityLabel(t, activity.type), activity.fromGoal)
+                    : (activity.note && noteText(activity.note)) || activityLabel(t, activity.type);
                 return (
-                  <div key={activity.id} className="flex items-center justify-between gap-3 p-4 rounded-2xl glass transition-all active:bg-white/5">
+                  <div
+                    key={activity.id}
+                    onClick={openTrade}
+                    role={openTrade ? 'button' : undefined}
+                    className={`flex items-center justify-between gap-3 p-4 rounded-2xl glass transition-all active:bg-white/5 ${openTrade ? 'cursor-pointer' : ''}`}
+                  >
                     <div className="flex items-center gap-4 min-w-0">
                       <div className={`size-12 shrink-0 rounded-2xl flex items-center justify-center ${style.tint}`}>
                         <span className="material-symbols-rounded">{style.icon}</span>
                       </div>
                       <div className="min-w-0">
-                        <p className="text-white font-bold text-sm truncate">{activity.note || style.label}</p>
+                        <p className="text-white font-bold text-sm truncate">{title}</p>
                         <p className="text-slate-500 text-[10px] font-medium">
-                          {new Date(activity.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {new Date(activity.date).toLocaleDateString(deviceDateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
                     </div>
                     <p className={`font-black shrink-0 ${style.outgoing ? 'text-slate-400' : 'text-white'}`}>
-                      {formatMoney(activity.amount * (style.outgoing ? -1 : 1), { signed: true })}
+                      {/* A transfer from an overspent goal moved a shortfall, so it reads as minus. */}
+                      {formatMoney(ledgerAmount(activity), { signed: true })}
                     </p>
                   </div>
                 );
@@ -545,18 +614,29 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Clears the floating nav bar, which otherwise cuts the last button. */}
       <div className={`px-6 mt-4 pb-32 ${navMode === 'invest' ? '' : 'hidden'}`}>
+          {investSettings && onPotMove && (
+            <div className="mb-4">
+              <PotCard balance={investSettings.potBalance ?? 0} onMoveIn={() => onPotMove('in')} onMoveOut={() => onPotMove('out')} />
+            </div>
+          )}
+          {/* Only once the investing side has been shown: the pick fetches months of prices. */}
+          {investSeen && investSettings && onOpenMonthlyBuy && (
+            <div className="mb-6">
+              <PickCard invest={investSettings} quotes={quotes} onOpen={onOpenMonthlyBuy} />
+            </div>
+          )}
           {holdings.length === 0 ? (
             <div className="text-center py-14">
               <span className="material-symbols-rounded text-slate-700 text-6xl">candlestick_chart</span>
-              <p className="text-white font-black mt-4">No counters yet</p>
+              <p className="text-white font-black mt-4">{t.home.noCounters}</p>
               <p className="text-slate-500 text-xs font-bold mt-2 leading-relaxed px-6">
-                Record a buy with the button below and it will be priced and tracked here.
+                {t.home.noCountersHint}
               </p>
             </div>
           ) : (
             <>
               <div className="flex items-baseline gap-2">
-                <h3 className="text-white text-lg font-bold">Your counters</h3>
+                <h3 className="text-white text-lg font-bold">{t.home.yourCounters}</h3>
                 <div className="flex-1" />
                 <span className={`text-sm font-black ${portfolio.gainCents < 0 ? 'text-red-400' : 'text-primary'}`}>
                   {formatMoney(fromCents(portfolio.gainCents), { signed: true })} ·{' '}
@@ -566,9 +646,9 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <p className="text-slate-600 text-[11px] font-bold mt-1">
                 {portfolio.quotedAt === null
-                  ? 'No prices yet — they arrive when you are online.'
-                  : `Priced ${ago(portfolio.quotedAt, Date.now())}`}
-                {portfolio.missing.length > 0 && ` · ${portfolio.missing.length} held at cost`}
+                  ? t.home.noPrices
+                  : t.home.priced(ago(t, portfolio.quotedAt, Date.now()))}
+                {portfolio.missing.length > 0 && ` · ${t.home.heldAtCost(portfolio.missing.length)}`}
               </p>
 
               <div className="mt-5">
@@ -584,7 +664,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 onClick={onOpenTrades}
                 className="w-full h-14 mt-6 rounded-full glass border border-white/10 text-accent font-black active:scale-95 transition-transform"
               >
-                All trades ({trades.length})
+                {t.home.allTrades(trades.length)}
               </button>
             </>
           )}
@@ -603,7 +683,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           >
             <div className="shrink-0 px-7 pt-7 pb-4 flex items-center justify-between gap-3">
               <h3 className="text-white text-2xl font-black">
-                {mode === 'deposit' ? 'Deposit' : 'Spend'}
+                {mode === 'deposit' ? t.home.deposit : t.home.sheet.spend}
               </h3>
               <button
                 onClick={closeModal}
@@ -641,7 +721,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
               <div className="space-y-2">
                 <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">
-                  {mode === 'deposit' ? 'Goes to' : 'Comes from'}
+                  {mode === 'deposit' ? t.home.sheet.goesTo : t.home.sheet.comesFrom}
                 </label>
                 <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">
                   <button
@@ -653,7 +733,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     {mode === 'withdraw' && (
                       <span className="material-symbols-rounded text-base">account_balance</span>
                     )}
-                    {mode === 'deposit' ? 'Auto split' : 'Not from a goal'}
+                    {mode === 'deposit' ? t.common.autoSplit : t.common.notFromGoal}
                   </button>
                   {banks.map((b) => (
                     <button
@@ -671,19 +751,19 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {mode === 'withdraw' && (
                   <p className="text-slate-500 text-[10px] text-center pt-1 font-medium leading-relaxed">
                     {isBorrow
-                      ? 'Money you had not set aside yet. No goal is touched — your next deposits cover it first.'
-                      : `${formatMoney(fromCents(balanceCents(banks, target)))} in this goal. Spending more takes it negative.`}
+                      ? t.home.sheet.borrowHint
+                      : t.home.sheet.inThisGoal(formatMoney(fromCents(balanceCents(banks, target))))}
                   </p>
                 )}
               </div>
 
               {mode === 'withdraw' && (
                 <div className="space-y-2">
-                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">What for</label>
+                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">{t.home.sheet.whatFor}</label>
                   <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder={isBorrow ? 'e.g. Lunch' : 'e.g. Groceries'}
+                    placeholder={isBorrow ? t.home.sheet.borrowPlaceholder : t.home.sheet.spendPlaceholder}
                     className="w-full h-14 px-5 rounded-2xl bg-white/5 border border-white/10 text-base font-bold text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
                   />
 
@@ -720,7 +800,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="rounded-2xl bg-white/5 border border-white/10 px-5 py-4 space-y-2">
                   {preview!.repaidCents > 0 && (
                     <p className="text-amber-300 text-xs font-bold">
-                      {formatMoney(fromCents(preview!.repaidCents))} covers earlier spending first
+                      {t.home.sheet.coversEarlier(formatMoney(fromCents(preview!.repaidCents)))}
                     </p>
                   )}
                   {preview!.splitMovements.map((m) => {
@@ -736,7 +816,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   })}
                   {target === null && allocated > 0 && allocated < 100 && preview!.repaidCents < cents && (
                     <p className="text-slate-500 text-[10px] font-medium pt-1">
-                      Only {allocated}% is allocated, so the rest stays unassigned.
+                      {t.home.sheet.partlyAllocated(allocated)}
                     </p>
                   )}
                 </div>

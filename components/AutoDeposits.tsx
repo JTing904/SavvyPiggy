@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { Frequency, PiggyBank, Schedule } from '../types';
-import { describe, FREQUENCIES, MONTH_LABELS, WEEKDAY_LABELS } from '../services/schedules';
+import { describe, FREQUENCIES } from '../services/schedules';
+import { useT } from '../contexts/LanguageContext';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { formatMoney } from '../services/money';
 
@@ -30,6 +31,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
   onToggle,
   onDelete,
 }) => {
+  const t = useT();
   const [adding, setAdding] = useState(false);
   /** The rule being changed, if this is an edit rather than a new one. */
   const [editing, setEditing] = useState<Schedule | null>(null);
@@ -76,8 +78,25 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
       // restarts its clock in updateSchedule, so the change applies from the
       // next occurrence and never backwards; changing only the amount does
       // not, so correcting a figure never reposts.
-      if (editing) await onUpdate(editing.id, shape);
-      else await onCreate({ ...shape, enabled: true });
+      if (editing) {
+        // Only what actually changed is sent. The whole form went every time,
+        // and its unchanged frequency and day read as a reschedule, so fixing
+        // just the amount or the goal restarted the clock anyway.
+        const was = {
+          amount: editing.amount,
+          frequency: editing.frequency,
+          weekday: editing.weekday ?? 1,
+          dayOfMonth: editing.dayOfMonth ?? 1,
+          month: editing.month ?? 1,
+          targetBankId: editing.targetBankId,
+        };
+        const patch = Object.fromEntries(
+          (Object.keys(shape) as (keyof typeof shape)[])
+            .filter((key) => shape[key] !== was[key])
+            .map((key) => [key, shape[key]])
+        ) as Partial<typeof shape>;
+        if (Object.keys(patch).length > 0) await onUpdate(editing.id, patch);
+      } else await onCreate({ ...shape, enabled: true });
       reset();
     } catch {
       setBusy(false);
@@ -90,7 +109,9 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
     }`;
 
   const targetName = (id: string | null) =>
-    id ? (banks.find((b) => b.id === id)?.name ?? 'Deleted goal') : 'Split by strategy';
+    id ? (banks.find((b) => b.id === id)?.name ?? t.profile.deletedGoal) : t.profile.splitByStrategy;
+  // Archived goals are named on the rules that still point at them, but take no new rules.
+  const choosable = banks.filter((b) => !b.archivedAt || b.id === targetBankId);
 
   return (
     <div className="flex flex-col h-full bg-bg-dark safe-pt">
@@ -101,16 +122,15 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
         >
           <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
         </button>
-        <h2 className="text-white text-lg font-bold tracking-tight">Auto Deposits</h2>
+        <h2 className="text-white text-lg font-bold tracking-tight">{t.profile.autoDeposits}</h2>
         <div className="size-10"></div>
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4 pb-16">
         <div className="mb-6">
-          <h1 className="text-white text-4xl font-black tracking-tight mb-2">Recurring</h1>
+          <h1 className="text-white text-4xl font-black tracking-tight mb-2">{t.profile.recurring}</h1>
           <p className="text-slate-500 font-medium leading-relaxed">
-            Money is added on the days you pick. Missed days are filled in the next time you open
-            the app.
+            {t.profile.recurringIntro}
           </p>
         </div>
 
@@ -118,8 +138,8 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
           {schedules.length === 0 && !adding && (
             <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
               <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">event_repeat</span>
-              <p className="text-slate-500 font-bold">No recurring deposits</p>
-              <p className="text-slate-600 text-xs mt-1">Add one to save on autopilot</p>
+              <p className="text-slate-500 font-bold">{t.profile.noRecurring}</p>
+              <p className="text-slate-600 text-xs mt-1">{t.profile.noRecurringHint}</p>
             </div>
           )}
 
@@ -133,14 +153,14 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => startEdit(s)}
-                    aria-label="Edit this rule"
+                    aria-label={t.profile.editRule}
                     className="size-10 rounded-full flex items-center justify-center bg-white/5 text-slate-400 active:scale-90 transition-transform"
                   >
                     <span className="material-symbols-rounded text-xl">edit</span>
                   </button>
                   <button
                     onClick={() => onDelete(s.id)}
-                    aria-label="Delete this rule"
+                    aria-label={t.profile.deleteRule}
                     className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 active:scale-90 transition-transform"
                   >
                     <span className="material-symbols-rounded text-xl">delete</span>
@@ -168,7 +188,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
           {adding ? (
             <div className="bg-surface border border-white/5 rounded-[2rem] p-5 space-y-6 shadow-xl">
               <div className="space-y-3">
-                <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Amount</label>
+                <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.profile.amount}</label>
                 <div className="relative">
                   <span className="absolute left-5 top-1/2 -translate-y-1/2 text-xl font-black text-slate-600">RM</span>
                   <input
@@ -184,7 +204,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
               </div>
 
               <div className="space-y-3">
-                <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Repeat</label>
+                <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.profile.repeat}</label>
                 <div className="grid grid-cols-4 gap-2">
                   {FREQUENCIES.map((f) => (
                     <button
@@ -202,9 +222,9 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
               {frequency === 'weekly' && (
                 <div className="space-y-3">
-                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest">On</label>
+                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.profile.on}</label>
                   <div className="grid grid-cols-7 gap-1.5">
-                    {WEEKDAY_LABELS.map((d, i) => (
+                    {t.common.weekdaysLong.map((d, i) => (
                       <button
                         key={d}
                         onClick={() => setWeekday(i)}
@@ -212,21 +232,21 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                           weekday === i ? 'bg-primary text-black' : 'bg-white/5 text-slate-400'
                         }`}
                       >
-                        {d.slice(0, 1)}
+                        {t.common.weekdaysNarrow[i]}
                       </button>
                     ))}
                   </div>
-                  <p className="text-slate-600 text-[11px] font-medium">{WEEKDAY_LABELS[weekday]}</p>
+                  <p className="text-slate-600 text-[11px] font-medium">{t.common.weekdaysLong[weekday]}</p>
                 </div>
               )}
 
               {frequency === 'yearly' && (
                 <div className="space-y-3">
-                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Month</label>
+                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.profile.month}</label>
                   <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
-                    {MONTH_LABELS.map((m, i) => (
+                    {t.report.monthsShort.map((m, i) => (
                       <button key={m} onClick={() => setMonth(i + 1)} className={chip(month === i + 1)}>
-                        {m.slice(0, 3)}
+                        {m}
                       </button>
                     ))}
                   </div>
@@ -235,7 +255,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
               {(frequency === 'monthly' || frequency === 'yearly') && (
                 <div className="space-y-3">
-                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Day</label>
+                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.profile.day}</label>
                   <div className="grid grid-cols-7 gap-1.5">
                     {DAYS_OF_MONTH.map((d) => (
                       <button
@@ -251,19 +271,19 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                   </div>
                   {dayOfMonth > 28 && (
                     <p className="text-slate-600 text-[11px] font-medium leading-relaxed">
-                      Shorter months fall back to their last day.
+                      {t.profile.shortMonths}
                     </p>
                   )}
                 </div>
               )}
 
               <div className="space-y-3">
-                <label className="text-slate-500 text-xs font-black uppercase tracking-widest">Goes to</label>
+                <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.profile.goesTo}</label>
                 <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
                   <button onClick={() => setTargetBankId(null)} className={chip(targetBankId === null)}>
-                    Split by strategy
+                    {t.profile.splitByStrategy}
                   </button>
-                  {banks.map((b) => (
+                  {choosable.map((b) => (
                     <button key={b.id} onClick={() => setTargetBankId(b.id)} className={chip(targetBankId === b.id)}>
                       {b.name}
                     </button>
@@ -279,7 +299,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
 
               <div className="flex gap-3">
                 <button onClick={reset} className="flex-1 h-14 rounded-2xl bg-white/5 text-slate-400 font-bold">
-                  Cancel
+                  {t.common.cancel}
                 </button>
                 <button
                   onClick={() => void handleCreate()}
@@ -290,7 +310,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
                       : 'bg-white/5 text-slate-700 cursor-not-allowed'
                   }`}
                 >
-                  {busy ? 'Saving…' : editing ? 'Save changes' : 'Add'}
+                  {busy ? t.profile.saving : editing ? t.common.saveChanges : t.profile.add}
                 </button>
               </div>
             </div>
@@ -300,7 +320,7 @@ const AutoDeposits: React.FC<AutoDepositsProps> = ({
               className="w-full h-16 rounded-[2rem] glass border border-white/10 text-white font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform"
             >
               <span className="material-symbols-rounded text-primary">add_circle</span>
-              New recurring deposit
+              {t.profile.newRecurring}
             </button>
           )}
         </div>

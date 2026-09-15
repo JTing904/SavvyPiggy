@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useT } from '../contexts/LanguageContext';
 import { formatTime, parseTime } from '../services/alerts';
 
 /**
@@ -31,9 +32,10 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const TimeField: React.FC<TimeFieldProps> = ({
   value,
   onChange,
-  title = 'What time?',
+  title,
   hint,
 }) => {
+  const t = useT();
   const [open, setOpen] = useState(false);
   useBackHandler(open, () => setOpen(false));
 
@@ -65,12 +67,12 @@ const TimeField: React.FC<TimeFieldProps> = ({
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-white text-2xl font-black tracking-tight">{title}</h3>
+              <h3 className="text-white text-2xl font-black tracking-tight">{title ?? t.pickers.whatTime}</h3>
               <p className="text-primary text-2xl font-black tabular-nums shrink-0">
                 {formatTime(value)}
               </p>
@@ -78,7 +80,7 @@ const TimeField: React.FC<TimeFieldProps> = ({
             {hint && <p className="text-slate-400 text-sm font-medium mt-2 leading-relaxed">{hint}</p>}
 
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-6 mb-2">
-              Hour
+              {t.pickers.hour}
             </p>
             <div className="grid grid-cols-6 gap-1.5">
               {HOURS.map((h) => (
@@ -94,7 +96,7 @@ const TimeField: React.FC<TimeFieldProps> = ({
             </div>
 
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-5 mb-2">
-              Minute
+              {t.pickers.minute}
             </p>
             <div className="grid grid-cols-6 gap-1.5">
               {MINUTES.map((m) => (
@@ -114,7 +116,7 @@ const TimeField: React.FC<TimeFieldProps> = ({
               onClick={() => setOpen(false)}
               className="w-full h-14 rounded-2xl bg-primary text-black font-black mt-6 active:scale-95 transition-transform"
             >
-              Done
+              {t.common.done}
             </button>
           </div>
         </div>

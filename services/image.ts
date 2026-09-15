@@ -4,6 +4,8 @@
  * megabytes; this brings it down to tens of kilobytes.
  */
 
+import { m } from '../i18n';
+
 /** Longest edge after resizing. Cards render at ~260px, detail at ~400px. */
 const MAX_EDGE = 720;
 
@@ -23,7 +25,7 @@ const loadImage = (file: File) =>
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Could not read that image.'));
+      reject(new Error(m().errors.imageUnreadable));
     };
     img.src = url;
   });
@@ -39,7 +41,7 @@ const scaledSize = (img: HTMLImageElement) => {
 };
 
 export const compressImage = async (file: File): Promise<string> => {
-  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
+  if (!file.type.startsWith('image/')) throw new Error(m().errors.chooseImage);
 
   const img = await loadImage(file);
   const { width, height } = scaledSize(img);
@@ -49,7 +51,7 @@ export const compressImage = async (file: File): Promise<string> => {
   canvas.height = height;
 
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not process that image.');
+  if (!ctx) throw new Error(m().errors.imageUnprocessable);
   ctx.drawImage(img, 0, 0, width, height);
 
   for (const quality of QUALITIES) {
@@ -57,5 +59,5 @@ export const compressImage = async (file: File): Promise<string> => {
     if (dataUrl.length <= MAX_DATA_URL_BYTES) return dataUrl;
   }
 
-  throw new Error('That image is too detailed to store. Try a smaller one.');
+  throw new Error(m().errors.imageTooDetailed);
 };

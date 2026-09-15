@@ -1,18 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PiggyBank } from '../types';
+import { PiggyBank, Schedule } from '../types';
 import { evenSplit, sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
 import DonutChart, { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { useT } from '../contexts/LanguageContext';
+import MoveGoalMoneySheet from './MoveGoalMoneySheet';
+import { percentReached, toCents } from '../services/money';
+import type { GoalMoneyChoice } from '../services/ledger';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
   onUpdateBanks: (banks: PiggyBank[]) => void;
-  onDeleteBank: (id: string) => void;
+  /**
+   * `choice` says where a goal's money goes; null only for an empty goal.
+   * `scheduleTarget` is where auto deposits aimed at it save from now on.
+   */
+  onDeleteBank: (id: string, choice: GoalMoneyChoice | null, scheduleTarget?: string | null) => void;
+  onArchiveBank: (id: string) => void;
   onAddGoal: () => void;
   scheduleCount: number;
+  schedules: Schedule[];
   onOpenAutoDeposits: () => void;
 }
 
@@ -34,6 +44,7 @@ interface StepperProps {
  * number turns it into a field for exact values.
  */
 const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChange }) => {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const input = useRef<HTMLInputElement>(null);
@@ -61,7 +72,7 @@ const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChan
 
   return (
     <div className="flex items-center gap-2 shrink-0">
-      <button disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label="Less">
+      <button disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label={t.goals.less}>
         <span className="material-symbols-rounded">remove</span>
       </button>
 
@@ -101,7 +112,7 @@ const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChan
         </button>
       )}
 
-      <button disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label="More">
+      <button disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label={t.goals.more}>
         <span className="material-symbols-rounded">add</span>
       </button>
     </div>
@@ -112,14 +123,19 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   banks,
   onUpdateBanks,
   onDeleteBank,
+  onArchiveBank,
   onAddGoal,
   scheduleCount,
+  schedules,
   onOpenAutoDeposits,
 }) => {
   // Unsaved edits only. Everything else reads straight from Firestore, so
   // live updates can never be shadowed by stale local copies.
+  const t = useT();
   const confirm = useConfirm();
   const [draft, setDraft] = useState<Draft>({});
+  /** The goal being deleted while it still holds money. */
+  const [moving, setMoving] = useState<PiggyBank | null>(null);
   const [order, setOrder] = useSortOrder('savvypiggy.sort.strategy');
 
   const localBanks = banks.map((b) => ({ ...b, ...draft[b.id] }));
@@ -162,22 +178,47 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
   const handleDelete = async (id: string) => {
     const bank = localBanks.find((b) => b.id === id);
+    // A goal with money in it, or auto deposits aimed at it, asks where they
+    // go; that sheet is the confirmation.
+    const aimed = schedules.some((s) => s.targetBankId === id);
+    if (bank && (toCents(bank.currentAmount) !== 0 || aimed)) {
+      setMoving(bank);
+      return;
+    }
     const ok = await confirm({
-      title: `Delete ${bank?.name ?? 'this goal'}?`,
-      body: 'The money already saved into it is not returned, and its share of future deposits stops.',
+      title: t.goals.deleteTitle(bank?.name),
+      body: localBanks.length > 1 ? t.goals.deleteBody : t.goals.deleteBodyLast,
       tone: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t.common.delete,
       detail: bank && {
         icon: bank.icon,
         label: bank.name,
-        meta: `${bank.splitPercentage}% of each deposit`,
+        meta: t.goals.percentOfEachDeposit(bank.splitPercentage),
         amount: formatMoney(bank.currentAmount),
       },
     });
     if (!ok) return;
-    onDeleteBank(id);
+    onDeleteBank(id, null);
     setDraft(({ [id]: _removed, ...rest }) => rest);
   };
+
+  const moveSheet = moving && (
+    <MoveGoalMoneySheet
+      bank={moving}
+      banks={banks}
+      aimed={schedules.filter((s) => s.targetBankId === moving.id).length}
+      onConfirm={(choice, scheduleTarget) => {
+        onDeleteBank(moving.id, choice, scheduleTarget);
+        setDraft(({ [moving.id]: _removed, ...rest }) => rest);
+        setMoving(null);
+      }}
+      onArchive={() => {
+        onArchiveBank(moving.id);
+        setMoving(null);
+      }}
+      onClose={() => setMoving(null)}
+    />
+  );
 
   const sorted = sortBanks(localBanks, order);
   const slices = inSplit.map((b) => ({ id: b.id, value: b.splitPercentage, color: colorOf(b.id) }));
@@ -185,9 +226,9 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   return (
     <div className="flex flex-col min-h-full pb-[22rem] safe-pt">
       <div className="px-6 pt-6 pb-2">
-        <h2 className="text-white text-3xl font-black tracking-tight">Distribution Strategy</h2>
+        <h2 className="text-white text-3xl font-black tracking-tight">{t.goals.strategyTitle}</h2>
         <p className="text-slate-500 text-sm font-medium mt-1">
-          Every untargeted deposit is split by these shares.
+          {t.goals.strategySubtitle}
         </p>
       </div>
 
@@ -198,7 +239,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
             <DonutChart slices={slices} total={totalAllocation} size={150} thickness={20} />
             <div className="min-w-0 flex-1 space-y-2">
               {inSplit.length === 0 ? (
-                <p className="text-slate-500 text-xs font-medium">Every goal is excluded from deposits.</p>
+                <p className="text-slate-500 text-xs font-medium">{t.goals.everyGoalExcluded}</p>
               ) : (
                 inSplit.map((b) => (
                   <div key={b.id} className="flex items-center gap-2 min-w-0">
@@ -211,7 +252,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
               {totalAllocation < 100 && inSplit.length > 0 && (
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="size-2.5 shrink-0 rounded-full bg-white/10"></span>
-                  <span className="text-slate-600 text-xs font-bold truncate flex-1">Unassigned</span>
+                  <span className="text-slate-600 text-xs font-bold truncate flex-1">{t.goals.unassigned}</span>
                   <span className="text-slate-500 text-xs font-black tabular-nums shrink-0">
                     {100 - totalAllocation}%
                   </span>
@@ -231,11 +272,11 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
             <span className="material-symbols-rounded text-2xl">event_repeat</span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-white font-bold">Auto Deposits</p>
+            <p className="text-white font-bold">{t.goals.autoDeposits}</p>
             <p className="text-slate-500 text-xs font-medium">
               {scheduleCount === 0
-                ? 'Save on a schedule'
-                : `${scheduleCount} active schedule${scheduleCount > 1 ? 's' : ''}`}
+                ? t.goals.saveOnSchedule
+                : t.goals.activeSchedules(scheduleCount)}
             </p>
           </div>
           <span className="material-symbols-rounded text-slate-600">chevron_right</span>
@@ -244,7 +285,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
       {localBanks.length > 0 && (
         <div className="mt-8 px-6 flex items-center justify-between gap-3">
-          <h3 className="text-white text-lg font-bold">Goals</h3>
+          <h3 className="text-white text-lg font-bold">{t.common.goals}</h3>
           <SortMenu order={order} onChange={setOrder} />
         </div>
       )}
@@ -253,16 +294,16 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
         {localBanks.length === 0 ? (
           <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
             <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">account_balance_wallet</span>
-            <p className="text-slate-500 font-bold">No piggy banks yet</p>
+            <p className="text-slate-500 font-bold">{t.goals.noPiggyBanks}</p>
             <p className="text-slate-600 text-xs mt-1">
-              A goal is where deposits land. Make the first one to start saving.
+              {t.goals.goalIsWhere}
             </p>
             <button
               onClick={onAddGoal}
               className="h-12 px-6 rounded-2xl bg-primary text-black font-black text-sm mt-6 flex items-center gap-2 active:scale-95 transition-transform"
             >
               <span className="material-symbols-rounded text-xl">add_circle</span>
-              Add your first goal
+              {t.goals.addFirstGoal}
             </button>
           </div>
         ) : (
@@ -270,7 +311,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
             const inSplitNow = bank.autoSplit !== false;
             const color = colorOf(bank.id);
             const hasTarget = bank.targetAmount > 0;
-            const overspent = bank.currentAmount < 0;
+            const overspent = toCents(bank.currentAmount) < 0;
             const progress = hasTarget
               ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
               : 0;
@@ -291,7 +332,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                       <h4 className="text-white font-bold truncate">{bank.name}</h4>
                       <p className={`text-xs truncate ${overspent ? 'text-red-400' : 'text-slate-500'}`}>
                         {formatMoney(bank.currentAmount, { decimals: 0 })}
-                        {hasTarget ? ` of ${formatMoney(bank.targetAmount, { decimals: 0 })}` : ' · no limit'}
+                        {hasTarget ? t.goals.ofTarget(formatMoney(bank.targetAmount, { decimals: 0 })) : t.goals.noLimitSuffix}
                       </p>
                     </div>
                   </div>
@@ -315,7 +356,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                    {inSplitNow ? 'Split' : 'Excluded'}
+                    {inSplitNow ? t.goals.split : t.goals.excluded}
                   </p>
                   <PercentStepper
                     value={bank.splitPercentage}
@@ -341,11 +382,11 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                   </div>
                   <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
                     <span className="text-slate-500">
-                      {overspent ? 'Overspent' : hasTarget ? `Goal funded ${Math.round(progress)}%` : 'Open-ended'}
+                      {overspent ? t.goals.overspent : hasTarget ? t.goals.goalFunded(percentReached(bank.currentAmount, bank.targetAmount)) : t.goals.openEnded}
                     </span>
                     {hasTarget && !overspent && (
                       <span className="text-slate-500 tabular-nums">
-                        {remaining > 0 ? `${formatMoney(remaining, { decimals: 0 })} remaining` : 'Target reached'}
+                        {toCents(remaining) > 0 ? t.goals.remaining(formatMoney(remaining, { decimals: 0 })) : t.goals.targetReached}
                       </span>
                     )}
                   </div>
@@ -357,7 +398,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                   className="w-full flex items-center justify-between gap-3 pt-1"
                 >
                   <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                    {inSplitNow ? 'Auto-split on' : 'Auto-split off'}
+                    {inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff}
                   </span>
                   <div
                     className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
@@ -384,14 +425,14 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
               className="h-14 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
             >
               <span className="material-symbols-rounded text-primary text-xl">balance</span>
-              Even Split{evenLabel ? ` (${evenLabel})` : ''}
+              {t.goals.evenSplit(evenLabel)}
             </button>
             <button
               onClick={onAddGoal}
               className="h-14 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
             >
               <span className="material-symbols-rounded text-primary text-xl">add_circle</span>
-              Add Goal
+              {t.goals.addGoal}
             </button>
           </div>
         )}
@@ -406,7 +447,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
           <div className="glass rounded-[2.5rem] p-5 space-y-4 border border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Total Allocation</p>
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.goals.totalAllocation}</p>
                 <p className="text-2xl font-black tabular-nums">
                   <span className={isValid ? 'text-primary' : 'text-red-400'}>{totalAllocation}%</span>
                   <span className="text-slate-600 text-base"> / 100%</span>
@@ -423,10 +464,10 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                   {isValid ? 'check_circle' : totalAllocation > 100 ? 'error' : 'pending'}
                 </span>
                 {isValid
-                  ? 'Balanced'
+                  ? t.goals.balanced
                   : totalAllocation > 100
-                    ? `${totalAllocation - 100}% over`
-                    : `${100 - totalAllocation}% left`}
+                    ? t.goals.percentOver(totalAllocation - 100)
+                    : t.goals.percentLeft(100 - totalAllocation)}
               </div>
             </div>
             <button
@@ -439,16 +480,18 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
               }`}
             >
               {localBanks.length === 0
-                ? 'Add a Goal'
+                ? t.goals.addAGoal
                 : !isValid
-                  ? 'Allocation Mismatch'
+                  ? t.goals.allocationMismatch
                   : isDirty
-                    ? 'Save Strategy'
-                    : 'Strategy Saved'}
+                    ? t.goals.saveStrategy
+                    : t.goals.strategySaved}
             </button>
           </div>
         </div>
       </div>
+
+      {moveSheet}
     </div>
   );
 };

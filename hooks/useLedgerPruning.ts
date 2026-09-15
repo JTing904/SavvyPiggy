@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { SavingsSettings } from '../types';
-import { retentionCutoff } from '../services/analytics';
+import { clearingPlan } from '../services/analytics';
 import { addAlert, hasOlderThan, pruneOlderThan } from '../services/firestore';
+import { hasBetween } from '../services/ledgerArchive';
 
 /**
  * Clearing the old end of the ledger, once per app open.
@@ -12,10 +13,11 @@ import { addAlert, hasOlderThan, pruneOlderThan } from '../services/firestore';
  * records opened a handful of times. Keeping a window means that day never
  * comes.
  *
- * Nothing is deleted without warning first. The very first time there is
- * something old enough to go, this raises an alert and leaves it alone; only
- * once the user has seen the Statements screen — where that month sits with a
- * download button beside it — does the clearing actually start.
+ * Nothing is deleted without warning first. Records become deletable only once
+ * the Statements screen has listed them as about to be cleared, beside their
+ * download buttons; the screen records the cutoff it showed. Anything that has
+ * become due since — a month aging out, or the window shrinking — raises the
+ * alert again and is left alone until the screen has been opened again.
  *
  * Only activity documents are removed. Balances live on the goals and
  * positions are replayed from the trade log, so nothing here can cost anyone a
@@ -26,32 +28,38 @@ export const useLedgerPruning = (
   savings: SavingsSettings,
   ready: boolean
 ) => {
-  const ran = useRef(false);
+  // Keyed by account: signing into another one clears that account too.
+  const ran = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!uid || !ready || ran.current || savings.retentionMonths === null) return;
-    ran.current = true;
+    if (!uid || !ready || ran.current === uid || savings.retentionMonths === null) return;
+    ran.current = uid;
 
     void (async () => {
       try {
-        const cutoff = retentionCutoff(new Date(), savings.retentionMonths);
-        if (!(await hasOlderThan(uid, cutoff))) return;
+        const plan = clearingPlan(new Date(), savings.retentionMonths, savings.retentionAcknowledgedCutoff);
+        if (!(await hasOlderThan(uid, plan.cutoff))) return;
 
-        if (!savings.retentionAcknowledged) {
+        // Due but never shown as due: warn, and leave it where it is.
+        const unseen =
+          plan.unseenFrom !== null &&
+          (plan.unseenFrom.getTime() <= 0 || (await hasBetween(uid, plan.unseenFrom, plan.cutoff)));
+        if (unseen) {
           // A deterministic id, so the warning refreshes rather than stacking.
           await addAlert(uid, {
             id: 'retention_notice',
             kind: 'housekeeping',
             date: new Date().toISOString(),
-            months: savings.retentionMonths,
+            months: savings.retentionMonths ?? undefined,
           });
-          return;
         }
-        await pruneOlderThan(uid, cutoff);
+
+        // What was shown can go, whether or not something newer is waiting.
+        if (plan.clearBefore) await pruneOlderThan(uid, plan.clearBefore);
       } catch {
         // A failed clear is not worth interrupting anything for; it retries on
         // the next open, and nothing depends on it having happened.
       }
     })();
-  }, [uid, ready, savings.retentionMonths, savings.retentionAcknowledged]);
+  }, [uid, ready, savings.retentionMonths, savings.retentionAcknowledgedCutoff]);
 };

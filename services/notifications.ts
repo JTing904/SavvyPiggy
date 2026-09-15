@@ -4,7 +4,9 @@ import type { Dividend, NotificationPrefs, Schedule, Trade } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
 import { unitsOnExDate } from './holdings';
+import { dividendId, exchangeDay } from './dividends';
 import { formatMoney } from '../services/money';
+import { getLang, m, type Lang } from '../i18n';
 
 /**
  * System notifications without a server: the phone itself holds the alarms.
@@ -58,30 +60,35 @@ const MORNING = 9;
  */
 export const CHANNEL_ID = 'savvypiggy-reminders';
 
-let channelReady = false;
+/**
+ * The language the channel was last named in. Creating a channel that already
+ * exists only renames it, so switching language re-creates it in the new one.
+ */
+let channelReady: Lang | null = null;
 const ensureChannel = async () => {
-  if (!native() || channelReady) return;
+  const lang = getLang();
+  if (!native() || channelReady === lang) return;
   try {
     await LocalNotifications.createChannel({
       id: CHANNEL_ID,
-      name: 'Reminders',
-      description: 'Savings reminders, auto-deposit nudges and ex-dividend dates.',
+      name: m().alerts.notify.channelName,
+      description: m().alerts.notify.channelDescription,
       importance: 4,
       visibility: 1,
       vibration: true,
     });
-    channelReady = true;
+    channelReady = lang;
   } catch {
     // Channels only exist on Android 8+; elsewhere the notification posts fine
     // without one.
-    channelReady = true;
+    channelReady = lang;
   }
 };
 
 export type Permission = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
 /** Which screen a tapped notification should land on. */
-export type OpenTarget = 'home' | 'report';
+export type OpenTarget = 'home' | 'report' | 'dividends';
 
 const native = () => Capacitor.isNativePlatform();
 
@@ -136,13 +143,16 @@ export const plannedNotifications = (
   now = new Date()
 ): LocalNotificationSchema[] => {
   const out: LocalNotificationSchema[] = [];
+  // Written in the current language; a change of language changes the plan's
+  // fingerprint, so the phone's copies are re-armed in the new one.
+  const words = m().alerts.notify;
 
   if (prefs.reminder) {
     const { hour, minute } = parseTime(prefs.reminderTime);
     out.push({
       id: REMINDER_ID,
-      title: 'Time to save',
-      body: 'Put a little aside today and keep your streak alive.',
+      title: words.reminderTitle,
+      body: words.reminderBody,
       schedule: { on: { hour, minute } },
       extra: { open: 'home' satisfies OpenTarget },
     });
@@ -151,8 +161,8 @@ export const plannedNotifications = (
   if (prefs.digest) {
     out.push({
       id: DIGEST_ID,
-      title: 'Your monthly report is ready',
-      body: 'See where last month’s deposits went and how fast you saved.',
+      title: words.digestTitle,
+      body: words.digestBody,
       schedule: { on: { day: 1, hour: MORNING, minute: 0 } },
       extra: { open: 'report' satisfies OpenTarget },
     });
@@ -166,8 +176,8 @@ export const plannedNotifications = (
     day.setHours(MORNING, 0, 0, 0);
     out.push({
       id: DUE_BASE + slot(s.id, SPAN),
-      title: `Auto deposit of ${formatMoney(s.amount)} due today`,
-      body: 'Open SavvyPiggy to post it to your goals.',
+      title: words.dueTitle(formatMoney(s.amount)),
+      body: words.dueBody,
       schedule: { at: day },
       extra: { open: 'home' satisfies OpenTarget },
     });
@@ -181,21 +191,24 @@ export const plannedNotifications = (
    */
   if (prefs.exDates) {
     for (const d of dividends) {
-      const warn = new Date(d.exDate);
+      // Dividend dates are exchange calendar days, not this phone's midnight.
+      const exDay = exchangeDay(d.exDate);
+      const warn = new Date(exDay);
       warn.setDate(warn.getDate() - 2);
       warn.setHours(MORNING, 0, 0, 0);
       if (warn.getTime() <= now.getTime()) continue;
 
-      const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), d.exDate);
+      const units = unitsOnExDate(trades.filter((t) => t.symbol === d.symbol), exDay);
       out.push({
-        id: EX_BASE + slot(`${d.symbol}_${d.exDate}`, SPAN),
-        title: `${d.symbol} goes ex-dividend in 2 days`,
+        // Two payments can share an ex-date, so the alarm is keyed like the credit.
+        id: EX_BASE + slot(dividendId(d), SPAN),
+        title: words.exTitle(d.symbol),
         body:
           units > 0
-            ? `RM${(d.perUnitPoints / 10_000).toFixed(4)} a unit. You hold ${units.toLocaleString('en-US')}.`
-            : `RM${(d.perUnitPoints / 10_000).toFixed(4)} a unit. Buy before the ex-date to qualify.`,
+            ? words.exBodyHeld(`RM${(d.perUnitPoints / 10_000).toFixed(4)}`, units.toLocaleString('en-US'))
+            : words.exBodyNone(`RM${(d.perUnitPoints / 10_000).toFixed(4)}`),
         schedule: { at: warn },
-        extra: { open: 'home' satisfies OpenTarget },
+        extra: { open: 'dividends' satisfies OpenTarget },
       });
     }
   }
@@ -290,7 +303,7 @@ export const onNotificationOpen = (handler: (target: OpenTarget) => void) => {
   if (!native()) return () => {};
   const handle = LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
     const target = action.notification.extra?.open;
-    handler(target === 'report' ? 'report' : 'home');
+    handler(target === 'report' || target === 'dividends' ? target : 'home');
   });
   return () => void handle.then((h) => h.remove());
 };

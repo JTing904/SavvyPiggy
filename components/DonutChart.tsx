@@ -1,4 +1,5 @@
 import React from 'react';
+import { useT } from '../contexts/LanguageContext';
 
 export interface DonutSlice {
   id: string;
@@ -37,6 +38,7 @@ const GAP = 1.2; // percentage points of ring left blank between slices
  * circumference with dash arrays. No chart library, nothing to load.
  */
 const DonutChart: React.FC<DonutChartProps> = ({ slices, total, size = 168, thickness = 22, center }) => {
+  const t = useT();
   const radius = (size - thickness) / 2;
   const circumference = 2 * Math.PI * radius;
 
@@ -99,7 +101,7 @@ const DonutChart: React.FC<DonutChartProps> = ({ slices, total, size = 168, thic
               {total}%
             </p>
             <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mt-1">
-              {over ? 'Over' : 'Allocated'}
+              {over ? t.report.donutOver : t.report.donutAllocated}
             </p>
           </>
         )}

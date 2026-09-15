@@ -16,6 +16,8 @@ import {
   normalizeSymbol,
   parseQuote,
   portfolioTotals,
+  pointsValueCents,
+  quoteValueCents,
   type Quote,
 } from '../services/holdings';
 import type { Holding, Trade } from '../types';
@@ -47,7 +49,7 @@ eq('nothing in, nothing out', normalizeSymbol('   '), '');
 const payload = {
   chart: { result: [{ meta: { regularMarketPrice: 10.56, chartPreviousClose: 10.58, regularMarketTime: 1_757_000_000 } }] },
 };
-eq('a quote arrives in sen', parseQuote(payload), { priceCents: 1056, previousCloseCents: 1058, at: 1_757_000_000_000 });
+eq('a quote arrives in sen, and in points for half-sen prices', parseQuote(payload), { priceCents: 1056, pricePoints: 105_600, previousCloseCents: 1058, previousClosePoints: 105_800, at: 1_757_000_000_000 });
 eq('a missing payload is no quote', parseQuote({}), null);
 eq('a zero price is no quote', parseQuote({ chart: { result: [{ meta: { regularMarketPrice: 0 } }] } }), null);
 eq(
@@ -63,6 +65,25 @@ eq('market value at the last price', marketValueCents(holding(), 1056), 528000);
 eq('gain against what was paid', gain(holding(), 1056), { cents: 68000, percent: 14.8 });
 eq('a loss reads negative', gain(holding(), 780), { cents: -70000, percent: -15.2 });
 eq("today's move uses the previous close", dayChangeCents(holding(), quote(1056, 1058)), -1000);
+
+// --- half-sen prices
+{
+  // RM0.345 is 34 in whole sen; valued that way 1,000 units lost RM5.
+  const half: Quote = { priceCents: 34, pricePoints: 3450, previousCloseCents: 34, previousClosePoints: 3400, at: 1 };
+  eq('a half-sen price is valued exactly', quoteValueCents({ units: 1000 }, half), 34500);
+  eq('an odd lot drops only the last fraction of a sen, downwards', pointsValueCents(1, 3450), 34);
+  eq('a quote cached before points falls back to sen', quoteValueCents({ units: 1000 }, quote(34)), 34000);
+  eq('the day move is in points too', dayChangeCents({ units: 1000 }, half), 500);
+  eq('but not against a close cached in sen only',
+    dayChangeCents({ units: 1000 }, { priceCents: 34, pricePoints: 3450, previousCloseCents: 34, at: 1 }), 0);
+  const totals = portfolioTotals([holding({ units: 1000, costCents: 30000 })], { '1155.KL': half });
+  eq('the portfolio total uses it', [totals.valueCents, totals.gainCents], [34500, 4500]);
+  const p = performance(
+    [{ id: 'hs', symbol: '1155.KL', name: 'X', kind: 'buy', units: 1000, priceCents: 30, tradedAt: 1, createdAt: 1 }],
+    { '1155.KL': half }
+  );
+  eq('and so does the growth figure', p.valueCents, 34500);
+}
 
 // --- buying more
 {
@@ -253,6 +274,17 @@ eq('an empty log holds nothing', buildHoldings([]), []);
   eq('all three together', p.totalCents, 54400 + 13600 + 15000);
   eq('measured against everything put in', { invested: p.investedCents, percent: p.returnPercent },
     { invested: 460000, percent: 18.0 });
+}
+{
+  // A sale worth less than its fees. The money plan can only pay nothing into
+  // a goal for it, but the loss is the whole of it: RM3 of shares that cost
+  // RM4, sold for RM8 of fees, lost RM9 — not the RM4 a zero would show.
+  const fees = { brokerageCents: 800, clearingCents: 0, stampCents: 0, sstCents: 0 };
+  const log = [
+    trade({ kind: 'buy', units: 10, priceCents: 40, tradedAt: on(1) }),
+    { ...trade({ kind: 'sell', units: 10, priceCents: 30, tradedAt: on(2) }), fees },
+  ];
+  eq('a sale smaller than its fees shows the whole loss', performance(log, {}).realisedCents, 300 - 800 - 400);
 }
 {
   // An unpriced counter is held at cost, so it reads as neither gain nor loss.

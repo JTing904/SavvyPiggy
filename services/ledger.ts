@@ -65,6 +65,75 @@ export const archiveStrategy = (banks: PiggyBank[], id: string): PiggyBank[] => 
   });
 };
 
+/** Where a deleted goal's money goes: into one goal, or split like a deposit. */
+export type GoalMoneyChoice = { mode: 'goal'; goalId: string } | { mode: 'split' };
+
+export type GoalRemovalProblem = 'needsChoice' | 'noDestination' | 'negativeSplit';
+
+/**
+ * Deleting a goal, without deleting its money.
+ *
+ * The balance moves — into the goal chosen, or across the strategy the way a
+ * deposit would (never to spent ahead: this is not new income). The deleted
+ * goal's share of each deposit is handed on the same way archiving hands it on,
+ * so the split still adds up. A goal that is overspent can only hand its
+ * shortfall to one goal; splitting a debt across the others would quietly
+ * shrink every one of them.
+ */
+export const planGoalRemoval = (
+  banks: PiggyBank[],
+  id: string,
+  choice: GoalMoneyChoice | null,
+  overflow = false
+): { plan: { cents: number; movements: Movement[]; strategy: PiggyBank[] } } | { problem: GoalRemovalProblem } => {
+  const target = banks.find((b) => b.id === id);
+  const cents = target ? toCents(target.currentAmount) : 0;
+  const strategy = archiveStrategy(banks, id).filter((b) => b.id !== id);
+  if (cents === 0) return { plan: { cents, movements: [], strategy } };
+  if (!choice) return { problem: 'needsChoice' };
+
+  if (choice.mode === 'goal') {
+    const into = strategy.find((b) => b.id === choice.goalId && !isArchived(b));
+    if (!into) return { problem: 'noDestination' };
+    return { plan: { cents, movements: [{ bankId: into.id, cents, percentage: 100 }], strategy } };
+  }
+
+  if (cents < 0) return { problem: 'negativeSplit' };
+  const movements = planDeposit(cents, strategy, [], null, overflow).movements.filter((m) => m.cents !== 0);
+  if (movements.length === 0) return { problem: 'noDestination' };
+  // A strategy under 100% leaves part of a deposit unplaced on purpose, but a
+  // deleted goal's money has to land somewhere: what is left goes to the
+  // biggest share, the same place the odd cent always goes.
+  const placed = movements.reduce((s, m) => s + m.cents, 0);
+  if (placed < cents) {
+    const biggest = movements.reduce((a, b) => (b.percentage > a.percentage ? b : a));
+    biggest.cents += cents - placed;
+  }
+  return { plan: { cents, movements, strategy } };
+};
+
+/**
+ * Undoing a record that put money into, or took it out of, a goal that has
+ * since been deleted. Deleting a goal now hands its money on, so that share
+ * no longer vanished with the goal — it sits somewhere else, and the person
+ * says where to settle it. Goals deleted before that rule really did take
+ * their money with them, which is what "none" is for.
+ */
+export type GoneShareChoice = { mode: 'goal'; goalId: string } | { mode: 'none' };
+
+/**
+ * What a record moved in goals that no longer exist, signed as it was written:
+ * positive when it put money in (undoing takes it back), negative when it took
+ * money out (undoing gives it back).
+ */
+export const goneShareCents = (distributions: { bankId: string; amount: number }[], banks: PiggyBank[]) =>
+  distributions.reduce((sum, d) => (banks.some((b) => b.id === d.bankId) ? sum : sum + toCents(d.amount)), 0);
+
+/** The goals a record touched that are gone, once each. */
+export const goneGoalIds = (distributions: { bankId: string }[], banks: PiggyBank[]) => [
+  ...new Set(distributions.filter((d) => !banks.some((b) => b.id === d.bankId)).map((d) => d.bankId)),
+];
+
 export const outstandingCents = (loan: Loan) => toCents(loan.outstanding);
 
 export const totalDebtCents = (loans: Loan[]) =>

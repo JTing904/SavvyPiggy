@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { redeemInvite } from '../services/invites';
+import { useT } from '../contexts/LanguageContext';
 
 const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
   const { logout } = useAuth();
+  const t = useT();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +20,7 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
       await redeemInvite(user, code);
       // The membership listener flips the app over; nothing to do here.
     } catch (err) {
-      setError((err as Error).message || 'Could not redeem that code.');
+      setError((err as Error).message || t.auth.redeemFailed);
       setBusy(false);
     }
   };
@@ -30,10 +32,9 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
           <div className="size-20 rounded-[1.75rem] bg-primary/10 flex items-center justify-center mb-6">
             <span className="material-symbols-rounded text-primary text-4xl">key</span>
           </div>
-          <h1 className="text-white text-3xl font-black tracking-tight text-center">Invite only</h1>
+          <h1 className="text-white text-3xl font-black tracking-tight text-center">{t.auth.inviteOnly}</h1>
           <p className="text-slate-500 font-medium mt-2 text-center leading-relaxed">
-            SavvyPiggy is not open to the public yet. Enter the invite code you were given to
-            unlock your account.
+            {t.auth.inviteIntro}
           </p>
         </div>
 
@@ -43,7 +44,7 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             className="w-full h-16 px-6 rounded-3xl bg-surface border border-white/5 text-xl font-black tracking-[0.2em] text-center text-white focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 placeholder:tracking-normal shadow-xl"
-            placeholder="INVITE CODE"
+            placeholder={t.auth.inviteCode}
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
@@ -65,15 +66,15 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
                 : 'bg-white/5 text-slate-700 cursor-not-allowed'
             }`}
           >
-            {busy ? 'Checking...' : 'Unlock Account'}
+            {busy ? t.auth.checking : t.auth.unlockAccount}
           </button>
         </form>
 
         <p className="text-center text-slate-600 text-xs font-medium mt-8 leading-relaxed">
-          Signed in as <span className="text-slate-400 font-bold">{user.email ?? user.uid}</span>
+          {t.auth.signedInAs}<span className="text-slate-400 font-bold">{user.email ?? user.uid}</span>
           <br />
           <button onClick={() => void logout()} className="text-primary font-black mt-2">
-            Sign out
+            {t.auth.signOut}
           </button>
         </p>
       </div>

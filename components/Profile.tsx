@@ -1,16 +1,21 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank, SavingsSettings, Schedule } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../contexts/LanguageContext';
+import LanguageSheet from './LanguageSheet';
 import { isArchived, isFull, isInSplit, seedSampleBanks } from '../services/firestore';
-import { currentStreak, summarize } from '../services/analytics';
+import { summarize, type StreakRun } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
 import { APP_VERSION } from '../services/version';
 import { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
+import { dateLocale } from '../i18n';
 
 interface ProfileProps {
   banks: PiggyBank[];
   activities: Activity[];
+  /** The current saving streak, counted by the app. */
+  streak: StreakRun;
   schedules: Schedule[];
   savings: SavingsSettings;
   unreadAlerts: number;
@@ -25,8 +30,8 @@ interface ProfileProps {
   holdingCount: number;
 }
 
-const monthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-const shortDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const monthYear = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
+const shortDate = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' });
 
 const Card: React.FC<{ className?: string; children: React.ReactNode }> = ({ className = '', children }) => (
   <div className={`bg-surface border border-white/5 rounded-[2rem] shadow-xl ${className}`}>{children}</div>
@@ -87,6 +92,7 @@ const Row: React.FC<{
 const Profile: React.FC<ProfileProps> = ({
   banks,
   activities,
+  streak: streakRun,
   schedules,
   savings,
   unreadAlerts,
@@ -103,11 +109,13 @@ const Profile: React.FC<ProfileProps> = ({
   const { user, logout } = useAuth();
   const [busy, setBusy] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
+  const [showLanguage, setShowLanguage] = useState(false);
+  const t = useT();
   const now = new Date();
 
   if (!user) return null;
 
-  const label = user.displayName || user.email || 'Savvy Saver';
+  const label = user.displayName || user.email || t.profile.defaultName;
   const initial = label.charAt(0).toUpperCase();
   const joined = user.metadata.creationTime ? new Date(user.metadata.creationTime) : null;
 
@@ -119,7 +127,10 @@ const Profile: React.FC<ProfileProps> = ({
   const reached = active.filter(isFull);
 
   const summary = useMemo(() => summarize(activities, banks, 'month', now), [activities, banks]); // eslint-disable-line react-hooks/exhaustive-deps
-  const streak = useMemo(() => currentStreak(activities, now), [activities]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Counted from loaded history only; a streak reaching back to the window start is shown as "at least".
+  // Counted once for the whole app (see knownStreak), so the live window's start does not cut it short.
+  const run = streakRun;
+  const streak = run.days;
 
   const colorOf = (id: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === id)) % SLICE_COLORS.length];
   const inSplit = active.filter(isInSplit);
@@ -140,35 +151,35 @@ const Profile: React.FC<ProfileProps> = ({
     } catch (e) {
       // The button only shows on an account with no goals, so failing in
       // silence here is a dead end on the one screen offering a way forward.
-      setSeedError(e instanceof Error ? e.message : 'Could not add them. Try again.');
+      setSeedError(e instanceof Error ? e.message : t.profile.seedFailed);
     } finally {
       setBusy(false);
     }
   };
 
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString('en-US', { month: 'short' });
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString(dateLocale('en-US'), { month: 'short' });
 
   const stats = [
     {
-      label: 'Saved',
+      label: t.profile.saved,
       value: formatMoney(totalBalance, { decimals: 0 }),
       // The full sentence would be clipped in a third of a phone's width.
       hint:
         summary.change === null
-          ? 'This month'
-          : `${summary.change >= 0 ? '+' : ''}${summary.change}% vs ${lastMonth}`,
+          ? t.profile.thisMonth
+          : t.profile.vsMonth(`${summary.change >= 0 ? '+' : ''}${summary.change}`, lastMonth),
       tone: summary.change !== null && summary.change < 0 ? 'text-slate-500' : 'text-primary',
     },
     {
-      label: 'Goals',
+      label: t.common.goals,
       value: String(active.length),
-      hint: withTarget.length === 0 ? 'No targets' : `${reached.length}/${withTarget.length} reached`,
+      hint: withTarget.length === 0 ? t.profile.noTargets : t.profile.reachedRatio(reached.length, withTarget.length),
       tone: 'text-slate-500',
     },
     {
-      label: 'Streak',
-      value: `${streak}d`,
-      hint: streak === 0 ? 'Start today' : 'In a row',
+      label: t.profile.streak,
+      value: run.capped ? t.report.streakAtLeast(streak) : t.profile.streakValue(streak),
+      hint: streak === 0 ? t.profile.startToday : t.profile.inARow,
       tone: streak > 0 ? 'text-primary' : 'text-slate-500',
     },
   ];
@@ -184,8 +195,8 @@ const Profile: React.FC<ProfileProps> = ({
           <span className="material-symbols-rounded">arrow_back</span>
         </button>
         <div className="min-w-0">
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Member profile</p>
-          <h2 className="text-white text-3xl font-black tracking-tight">Settings</h2>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.profile.memberProfile}</p>
+          <h2 className="text-white text-3xl font-black tracking-tight">{t.profile.settings}</h2>
         </div>
       </div>
 
@@ -203,7 +214,7 @@ const Profile: React.FC<ProfileProps> = ({
             <div className="min-w-0">
               <h3 className="text-white font-black text-lg truncate">{label}</h3>
               <p className="text-slate-500 text-xs font-medium truncate">{user.email}</p>
-              {joined && <p className="text-primary/70 text-[11px] font-bold mt-1">Saving since {monthYear(joined)}</p>}
+              {joined && <p className="text-primary/70 text-[11px] font-bold mt-1">{t.profile.savingSince(monthYear(joined))}</p>}
             </div>
           </div>
 
@@ -221,17 +232,17 @@ const Profile: React.FC<ProfileProps> = ({
         </Card>
 
         {/* Savings engine */}
-        <Section label="Automated savings">
+        <Section label={t.profile.automatedSavings}>
           <Card className="divide-y divide-white/5">
             <Row
               icon="event_repeat"
-              title={liveRules.length === 0 ? 'No auto deposits yet' : liveRules.length === 1 ? describe(liveRules[0]) : `${liveRules.length} rules running`}
+              title={liveRules.length === 0 ? t.profile.noAutoDeposits : liveRules.length === 1 ? describe(liveRules[0]) : t.profile.rulesRunning(liveRules.length)}
               subtitle={
                 liveRules.length === 0
-                  ? 'Set money aside on a schedule'
+                  ? t.profile.setAside
                   : nextRun
-                    ? `Next on ${shortDate(nextRun)} · posts when you open the app`
-                    : 'Posts when you open the app'
+                    ? t.profile.nextOn(shortDate(nextRun))
+                    : t.profile.postsOnOpen
               }
               onClick={onOpenAutoDeposits}
               trailing={
@@ -247,17 +258,17 @@ const Profile: React.FC<ProfileProps> = ({
                 <span className="material-symbols-rounded">sync_alt</span>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">Smart goal overflow</p>
+                <p className="text-white font-bold text-sm">{t.profile.overflowTitle}</p>
                 <p className="text-slate-500 text-xs font-medium mt-0.5 leading-relaxed">
-                  A goal that hits its target stops taking a cut; its share goes to the goals still short of theirs.
+                  {t.profile.overflowHint}
                 </p>
               </div>
               <Switch on={savings.overflow} onChange={onToggleOverflow} />
             </div>
             <Row
               icon="pie_chart"
-              title="Distribution split"
-              subtitle={allocated === 100 ? 'Fully allocated' : `${allocated}% allocated · ${100 - allocated}% unassigned`}
+              title={t.profile.distributionSplit}
+              subtitle={allocated === 100 ? t.profile.fullyAllocated : t.profile.allocatedUnassigned(allocated, 100 - allocated)}
               onClick={onOpenStrategy}
             />
           </Card>
@@ -265,24 +276,24 @@ const Profile: React.FC<ProfileProps> = ({
 
         {/* Goals */}
         <Section
-          label="Goals"
+          label={t.common.goals}
           action={
             <button onClick={onOpenStrategy} className="text-primary text-[11px] font-black active:opacity-60">
-              Manage all ({active.length})
+              {t.profile.manageAll(active.length)}
             </button>
           }
         >
           <Card className="p-6">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-white font-black text-sm">Active distribution</p>
+              <p className="text-white font-black text-sm">{t.profile.activeDistribution}</p>
               <span className="px-3 h-7 rounded-full bg-white/5 text-slate-400 text-[11px] font-black flex items-center">
-                {formatMoney(totalBalance - archivedTotal, { decimals: 0 })} active
+                {t.profile.activeAmount(formatMoney(totalBalance - archivedTotal, { decimals: 0 }))}
               </span>
             </div>
 
             {inSplit.length === 0 ? (
               <p className="text-slate-500 text-xs font-medium mt-4 leading-relaxed">
-                No goal is taking a share of deposits yet. Set the split on the Strategy tab.
+                {t.profile.noSplit}
               </p>
             ) : (
               <>
@@ -314,9 +325,9 @@ const Profile: React.FC<ProfileProps> = ({
                 <button onClick={() => setShowArchive((v) => !v)} className="w-full flex items-center gap-3 text-left">
                   <span className="material-symbols-rounded text-slate-500 text-lg">inventory_2</span>
                   <span className="text-slate-400 text-xs font-bold flex-1">
-                    Archived goals ({archived.length})
+                    {t.profile.archivedGoals(archived.length)}
                   </span>
-                  <span className="text-slate-500 text-xs font-black">{formatMoney(archivedTotal, { decimals: 0 })} put away</span>
+                  <span className="text-slate-500 text-xs font-black">{t.profile.putAway(formatMoney(archivedTotal, { decimals: 0 }))}</span>
                   <span className={`material-symbols-rounded text-slate-600 transition-transform ${showArchive ? 'rotate-180' : ''}`}>
                     expand_more
                   </span>
@@ -333,20 +344,19 @@ const Profile: React.FC<ProfileProps> = ({
                           <p className="text-slate-300 text-sm font-bold truncate">{b.name}</p>
                           <p className="text-slate-600 text-[10px] font-medium">
                             {formatMoney(b.currentAmount)}
-                            {b.archivedAt ? ` · archived ${shortDate(new Date(b.archivedAt))}` : ''}
+                            {b.archivedAt ? t.profile.archivedOn(shortDate(new Date(b.archivedAt))) : ''}
                           </p>
                         </div>
                         <button
                           onClick={() => onUnarchive(b.id)}
                           className="shrink-0 h-9 px-4 rounded-full glass text-slate-300 text-[11px] font-black active:scale-95 transition-transform"
                         >
-                          Restore
+                          {t.profile.restore}
                         </button>
                       </div>
                     ))}
                     <p className="text-slate-600 text-[10px] font-medium leading-relaxed px-1 pt-1">
-                      Archived goals keep their money and their history. Restoring one brings it back at 0% — give it a share
-                      on the Strategy tab.
+                      {t.profile.archiveNote}
                     </p>
                   </div>
                 )}
@@ -356,37 +366,44 @@ const Profile: React.FC<ProfileProps> = ({
         </Section>
 
         {/* App */}
-        <Section label="App">
+        <Section label={t.profile.app}>
           <Card className="divide-y divide-white/5">
             <Row
               icon="notifications"
-              title="Notification center"
-              subtitle="Milestones, receipts and reminders"
+              title={t.profile.notificationCenter}
+              subtitle={t.profile.notificationHint}
               onClick={onOpenAlerts}
               dot={unreadAlerts > 0}
             />
             <Row
               icon="trending_up"
-              title="Investments"
+              title={t.profile.investments}
               subtitle={
                 holdingCount === 0
-                  ? 'Track Bursa counters, kept apart from savings'
-                  : `${holdingCount} counter${holdingCount === 1 ? '' : 's'} · separate from your savings`
+                  ? t.profile.investmentsEmpty
+                  : t.profile.investmentsCount(holdingCount)
               }
               onClick={onOpenHoldings}
             />
             <Row
               icon="description"
-              title="Statements & exports"
-              subtitle="A statement every month, as a PDF or a spreadsheet"
+              title={t.profile.statementsExports}
+              subtitle={t.profile.statementsHint}
               onClick={onOpenReport}
             />
             <Row
-              icon="payments"
-              title="Amounts shown in RM"
-              subtitle="Ringgit formatting and 12-hour times, everywhere in the app"
+              icon="translate"
+              title={t.language.title}
+              subtitle={t.language.subtitle}
+              onClick={() => setShowLanguage(true)}
+              trailing={<span className="text-primary text-xs font-black shrink-0">{t.language.current}</span>}
             />
-            <Row icon="cloud_done" title="Synced with Firebase" subtitle="Changes save instantly across your devices" />
+            <Row
+              icon="payments"
+              title={t.profile.amountsInRM}
+              subtitle={t.profile.amountsHint}
+            />
+            <Row icon="cloud_done" title={t.profile.synced} subtitle={t.profile.syncedHint} />
           </Card>
         </Section>
 
@@ -397,7 +414,7 @@ const Profile: React.FC<ProfileProps> = ({
             className="w-full h-16 rounded-[2rem] glass border border-white/10 text-white font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform disabled:opacity-40"
           >
             <span className="material-symbols-rounded text-primary">auto_awesome</span>
-            {busy ? 'Adding…' : 'Add three sample goals'}
+            {busy ? t.profile.adding : t.profile.addSamples}
           </button>
         )}
 
@@ -411,11 +428,13 @@ const Profile: React.FC<ProfileProps> = ({
             className="w-full h-16 rounded-[2rem] bg-red-500/10 border border-red-500/20 text-red-400 font-black flex items-center justify-center gap-3 active:scale-95 transition-transform"
           >
             <span className="material-symbols-rounded">logout</span>
-            Sign Out
+            {t.profile.signOut}
           </button>
           <p className="text-center text-slate-600 text-[10px] font-bold mt-4">SavvyPiggy v{APP_VERSION}</p>
         </div>
       </div>
+
+      {showLanguage && <LanguageSheet onClose={() => setShowLanguage(false)} />}
     </div>
   );
 };

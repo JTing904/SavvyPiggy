@@ -1,4 +1,5 @@
 import type { PiggyBank } from '../types';
+import { m } from '../i18n';
 
 export type SortKey = 'created' | 'name' | 'balance' | 'progress' | 'split';
 export type SortDir = 'asc' | 'desc';
@@ -7,21 +8,31 @@ export interface SortOrder {
   dir: SortDir;
 }
 
+/** The label is read in the current language each time the menu shows it. */
+const option = (key: SortKey, icon: string) => ({
+  key,
+  icon,
+  get label(): string {
+    return m().history.sort[key];
+  },
+});
+
 export const SORT_OPTIONS: { key: SortKey; label: string; icon: string }[] = [
-  { key: 'created', label: 'Date added', icon: 'schedule' },
-  { key: 'name', label: 'Name', icon: 'sort_by_alpha' },
-  { key: 'balance', label: 'Balance', icon: 'savings' },
-  { key: 'progress', label: 'Progress', icon: 'flag' },
-  { key: 'split', label: 'Split %', icon: 'pie_chart' },
+  option('created', 'schedule'),
+  option('name', 'sort_by_alpha'),
+  option('balance', 'savings'),
+  option('progress', 'flag'),
+  option('split', 'pie_chart'),
 ];
 
 export const DEFAULT_ORDER: SortOrder = { key: 'created', dir: 'asc' };
 
 /** What the direction means for the key, so the menu can say it in words. */
 export const dirLabel = (key: SortKey, dir: SortDir) => {
-  if (key === 'name') return dir === 'asc' ? 'A → Z' : 'Z → A';
-  if (key === 'created') return dir === 'asc' ? 'Oldest first' : 'Newest first';
-  return dir === 'asc' ? 'Low → High' : 'High → Low';
+  const words = m().history.sort;
+  if (key === 'name') return dir === 'asc' ? words.aToZ : words.zToA;
+  if (key === 'created') return dir === 'asc' ? words.oldestFirst : words.newestFirst;
+  return dir === 'asc' ? words.lowToHigh : words.highToLow;
 };
 
 /** Fraction of the target reached. Open-ended goals have no progress to rank. */

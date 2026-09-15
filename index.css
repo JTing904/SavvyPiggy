@@ -1,0 +1,159 @@
+/* Everything the app used to fetch at runtime from cdn.tailwindcss.com and
+   fonts.googleapis.com, bundled so it renders with no connection.
+
+   Order matters and copies the old page: the Play CDN appended its generated
+   stylesheet to the end of <head>, after the hand-written <style> block. So
+   the fonts and custom rules come first here and Tailwind's base, components
+   and utilities come last — a utility still wins over a custom class of equal
+   specificity (e.g. `glass border-white/10` gets the white/10 border). */
+
+/* Plus Jakarta Sans — the same variable files (wght 200..800) and subsets
+   Google Fonts served for wght@300;400;500;600;700;800. Google declared one
+   face per weight, all pointing at the same file; a 300..800 range is the
+   same match (font-black's 900 still resolves to 800). */
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(./assets/fonts/plus-jakarta-sans-cyrillic-ext.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(./assets/fonts/plus-jakarta-sans-vietnamese.woff2) format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(./assets/fonts/plus-jakarta-sans-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(./assets/fonts/plus-jakarta-sans-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Material Symbols Rounded — the file and class Google Fonts served for
+   wght,FILL@100..700,0..1 (axes FILL 0..1, wght 100..700; the ligatures are
+   in rlig, which is on by default). The class is Google's, unchanged. */
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url(./assets/fonts/material-symbols-rounded.woff2) format('woff2');
+}
+
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Moved unchanged from the <style> block in index.html ---- */
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    background-color: #0A0F0D;
+    color: #E2E8F0;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+}
+/* Tailwind's forms plugin gives every focused field a blue ring and a
+   blue border. The ring is drawn with box-shadow, not outline, so
+   turning the outline off never removed it. Zeroing the ring variables
+   leaves any real shadow utility on the field intact; the border is
+   handled per field by a focus:border-* or border-0 class. */
+input:focus, input:focus-visible,
+textarea:focus, textarea:focus-visible,
+select:focus, select:focus-visible {
+    outline: none !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+/* Long digits in a balance read as a phone number to Android, which
+   then draws them as a blue link. */
+input:-webkit-autofill, input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #FFFFFF;
+    transition: background-color 100000s ease-in-out 0s;
+}
+::selection { background: rgba(74, 222, 128, 0.32); }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+/* No backdrop blur. It used to be here, and on a background this close
+   to flat black it was invisible — but the fixed nav bar sits over the
+   scrolling page, so every scrolled frame had to resample and reblur
+   behind it. Measured on device: swiping the cards went from 89% of
+   frames late at 25ms to 14% at 12ms once it came out, and the same
+   applied to every list in the app. The panel is simply more opaque
+   instead, which looks the same and costs nothing. */
+.glass {
+    background: rgba(19, 26, 23, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+.safe-pt { padding-top: env(safe-area-inset-top); }
+/* Every sheet in the app carried `animate-in slide-in-from-bottom`,
+   which comes from tailwindcss-animate — a plugin the CDN above never
+   loaded. The classes resolved to nothing, so all of them simply
+   appeared. These are the real thing. Only transform and opacity move,
+   so this stays on the compositor and does not repeat the
+   backdrop-filter mistake recorded above. */
+@keyframes sheet-rise { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes veil-in { from { opacity: 0; } to { opacity: 1; } }
+.sheet-rise { animation: sheet-rise 260ms cubic-bezier(.32, .72, 0, 1); }
+.veil-in { animation: veil-in 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+    .sheet-rise, .veil-in { animation: none; }
+}
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 24px;
+    width: 24px;
+    border-radius: 50%;
+    background: #4ADE80;
+    box-shadow: 0 0 15px rgba(74, 222, 128, 0.5);
+    cursor: pointer;
+    /* Centres a 24px thumb on the 6px track used by the sliders. */
+    margin-top: -9px;
+}
+/* Hide number input spinners (arrows) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type=number] {
+    -moz-appearance: textfield;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

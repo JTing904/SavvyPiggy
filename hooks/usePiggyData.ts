@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings } from '../types';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
@@ -11,8 +11,15 @@ import {
   subscribeToPrefs,
   subscribeToSavings,
   subscribeToTrades,
+  subscribeToInvest,
   migrateHoldingsToTrades,
+  DEFAULT_INVEST,
+  ALERTS_LIMIT,
 } from '../services/firestore';
+import { retentionCutoff } from '../services/analytics';
+import { liveWindowStart, mergeLedger } from '../services/ledgerWindow';
+import { localKey, readLocal, writeLocal } from '../services/localFlags';
+import { useOlderLedgerStore } from './useOlderLedger';
 
 /** Live Firestore data for one user. Every collection streams in real time. */
 export const usePiggyData = (uid: string | undefined) => {
@@ -24,6 +31,7 @@ export const usePiggyData = (uid: string | undefined) => {
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_PREFS);
   const [savings, setSavings] = useState<SavingsSettings>(DEFAULT_SAVINGS);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [invest, setInvest] = useState<InvestSettings>(DEFAULT_INVEST);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
   /**
@@ -139,7 +147,15 @@ export const usePiggyData = (uid: string | undefined) => {
     // Anyone who recorded a position before the log existed is moved onto it
     // once, here, where a uid is known and the listener will pick the result
     // straight up. A failure leaves the old row alone to try again next time.
-    void migrateHoldingsToTrades(uid).catch(() => undefined);
+    // Remembered per account on this phone once done: it was a read on every
+    // open, forever, for something that only ever has work to do once. The
+    // read is from the server, so offline it fails and is simply tried next open.
+    const migratedKey = localKey('holdingsMigrated', uid);
+    if (readLocal(migratedKey) !== '1') {
+      void migrateHoldingsToTrades(uid)
+        .then(() => writeLocal(migratedKey, '1'))
+        .catch(() => undefined);
+    }
 
     return () => {
       unsubTrades();
@@ -152,11 +168,6 @@ export const usePiggyData = (uid: string | undefined) => {
     };
   }, [uid, attempt]);
 
-  /**
-   * The ledger is read through the window the user keeps, so the daily read
-   * allowance is spent on records that still exist. Changing the window
-   * reopens this; nothing else here depends on it.
-   */
   /*
     Saying "offline" only once it is actually true.
 
@@ -183,6 +194,30 @@ export const usePiggyData = (uid: string | undefined) => {
     if (offlineTimer.current) clearTimeout(offlineTimer.current);
   }, []);
 
+  // Investing settings never hold the savings screens back: until they arrive
+  // the defaults simply mean nothing has been chosen yet.
+  useEffect(() => {
+    if (!uid) {
+      setInvest(DEFAULT_INVEST);
+      return;
+    }
+    return subscribeToInvest(uid, setInvest, (e) => setError(e.message));
+  }, [uid, attempt]);
+
+  /*
+    Only the last three months are listened to (see liveWindowStart). The start
+    is fixed for this subscription, so the listener opens once per app open —
+    it used to open for the default twelve-month window and again when a saved
+    six arrived — and the older ledger's coverage always meets it exactly.
+  */
+  const liveFrom = useMemo(() => liveWindowStart(new Date()), [uid, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const keptFrom = useMemo(
+    () => retentionCutoff(new Date(), savings.retentionMonths),
+    [savings.retentionMonths, liveFrom]
+  );
+  const { older, ledger } = useOlderLedgerStore(uid, liveFrom, keptFrom);
+  const merged = useMemo(() => mergeLedger(activities, older, keptFrom), [activities, older, keptFrom]);
+
   useEffect(() => {
     if (!uid) {
       setActivities([]);
@@ -192,7 +227,7 @@ export const usePiggyData = (uid: string | undefined) => {
     setActivitiesReady(false);
     return subscribeToActivities(
       uid,
-      savings.retentionMonths,
+      liveFrom,
       // The second argument is why this listener asks for metadata at all:
       // an empty cache and an empty ledger look identical without it, and
       // the banner that says so was never being switched on.
@@ -206,7 +241,7 @@ export const usePiggyData = (uid: string | undefined) => {
         setActivitiesReady(true);
       }
     );
-  }, [uid, attempt, savings.retentionMonths]);
+  }, [uid, attempt, liveFrom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Positions are replayed rather than stored, so they update the moment a
   // trade in the log does.
@@ -214,7 +249,11 @@ export const usePiggyData = (uid: string | undefined) => {
 
   return {
     banks,
-    activities,
+    /** The live window plus whatever older kept rows have been read; see `ledger`. */
+    activities: merged,
+    ledger,
+    /** The bell only reads the newest ALERTS_LIMIT; more may be waiting past them. */
+    alertsCapped: alerts.length >= ALERTS_LIMIT,
     schedules,
     loans,
     alerts,
@@ -222,6 +261,7 @@ export const usePiggyData = (uid: string | undefined) => {
     savings,
     trades,
     holdings,
+    invest,
     loading: loading || !activitiesReady,
     offline,
     error,

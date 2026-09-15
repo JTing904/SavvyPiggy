@@ -1,36 +1,111 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { Trade } from '../types';
-import { averageCostCents, buildHoldings, normalizeSymbol, replay, tradeCents } from '../services/holdings';
+import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
+import {
+  averageCostCents,
+  buildHoldings,
+  dayStart,
+  normalizeSymbol,
+  pricePointsOf,
+  replay,
+  tradeCents,
+  tradeTotalCents,
+} from '../services/holdings';
 import { searchSymbols, type SymbolHit } from '../services/quotes';
-import { createTrade, deleteTrade, updateTrade } from '../services/firestore';
+import { saveInvest, saveTrade, TradeMoneyError, type TradeWrite } from '../services/firestore';
 import { formatMoney, fromCents, toCents } from '../services/money';
+import {
+  brokerById,
+  cleanFeeInput,
+  CUSTOM_BROKER_ID,
+  FEE_KEYS,
+  feesFor,
+  securityTypeOf,
+  totalFees,
+  valueCents,
+  ZERO_FEES,
+  type FeeKey,
+  type SecurityType,
+  type TradeFees,
+} from '../services/fees';
+import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from '../services/tradeMoney';
+import { dividendsAfterChange, type CreditedDividend } from '../services/dividends';
+import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt';
+import { isInSplit, type GoneShareChoice } from '../services/ledger';
+import { newShortSale, type ShortSale } from '../services/tradeCheck';
 import { fromInputDate, toInputDate } from '../services/calendar';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useConfirm } from '../contexts/ConfirmContext';
 import DateField from './DateField';
+import RefundSheet, { ChoiceRow } from './invest/RefundSheet';
+import FeeMismatchSheet from './invest/FeeMismatchSheet';
+import GoneShareSheet from './GoneShareSheet';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale } from '../i18n';
 
 /**
  * What the sheet has been opened to do. Recording a trade and correcting one
- * ask for the same three things — a date, a number of units and a price — so
- * they share a form; only what happens on Save differs.
+ * ask for the same things — a date, units, a price, the fees and where the
+ * money comes from or goes — so they share a form; only what happens on Save
+ * differs. A new trade can arrive filled in (from the monthly buy), and every
+ * pre-filled value is still only a suggestion the person can change.
  */
 export type TradeDraft =
-  | { mode: 'new'; kind: 'buy' | 'sell'; symbol?: string; name?: string }
+  | {
+      mode: 'new';
+      kind: 'buy' | 'sell';
+      symbol?: string;
+      name?: string;
+      units?: number;
+      pricePoints?: number;
+    }
   | { mode: 'edit'; trade: Trade };
 
 interface TradeSheetProps {
   uid: string;
   /** The whole log, so the sheet can show what the position becomes. */
   trades: Trade[];
+  /** To find the History row a trade wrote, which a correction rewrites. */
+  activities: Activity[];
+  banks: PiggyBank[];
+  /** Every debt, settled ones included — undoing a sale can reopen one. */
+  loans: Loan[];
+  savings: SavingsSettings;
+  invest: InvestSettings;
+  /**
+   * Dividends already paid in, and the announcements: correcting a trade can
+   * move them. Null while still being read — nothing is saved until it is known.
+   */
+  credited?: CreditedDividend[] | null;
+  dividends?: Dividend[];
+  /** Alerts on the phone, so a corrected dividend's alert is only touched if it is still there. */
+  alertIds?: string[];
   draft: TradeDraft;
   onClose: () => void;
   onDone: (message: string) => void;
+  /** Opens broker settings (from the fee-mismatch prompt or a "Change" link next to the fees). */
+  onEditBroker: () => void;
+  /** Opens goal creation, for a sale that has nowhere to put its money yet. */
+  onCreateGoal?: () => void;
+  /** A save that was already shown as done but the server later refused. */
+  onSyncError?: (e: unknown) => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
   formatMoney(fromCents(cents), opts);
 
-const LABEL: Record<Trade['kind'], string> = { buy: 'Buy', sell: 'Sell', dividend: 'Dividend' };
+/** 10.60 stays 10.60 and 0.345 stays 0.345: two places at least, four at most. */
+const priceText = (points: number) => (points / 10_000).toFixed(4).replace(/(\.\d{2}\d*?)0+$/, '$1');
+
+const feeText = (cents: number) => (cents / 100).toFixed(2);
+
+/** A fee as typed. Contract notes print to the sen, so that is what is kept. */
+const parseFee = (text: string) => Math.max(0, Math.round((Number(text) || 0) * 100));
+
+const NO_CREDITED: CreditedDividend[] = [];
+const NO_DIVIDENDS: Dividend[] = [];
+
+const sameChoice = (a: MoneyChoice, b: MoneyChoice) =>
+  a.mode === b.mode && (a.mode !== 'goal' || (b.mode === 'goal' && a.goalId === b.goalId));
 
 const Field: React.FC<{
   label: string;
@@ -41,7 +116,7 @@ const Field: React.FC<{
   autoFocus?: boolean;
 }> = ({ label, value, onChange, type = 'number', prefix, autoFocus }) => (
   <div className="flex-1 min-w-0">
-    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
+    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 truncate">{label}</p>
     <div className="flex items-center gap-2 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
       {prefix && <span className="text-slate-500 font-black shrink-0">{prefix}</span>}
       <input
@@ -51,21 +126,57 @@ const Field: React.FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={type === 'number' ? '0' : undefined}
-        className="w-full border-0 bg-transparent text-white text-lg font-black focus:outline-none placeholder:text-slate-700"
+        className="w-full min-w-0 border-0 bg-transparent text-white text-lg font-black focus:outline-none placeholder:text-slate-700"
       />
     </div>
   </div>
 );
 
-const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, onDone }) => {
+const Line: React.FC<{ label: string; value: string; strong?: boolean; tone?: string }> = ({ label, value, strong, tone }) => (
+  <div className={`flex items-baseline gap-3 ${strong ? 'text-sm' : 'text-[13px]'}`}>
+    <span className={`flex-1 min-w-0 font-bold ${strong ? 'text-white' : tone ?? 'text-slate-400'}`}>{label}</span>
+    <span className={`font-black shrink-0 text-right ${tone ?? 'text-white'}`}>{value}</span>
+  </div>
+);
+
+const TradeSheet: React.FC<TradeSheetProps> = ({
+  uid,
+  trades,
+  activities,
+  banks,
+  loans,
+  savings,
+  invest,
+  credited: creditedIn = NO_CREDITED,
+  dividends = NO_DIVIDENDS,
+  alertIds,
+  draft,
+  onClose,
+  onDone,
+  onEditBroker,
+  onCreateGoal,
+  onSyncError,
+}) => {
+  // Saved before the paid-in dividends arrive, a correction would leave them uncorrected.
+  const creditedLoaded = creditedIn !== null;
+  const credited = creditedIn ?? NO_CREDITED;
   const confirm = useConfirm();
+  const t = useT();
+  // Looked up at render, so a trade's kind is named in the current language.
+  const LABEL = t.invest.kind;
   const editing = draft.mode === 'edit' ? draft.trade : null;
   const kind: Trade['kind'] = draft.mode === 'edit' ? draft.trade.kind : draft.kind;
+  const broker = useMemo(() => brokerById(invest.brokerId, invest.customRule), [invest.brokerId, invest.customRule]);
 
   const [symbol, setSymbol] = useState(editing?.symbol ?? (draft.mode === 'new' ? draft.symbol ?? '' : ''));
   const [name, setName] = useState(editing?.name ?? (draft.mode === 'new' ? draft.name ?? '' : ''));
-  const [units, setUnits] = useState(editing ? String(editing.units) : '');
-  const [price, setPrice] = useState(editing ? fromCents(editing.priceCents).toFixed(kind === 'dividend' ? 4 : 2) : '');
+  const [units, setUnits] = useState(() =>
+    editing ? String(editing.units) : draft.mode === 'new' && draft.units ? String(draft.units) : ''
+  );
+  const [price, setPrice] = useState(() => {
+    if (editing) return kind === 'dividend' ? fromCents(editing.priceCents).toFixed(4) : priceText(pricePointsOf(editing));
+    return draft.mode === 'new' && draft.pricePoints ? priceText(draft.pricePoints) : '';
+  });
   // A trade cannot have happened tomorrow, and a date that had drifted into
   // the future would count the shares as held on an ex-date that has not
   // arrived. An existing one is pulled back to today rather than silently kept.
@@ -79,6 +190,94 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Orders a new trade after everything already entered today, in the preview.
+  const [openedAt] = useState(() => Date.now());
+
+  /** A tap on the Share / REIT tag, remembered per counter for this session. */
+  const [typeChoice, setTypeChoice] = useState<{ symbol: string; type: SecurityType } | null>(null);
+
+  /**
+   * Fees as typed, and which of them were typed. A field someone has typed
+   * into is theirs from then on: changing the units or the price, or even the
+   * broker, never writes over it, because it most likely came off the
+   * contract note. A correction starts from what was stored, and only the
+   * fields that still agree with the rates follow the rates.
+   */
+  const [feeInput, setFeeInput] = useState<Record<FeeKey, string>>(() => {
+    // Older trades recorded no fees; they are shown as the nothing they were,
+    // not filled in with a guess.
+    const stored = editing && editing.kind !== 'dividend' ? editing.fees ?? ZERO_FEES : null;
+    if (!stored) return { brokerageCents: '', clearingCents: '', stampCents: '', sstCents: '' };
+    return {
+      brokerageCents: feeText(stored.brokerageCents),
+      clearingCents: feeText(stored.clearingCents),
+      stampCents: feeText(stored.stampCents),
+      sstCents: feeText(stored.sstCents),
+    };
+  });
+  const [edited, setEdited] = useState<Record<FeeKey, boolean>>(() => {
+    const none = { brokerageCents: false, clearingCents: false, stampCents: false, sstCents: false };
+    if (!editing || editing.kind === 'dividend') return none;
+    const stored = editing.fees ?? ZERO_FEES;
+    const type = editing.securityType ?? securityTypeOf(editing.symbol, invest.typeOverrides);
+    const computed = broker ? feesFor(valueCents(editing.units, pricePointsOf(editing)), broker, type) : null;
+    return {
+      brokerageCents: !computed || stored.brokerageCents !== computed.brokerageCents,
+      clearingCents: !computed || stored.clearingCents !== computed.clearingCents,
+      stampCents: !computed || stored.stampCents !== computed.stampCents,
+      sstCents: !computed || stored.sstCents !== computed.sstCents,
+    };
+  });
+
+  /** Fee fields typed into in this sheet, as opposed to stored values carried over. */
+  const [typed, setTyped] = useState<Record<FeeKey, boolean>>({ brokerageCents: false, clearingCents: false, stampCents: false, sstCents: false });
+
+  /**
+   * Where the money comes from or goes. A correction starts from what the
+   * trade did; a goal that has since been deleted cannot be chosen again, so
+   * that one starts from "no goal" and the save asks where its money goes.
+   */
+  /**
+   * A buy being corrected whose paying goal has been deleted. It cannot stay
+   * paid from a goal that is gone, and quietly showing "Not from a goal" read
+   * as if the person had chosen that — so nothing is picked until they pick.
+   */
+  const paidFromGone =
+    !!editing && editing.kind === 'buy' && editing.money?.mode === 'goal' && !banks.some((b) => b.id === (editing.money as { goalId: string }).goalId);
+  const [picked, setPicked] = useState(!paidFromGone);
+  const pick = (next: MoneyChoice) => {
+    setChoice(next);
+    setPicked(true);
+  };
+
+  const [choice, setChoice] = useState<MoneyChoice>(() => {
+    if (editing) {
+      const m = editing.money;
+      if (m?.mode === 'goal') return banks.some((b) => b.id === m.goalId) ? { mode: 'goal', goalId: m.goalId } : { mode: 'none' };
+      if (m?.mode === 'split') return { mode: 'split' };
+      if (m?.mode === 'pot') return { mode: 'pot' };
+      // A pot sale that came to exactly nothing used to be stored as "none";
+      // it is a pot trade, so a correction to a real amount moves the pot.
+      if (editing.kind === 'sell' && tradeTotalCents(editing) === 0) return { mode: 'pot' };
+      return { mode: 'none' };
+    }
+    // Every new trade goes through the investment pot; savings goals are never touched.
+    return { mode: 'pot' };
+  });
+
+  /**
+   * A trade recorded before the investment pot moved money in savings goals.
+   * It keeps those choices when corrected, so its money is undone where it
+   * went; everything else offers only the pot.
+   */
+  const legacyGoalMoney = !!editing && (editing.money?.mode === 'goal' || editing.money?.mode === 'split');
+  const potCents = toCents(invest.potBalance ?? 0);
+
+  /** Asked when a buy's paying goal is gone; `removing` says what to retry. */
+  const [refundAsk, setRefundAsk] = useState<{ cents: number; removing: boolean } | null>(null);
+  /** A sale being undone fed a goal deleted since: where its share comes back from. */
+  const [takeBackAsk, setTakeBackAsk] = useState<{ removing: boolean } | null>(null);
+  const [mismatch, setMismatch] = useState<FeeMismatch | null>(null);
 
   useBackHandler(true, onClose);
 
@@ -103,9 +302,106 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
   }, [term, needsCounter, kind]);
 
   const unitsIn = Math.max(0, Math.floor(Number(units) || 0));
-  const priceCents = toCents(Number(price) || 0);
+  // Half-sen prices are real (RM0.345), so the price is kept in points; the
+  // sen figure is only there for older readers of the trade.
+  const priceNumber = Math.max(0, Number(price) || 0);
+  const pricePointsIn = Math.round(priceNumber * 10_000);
+  const priceCents = Math.round(priceNumber * 100);
   const tradedAt = fromInputDate(date);
-  const canSave = !!symbol && unitsIn > 0 && priceCents > 0 && !busy;
+  const tradeValue = valueCents(unitsIn, pricePointsIn);
+
+  const securityType: SecurityType = !symbol
+    ? 'EQUITY'
+    : typeChoice && typeChoice.symbol === symbol
+      ? typeChoice.type
+      : editing && editing.symbol === symbol && editing.securityType
+        ? editing.securityType
+        : securityTypeOf(symbol, invest.typeOverrides);
+  const isReit = securityType === 'REIT';
+  const feeKeys: FeeKey[] = isReit ? [...FEE_KEYS] : FEE_KEYS.filter((k) => k !== 'sstCents');
+
+  const computed: TradeFees | null = broker ? feesFor(tradeValue, broker, securityType) : null;
+  const shown = (key: FeeKey) => (computed && !edited[key] ? feeText(computed[key]) : feeInput[key]);
+  const fees: TradeFees = {
+    brokerageCents: 0,
+    clearingCents: 0,
+    stampCents: 0,
+    sstCents: 0,
+  };
+  for (const key of feeKeys) fees[key] = computed && !edited[key] ? computed[key] : parseFee(feeInput[key]);
+  // A trade from before fees were recorded holds zeros nobody typed. Those
+  // zeros are not a correction of the broker's rates, so they must not count
+  // towards the "your fees don't match" question — only fields typed now do.
+  const editedByHand = editing && !editing.fees ? typed : edited;
+  const feeEdits = feeEditsOf(fees, computed, isReit ? editedByHand : { ...editedByHand, sstCents: false });
+  const anyEdited = !!computed && feeKeys.some((k) => edited[k]);
+  const ratesName = broker ? (broker.id === CUSTOM_BROKER_ID ? t.invest.yourRates : t.invest.brokerRates(broker.name)) : '';
+
+  const typeFee = (key: FeeKey, text: string) => {
+    setTyped((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+    setFeeInput((prev) => ({ ...prev, [key]: cleanFeeInput(text) }));
+    setEdited((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  };
+
+  const toggleType = () => {
+    if (!symbol) return;
+    const next: SecurityType = isReit ? 'EQUITY' : 'REIT';
+    setTypeChoice({ symbol, type: next });
+    // Not awaited: offline it would wait for the server, and the tag has
+    // already changed on screen.
+    void saveInvest(uid, { typeOverrides: { ...invest.typeOverrides, [symbol]: next } }).catch(() => undefined);
+  };
+
+  /** The trade as it would be saved, for the preview and the save itself. */
+  const candidate: Trade | null =
+    symbol && kind !== 'dividend'
+      ? {
+          id: editing?.id ?? 'draft',
+          symbol,
+          name: name || symbol,
+          kind,
+          units: unitsIn,
+          priceCents,
+          pricePoints: pricePointsIn,
+          tradedAt,
+          createdAt: editing?.createdAt ?? openedAt,
+          fees,
+          securityType,
+          feeEdits,
+        }
+      : null;
+  const totalCents = candidate ? tradeTotalCents(candidate) : 0;
+  const ready = !!candidate && unitsIn > 0 && pricePointsIn > 0;
+
+  /**
+   * What this change does to dividends already paid into the pot — the same
+   * reckoning the save makes, so the preview and the pot agree.
+   */
+  const dividendAdjust = useMemo(() => {
+    if (!ready || !candidate) return null;
+    return dividendsAfterChange({
+      trades,
+      credited,
+      dividends,
+      previousId: editing?.id ?? null,
+      next: { ...candidate, tradedAt: dayStart(candidate.tradedAt), money: stampOf(choice) },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, trades, credited, dividends, editing, symbol, kind, unitsIn, tradedAt, choice, openedAt]);
+
+  const previous = useMemo(
+    () =>
+      editing
+        ? {
+            trade: editing,
+            activity:
+              activities.find(
+                (a) => (!!editing.money && 'activityId' in editing.money && a.id === editing.money.activityId) || a.tradeId === editing.id
+              ) ?? null,
+          }
+        : null,
+    [editing, activities]
+  );
 
   /**
    * What the position becomes once this trade is in the log — every other
@@ -113,73 +409,301 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
    * numbers by that line's worth, and this is where you see it before saving.
    */
   const outcome = useMemo(() => {
-    if (!symbol) return null;
-    const mine = trades.filter((t) => t.symbol === symbol);
-    const before = replay(mine);
-    const candidate: Trade = {
-      id: editing?.id ?? 'draft',
-      symbol,
-      name,
-      kind,
-      units: unitsIn,
-      priceCents,
-      tradedAt,
-      createdAt: editing?.createdAt ?? Date.now(),
-    };
-    const after = replay([...mine.filter((t) => t.id !== editing?.id), candidate]);
+    if (!candidate) return null;
+    // "Before" is the position without this trade. Counting the trade being
+    // edited in it made a sale read "0 → 0 units" and warn that nothing was
+    // held that day — the sale had already taken the units it was selling.
+    const others = trades.filter((tr) => tr.symbol === candidate.symbol && tr.id !== editing?.id);
+    const before = replay(others);
+    const after = replay([...others, candidate]);
     return { before, after };
-  }, [trades, symbol, name, kind, unitsIn, priceCents, tradedAt, editing]);
+    // `candidate` is rebuilt every render; its parts are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trades, symbol, kind, unitsIn, pricePointsIn, tradedAt, totalCents, editing]);
 
-  const save = async () => {
-    if (!canSave) return;
+  /**
+   * The money side, worked out with the same plan the save uses, so what the
+   * sheet promises is exactly what gets written — including a correction
+   * moving a goal only by the difference. If the paying goal is gone, the
+   * preview assumes nothing goes back; the save stops and asks.
+   */
+  const preview = useMemo(() => {
+    if (!ready || !candidate || candidate.kind === 'dividend') return null;
+    const input = {
+      previous,
+      next: { kind: candidate.kind, totalCents, choice, counter: candidate.name, units: unitsIn },
+      banks,
+      loans,
+      overflow: savings.overflow,
+      potCents,
+      dividendDeltaCents: dividendAdjust?.deltaCents ?? 0,
+    };
+    const first = planTradeMoney(input);
+    if ('problem' in first && first.problem.kind === 'goalGone') {
+      return { result: planTradeMoney({ ...input, refund: { mode: 'none' } }), refundPending: true, takeBackPending: false };
+    }
+    if ('problem' in first && first.problem.kind === 'saleGoalGone') {
+      return { result: planTradeMoney({ ...input, takeBack: { mode: 'none' } }), refundPending: false, takeBackPending: true };
+    }
+    return { result: first, refundPending: false, takeBackPending: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, kind, totalCents, choice, name, symbol, unitsIn, previous, banks, loans, savings.overflow, potCents, dividendAdjust]);
+
+  const bankName = (id: string) => banks.find((b) => b.id === id)?.name ?? t.invest.aGoal;
+
+  const describe = (p: TradeMoneyProblem) => {
+    switch (p.kind) {
+      case 'insufficient':
+        return t.invest.insufficient(bankName(p.goalId), money(p.availableCents), money(p.neededCents));
+      case 'rowGone':
+        return t.invest.rowGone;
+      case 'nothingToSplit':
+        return t.invest.nothingToSplit;
+      case 'saleBelowFees':
+        return t.invest.saleBelowFees(money(p.cents));
+      case 'potShort':
+        return t.invest.potShort(money(p.availableCents), money(p.neededCents));
+      case 'goalGone':
+        return t.errors.tradeMoney.goalGone;
+      case 'saleGoalGone':
+        return t.errors.tradeMoney.saleGoalGone;
+    }
+  };
+
+  /**
+   * A sale's money always has to land somewhere the app can see: a goal, or
+   * split like a deposit. "Not into a goal" left it existing nowhere — the
+   * holding shrank and no balance grew. It stays only for a sale recorded
+   * before this rule, whose money may already have been deposited by hand;
+   * forcing it into a goal now would count that money twice.
+   */
+  const legacyNone =
+    !!editing && editing.kind === 'sell' && (!editing.money || editing.money.mode === 'none') && tradeTotalCents(editing) !== 0;
+  const needsChoice = (legacyGoalMoney && kind === 'sell' && choice.mode === 'none' && !legacyNone) || !picked;
+  const hasDestination = banks.some((b) => !b.archivedAt);
+
+  /** Every trade in this counter as it stands, and as it would be with this change. */
+  const symbolTrades = useMemo(() => trades.filter((tr) => tr.symbol === symbol), [trades, symbol]);
+  const dayText = (ms: number) => new Date(ms).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short', year: 'numeric' });
+  const describeShort = (short: ShortSale, own: boolean) =>
+    own
+      ? t.invest.sellMoreThanHeld(short.heldUnits.toLocaleString('en-US'), short.trade.units.toLocaleString('en-US'), dayText(short.trade.tradedAt))
+      : t.invest.laterSaleShort(dayText(short.trade.tradedAt));
+  const short =
+    candidate && ready
+      ? newShortSale(symbolTrades, [...symbolTrades.filter((tr) => tr.id !== editing?.id), candidate])
+      : null;
+
+  const blocked = short
+    ? describeShort(short, short.trade === candidate)
+    : preview && 'problem' in preview.result
+      ? describe(preview.result.problem)
+      : null;
+  const canSave = ready && creditedLoaded && !busy && !blocked && !needsChoice;
+
+  const fail = (e: unknown, removing: boolean) => {
+    setBusy(false);
+    if (e instanceof TradeMoneyError) {
+      if (e.problem.kind === 'goalGone') {
+        setRefundAsk({ cents: e.problem.cents, removing });
+        return;
+      }
+      if (e.problem.kind === 'saleGoalGone') {
+        setTakeBackAsk({ removing });
+        return;
+      }
+      setRefundAsk(null);
+      setTakeBackAsk(null);
+      setProblem(describe(e.problem));
+      return;
+    }
+    setRefundAsk(null);
+    setTakeBackAsk(null);
+    setProblem(e instanceof Error ? e.message : removing ? t.invest.couldNotDelete : t.invest.couldNotSave);
+  };
+
+  const save = async (refund?: MoneyChoice, takeBack?: GoneShareChoice) => {
+    if (!candidate || candidate.kind === 'dividend' || !ready || !creditedLoaded || busy) return;
     setBusy(true);
     setProblem(null);
+    const body: NonNullable<TradeWrite['trade']> = {
+      symbol,
+      name: name || symbol,
+      kind: candidate.kind,
+      units: unitsIn,
+      priceCents,
+      pricePoints: pricePointsIn,
+      tradedAt,
+      fees,
+      securityType,
+      feeEdits,
+    };
     try {
-      const body = { symbol, name: name || symbol, kind, units: unitsIn, priceCents, tradedAt };
-      if (editing) {
-        await updateTrade(uid, editing.id, body);
-        onDone(`${name || symbol} trade corrected.`);
-      } else {
-        await createTrade(uid, body);
-        onDone(`${LABEL[kind]} recorded · ${unitsIn} units of ${name || symbol}.`);
+      const { id, committed } = saveTrade(uid, {
+        previous,
+        trade: body,
+        choice,
+        refund,
+        takeBack,
+        banks,
+        loans,
+        savings,
+        potBalance: invest.potBalance,
+        trades,
+        credited,
+        dividends,
+        alertIds,
+      });
+      committed.catch((e) => onSyncError?.(e));
+      setRefundAsk(null);
+      setTakeBackAsk(null);
+      onDone(editing ? t.invest.tradeCorrected(name || symbol) : t.invest.tradeRecorded(LABEL[candidate.kind], unitsIn, name || symbol));
+
+      // The snapshot may not have this trade yet, so it is put in by hand.
+      const saved: Trade = { ...body, id, createdAt: editing?.createdAt ?? Date.now() };
+      const found = feeMismatch([...trades.filter((tr) => tr.id !== id), saved], invest.feePromptAt);
+      if (found) {
+        // Stays busy: the form is done, only the question is left.
+        setMismatch(found);
+        return;
       }
       onClose();
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : 'Could not save that.');
-      setBusy(false);
+      fail(e, false);
+    }
+  };
+
+  const removeWith = async (refund?: MoneyChoice, takeBack?: GoneShareChoice) => {
+    if (!editing || !creditedLoaded) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const { committed } = saveTrade(uid, {
+        previous,
+        trade: null,
+        choice: { mode: 'none' },
+        refund,
+        takeBack,
+        banks,
+        loans,
+        savings,
+        potBalance: invest.potBalance,
+        trades,
+        credited,
+        dividends,
+        alertIds,
+      });
+      committed.catch((e) => onSyncError?.(e));
+      setRefundAsk(null);
+      setTakeBackAsk(null);
+      onDone(t.invest.tradeDeleted);
+      onClose();
+    } catch (e) {
+      fail(e, true);
     }
   };
 
   const remove = async () => {
-    if (!editing || busy) return;
+    if (!editing || busy || !creditedLoaded) return;
+    // Deleting a buy can leave a later sale selling units that were never held.
+    const leftShort = newShortSale(symbolTrades, symbolTrades.filter((tr) => tr.id !== editing.id));
+    if (leftShort) {
+      setProblem(t.invest.deleteLeavesSaleShort(dayText(leftShort.trade.tradedAt)));
+      return;
+    }
+    const moved = !!editing.money && editing.money.mode !== 'none';
+    const adjusted = dividendsAfterChange({ trades, credited, dividends, previousId: editing.id, next: null }).deltaCents;
+    const body = moved ? `${t.invest.deleteBody} ${t.invest.deleteMoneyBack}` : t.invest.deleteBody;
     const ok = await confirm({
-      title: 'Delete this trade?',
-      body: 'The position is worked out again from the remaining trades, so your units and average cost will move.',
+      title: t.invest.deleteTitle,
+      body: adjusted !== 0 ? `${body} ${t.invest.dividendsAdjustedBody(money(adjusted, { signed: true }))}` : body,
       tone: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t.common.delete,
       detail: {
         icon: editing.kind === 'sell' ? 'trending_down' : 'trending_up',
         tint: editing.kind === 'sell' ? 'bg-slate-500/10 text-slate-400' : 'bg-accent/10 text-accent',
         label: `${LABEL[editing.kind]} · ${editing.name || editing.symbol}`,
-        meta: `${editing.units.toLocaleString('en-US')} units · ${new Date(editing.tradedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-        amount: money(tradeCents(editing)),
+        meta: `${t.common.units(editing.units.toLocaleString('en-US'))} · ${new Date(editing.tradedAt).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        amount: money(tradeTotalCents(editing)),
       },
     });
     if (!ok) return;
-    setBusy(true);
-    try {
-      await deleteTrade(uid, editing.id);
-      onDone('Trade deleted.');
-      onClose();
-    } catch (e) {
-      setProblem(e instanceof Error ? e.message : 'Could not delete that.');
-      setBusy(false);
-    }
+    await removeWith();
+  };
+
+  const answerMismatch = (update: boolean) => {
+    // Either answer starts the count again; only trades entered after this
+    // moment can raise the question next time. Not awaited, for the same
+    // offline reason as the type tag.
+    void saveInvest(uid, { feePromptAt: Date.now() }).catch(() => undefined);
+    setMismatch(null);
+    if (update) onEditBroker();
+    onClose();
   };
 
   // A dividend is not edited here, so it is not titled as if it were.
   const title =
-    kind === 'dividend' ? 'Dividend' : editing ? `Edit · ${LABEL[kind]}` : kind === 'buy' ? 'Buy' : 'Sell';
+    kind === 'dividend' ? LABEL.dividend : editing ? t.invest.editTitle(LABEL[kind]) : kind === 'buy' ? LABEL.buy : LABEL.sell;
+
+  const prefilled = draft.mode === 'new' && !!draft.pricePoints;
+
+  /** Goals offered: the active ones, plus an archived one this trade already uses. */
+  const goalOptions = banks.filter((b) => !b.archivedAt || (choice.mode === 'goal' && choice.goalId === b.id));
+  const canSplit = banks.some(isInSplit);
+
+  const plan = preview && 'plan' in preview.result ? preview.result.plan : null;
+
+  /** The lines under the totals that say what happens to the pot and the goals. */
+  const moneyLines = () => {
+    if (!plan) return null;
+    const showsPot = choice.mode === 'pot' || (plan.potDelta !== 0 && Object.keys(plan.bankDeltas).length === 0);
+    return (
+      <>
+        {plan.dividendCents !== 0 && (
+          <Line label={t.invest.dividendsAdjusted} value={money(plan.dividendCents, { signed: true })} tone="text-amber-300" />
+        )}
+        {savingsLines()}
+        {!showsPot && plan.potDelta !== 0 && (
+          <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />
+        )}
+      </>
+    );
+  };
+
+  const savingsLines = () => {
+    if (!plan) return null;
+    if (choice.mode === 'pot' || (plan.potDelta !== 0 && Object.keys(plan.bankDeltas).length === 0)) {
+      return <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />;
+    }
+    const draftRow = plan.activity.write === 'create' || plan.activity.write === 'update' ? plan.activity.draft : null;
+    if (choice.mode === 'split' && draftRow) {
+      const repaid = toCents(draftRow.repaid);
+      return (
+        <div className="pl-3 border-l border-white/10 space-y-2">
+          {repaid > 0 && <Line label={t.invest.coversSpentAhead} value={money(repaid)} tone="text-amber-400" />}
+          {draftRow.distributions.map((d) => (
+            <Line
+              key={d.bankId}
+              label={t.invest.splitShare(bankName(d.bankId), String(d.percentage))}
+              value={money(toCents(d.amount), { signed: true })}
+            />
+          ))}
+        </div>
+      );
+    }
+    const ids = Object.keys(plan.bankDeltas).filter((id) => banks.some((b) => b.id === id));
+    if (choice.mode === 'goal' && !ids.includes(choice.goalId)) ids.unshift(choice.goalId);
+    if (choice.mode === 'goal') ids.sort((a, b) => (a === choice.goalId ? -1 : b === choice.goalId ? 1 : 0));
+    // A sale with no destination picked yet is not "unchanged" — it cannot be saved at all.
+    if (ids.length === 0) return needsChoice ? null : <Line label={t.invest.yourGoals} value={t.invest.unchanged} />;
+    return ids.map((id) => {
+      const bank = banks.find((b) => b.id === id);
+      const now = toCents(bank?.currentAmount ?? 0);
+      return (
+        <Line key={id} label={t.invest.goalAfter(bankName(id))} value={`${money(now)} → ${money(now + (plan.bankDeltas[id] ?? 0))}`} tone="text-accent" />
+      );
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/85 veil-in" onClick={onClose}>
@@ -189,18 +713,36 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
       >
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
 
-        <h3 className="text-white text-xl font-black">
-          {title}
-          {name && ` · ${name}`}
-        </h3>
+        <div className="flex items-start gap-2">
+          <h3 className="flex-1 min-w-0 text-white text-xl font-black break-words">
+            {title}
+            {name && ` · ${name}`}
+          </h3>
+          {symbol && kind !== 'dividend' && (
+            <button
+              type="button"
+              onClick={toggleType}
+              title={t.invest.securityTypeHint}
+              aria-label={`${t.invest.securityType[securityType]} · ${t.invest.securityTypeHint}`}
+              className={`shrink-0 mt-1 flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full border tracking-wider active:scale-95 transition-all ${
+                isReit ? 'bg-accent/15 border-accent/40 text-accent' : 'bg-white/5 border-white/15 text-slate-300'
+              }`}
+            >
+              {t.invest.securityType[securityType]}
+              <span className="material-symbols-rounded text-[13px]">swap_horiz</span>
+            </button>
+          )}
+        </div>
         <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
           {kind === 'dividend'
-            ? 'This is the record of a payment the app made into your goals. The money itself lives in your history — if the amount that reached your account was different, correct it there.'
+            ? editing?.money?.mode === 'pot' ? t.invest.dividendIntro : t.invest.dividendIntroLegacy
             : editing
-            ? 'Fixing one trade leaves every other one alone, so how many units you held on a past ex-date is worked out again from scratch — correctly.'
-            : kind === 'buy'
-              ? 'Recording the day it was done, not the day you typed it in. That date is what a dividend is decided on.'
-              : 'Selling after an ex-date still leaves that dividend yours, which is why the date matters here too.'}
+            ? t.invest.editIntro
+            : prefilled
+              ? t.invest.prefilledIntro
+              : kind === 'buy'
+                ? t.invest.buyIntro
+                : t.invest.sellIntro}
         </p>
 
         {/* A dividend was not typed in by anyone, so there is nothing here to
@@ -209,9 +751,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           <div className="mt-5">
             <div className="rounded-2xl bg-white/5 p-4 space-y-2.5">
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">Paid on</span>
+                <span className="flex-1 text-slate-400 font-bold">{t.invest.paidOn}</span>
                 <span className="text-white font-black">
-                  {new Date(tradedAt).toLocaleDateString('en-GB', {
+                  {new Date(tradedAt).toLocaleDateString(dateLocale('en-GB'), {
                     day: 'numeric',
                     month: 'short',
                     year: 'numeric',
@@ -219,43 +761,41 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
                 </span>
               </div>
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">Units on the ex-date</span>
+                <span className="flex-1 text-slate-400 font-bold">{t.invest.unitsOnExDate}</span>
                 <span className="text-white font-black">{unitsIn.toLocaleString('en-US')}</span>
               </div>
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">Per unit</span>
+                <span className="flex-1 text-slate-400 font-bold">{t.invest.perUnit}</span>
                 <span className="text-white font-black">
                   RM{((editing?.perUnitPoints ?? 0) / 10_000).toFixed(4)}
                 </span>
               </div>
               <div className="h-px bg-white/10" />
               <div className="flex items-center">
-                <span className="flex-1 text-accent font-black text-sm">Paid into your goals</span>
+                <span className="flex-1 text-accent font-black text-sm">{editing?.money?.mode === 'pot' ? t.invest.paidIntoPot : t.invest.paidIntoGoals}</span>
                 <span className="text-accent font-black text-lg">
                   {money(editing ? tradeCents(editing) : 0)}
                 </span>
               </div>
             </div>
             <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
-              Companies deduct tax and fees, so what reaches your account is often less than what was
-              announced. The money is an ordinary deposit in your history — correct the amount there and
-              every figure follows.
+              {editing?.money?.mode === 'pot' ? t.invest.dividendReceiptNote : t.invest.dividendReceiptNoteLegacy}
             </p>
             <button
               onClick={onClose}
               className="w-full h-14 mt-5 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
             >
-              Close
+              {t.common.close}
             </button>
           </div>
         ) : needsCounter && kind === 'sell' ? (
           <div className="mt-5">
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">
-              Which counter
+              {t.invest.whichCounter}
             </p>
             {held.length === 0 ? (
               <p className="text-slate-500 text-xs font-bold leading-relaxed">
-                Nothing is held right now, so there is nothing to sell.
+                {t.invest.nothingToSell}
               </p>
             ) : (
               <div className="space-y-2">
@@ -271,7 +811,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
                     <div className="flex-1 min-w-0">
                       <p className="text-white font-black text-sm truncate">{holding.name}</p>
                       <p className="text-slate-500 text-[11px] font-bold">
-                        {holding.units.toLocaleString('en-US')} units · {holding.symbol}
+                        {t.common.units(holding.units.toLocaleString('en-US'))} · {holding.symbol}
                       </p>
                     </div>
                     <span className="material-symbols-rounded text-slate-600">chevron_right</span>
@@ -282,21 +822,21 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           </div>
         ) : needsCounter ? (
           <div className="mt-5">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Counter</p>
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{t.invest.counter}</p>
             <div className="flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
               <span className="material-symbols-rounded text-slate-500">search</span>
               <input
                 autoFocus
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
-                placeholder="Name or code, e.g. maybank"
+                placeholder={t.invest.searchPlaceholder}
                 className="w-full border-0 bg-transparent text-white font-bold focus:outline-none placeholder:text-slate-700"
               />
             </div>
-            {searching && <p className="text-slate-500 text-xs font-bold mt-3">Searching…</p>}
+            {searching && <p className="text-slate-500 text-xs font-bold mt-3">{t.invest.searching}</p>}
             {!searching && term.trim().length >= 2 && hits.length === 0 && (
               <p className="text-slate-500 text-xs font-bold mt-3 leading-relaxed">
-                Nothing on Bursa matched. Try the four-digit code.
+                {t.invest.noMatch}
               </p>
             )}
             <div className="mt-3 space-y-2">
@@ -322,71 +862,256 @@ const TradeSheet: React.FC<TradeSheetProps> = ({ uid, trades, draft, onClose, on
           <>
             <div className="mt-5">
               <DateField
-                label="Trade date"
+                label={t.invest.tradeDate}
                 value={date}
                 onChange={setDate}
                 max={today}
-                title="When was this trade?"
-                hint="The day you dealt decides which dividends are yours."
+                title={t.invest.whenWasTrade}
+                hint={t.invest.whenWasTradeHint}
               />
             </div>
             <div className="flex gap-3 mt-4">
-              <Field label="Units" value={units} onChange={setUnits} autoFocus={!editing} />
-              <Field
-                label="Price per unit"
-                value={price}
-                onChange={setPrice}
-                prefix="RM"
-              />
+              <Field label={t.invest.units} value={units} onChange={setUnits} autoFocus={!editing && !prefilled} />
+              <Field label={t.invest.pricePerUnit} value={price} onChange={setPrice} prefix="RM" />
             </div>
 
-            {outcome && canSave && (
+            {/* Fees, filled in from the broker's rates until someone types over one. */}
+            <div className="mt-5">
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest shrink-0">{t.invest.fees}</p>
+                {broker && (
+                  <p className={`flex-1 min-w-0 truncate text-[11px] font-bold ${anyEdited ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {anyEdited ? t.invest.feesEdited : ratesName}
+                  </p>
+                )}
+                {!broker && <span className="flex-1" />}
+                {broker && (
+                  <button
+                    type="button"
+                    onClick={onEditBroker}
+                    className="shrink-0 text-accent text-[11px] font-black active:scale-95 transition-transform"
+                  >
+                    {t.invest.changeBroker}
+                  </button>
+                )}
+              </div>
+              <div className={`grid gap-2 ${isReit ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                {feeKeys.map((key) => (
+                  <label key={key} className="min-w-0 block">
+                    <span className="block text-slate-500 text-[9px] font-black uppercase tracking-wider mb-1 truncate">
+                      {t.invest.feeBox[key]}
+                    </span>
+                    <span
+                      className={`flex items-center h-11 px-2.5 rounded-xl bg-white/5 border transition-colors ${
+                        broker && edited[key] ? 'border-amber-400/60' : 'border-white/10 focus-within:border-primary/50'
+                      }`}
+                    >
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={shown(key)}
+                        onChange={(e) => typeFee(key, e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        placeholder="0.00"
+                        className="w-full min-w-0 border-0 bg-transparent text-white text-sm font-black focus:outline-none placeholder:text-slate-700"
+                      />
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {!broker && (
+                <div className="mt-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
+                  <p className="text-amber-200/90 text-[11px] font-bold leading-relaxed">{t.invest.noBroker}</p>
+                  <button
+                    type="button"
+                    onClick={onEditBroker}
+                    className="mt-1.5 text-accent text-xs font-black active:scale-95 transition-transform"
+                  >
+                    {t.invest.chooseBroker}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Where the money comes from, or where it goes. */}
+            <div className="mt-5">
+              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">
+                {kind === 'buy' ? t.invest.paidFrom : t.invest.depositTo}
+              </p>
+              <div className="space-y-2">
+                {!legacyGoalMoney && (
+                  <ChoiceRow
+                    icon="account_balance_wallet"
+                    label={t.invest.pot}
+                    sub={kind === 'buy' ? t.invest.potBuySub : t.invest.potSellSub}
+                    value={money(potCents)}
+                    on={picked && choice.mode === 'pot'}
+                    onClick={() => pick({ mode: 'pot' })}
+                  />
+                )}
+                {legacyGoalMoney && goalOptions.map((b) => (
+                  <ChoiceRow
+                    key={b.id}
+                    icon={b.icon}
+                    label={b.name}
+                    sub={b.archivedAt ? t.invest.archived : undefined}
+                    value={money(toCents(b.currentAmount))}
+                    on={picked && sameChoice(choice, { mode: 'goal', goalId: b.id })}
+                    onClick={() => pick({ mode: 'goal', goalId: b.id })}
+                  />
+                ))}
+                {legacyGoalMoney && kind === 'sell' && (canSplit || choice.mode === 'split') && (
+                  <ChoiceRow
+                    icon="call_split"
+                    tone="split"
+                    label={t.common.autoSplit}
+                    sub={t.invest.autoSplitSub}
+                    on={picked && choice.mode === 'split'}
+                    onClick={() => pick({ mode: 'split' })}
+                  />
+                )}
+                {(kind === 'buy' || legacyNone) && (
+                  <ChoiceRow
+                    icon="block"
+                    tone="none"
+                    label={kind === 'buy' ? t.common.notFromGoal : t.invest.notIntoGoal}
+                    sub={kind === 'buy' ? t.invest.notFromPotSub : t.invest.notIntoGoalLegacySub}
+                    on={picked && choice.mode === 'none'}
+                    onClick={() => pick({ mode: 'none' })}
+                  />
+                )}
+              </div>
+              {!picked && (
+                <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWherePaidFrom}</p>
+              )}
+              {picked && needsChoice && hasDestination && (
+                <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWhereSaleGoes}</p>
+              )}
+              {picked && needsChoice && !hasDestination && (
+                <div className="mt-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
+                  <p className="text-amber-200/90 text-[11px] font-bold leading-relaxed">{t.invest.noGoalForSale}</p>
+                  {onCreateGoal && (
+                    <button
+                      type="button"
+                      onClick={onCreateGoal}
+                      className="mt-1.5 text-accent text-xs font-black active:scale-95 transition-transform"
+                    >
+                      {t.invest.createGoal}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {outcome && ready && (
               <div className="mt-5 rounded-2xl bg-white/5 p-4 space-y-2.5">
-                <div className="flex text-[13px]">
-                  <span className="flex-1 text-slate-400 font-bold">This trade</span>
-                  <span className="text-white font-black">{money(unitsIn * priceCents)}</span>
-                </div>
-                <div className="flex text-[13px]">
-                  <span className="flex-1 text-slate-400 font-bold">{name || symbol} after this</span>
-                  <span className="text-white font-black">
-                    {outcome.before.units.toLocaleString('en-US')} → {outcome.after.units.toLocaleString('en-US')} units
-                  </span>
-                </div>
-                <div className="flex text-[13px]">
-                  <span className="flex-1 text-slate-400 font-bold">Average cost</span>
-                  <span className="text-white font-black">
-                    {money(Math.round(averageCostCents(outcome.after)))}
-                  </span>
-                </div>
+                <Line label={kind === 'buy' ? t.invest.thisTrade : t.invest.sale} value={money(tradeValue)} />
+                <Line label={t.invest.fees} value={money(totalFees(fees))} />
+                <div className="h-px bg-white/10" />
+                <Line label={kind === 'buy' ? t.invest.totalPaid : t.invest.totalReceived} value={money(totalCents)} strong />
+                {moneyLines()}
+                <div className="h-px bg-white/10" />
+                <Line
+                  label={t.invest.afterThis(name || symbol)}
+                  value={t.invest.unitsChange(
+                    outcome.before.units.toLocaleString('en-US'),
+                    outcome.after.units.toLocaleString('en-US')
+                  )}
+                />
+                <Line
+                  label={t.invest.averageCostWithFees}
+                  value={outcome.after.units > 0 ? `RM${(averageCostCents(outcome.after) / 100).toFixed(4)}` : '—'}
+                />
                 {kind === 'sell' && outcome.after.units === outcome.before.units && unitsIn > 0 && (
                   <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">
-                    Nothing was held on that date, so this sale changes nothing. Check the date.
+                    {t.invest.saleChangesNothing}
                   </p>
+                )}
+                {/* Until a source is picked, the hint above already says this. */}
+                {preview?.refundPending && picked && (
+                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.refundLater}</p>
+                )}
+                {preview?.takeBackPending && (
+                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.takeBackLater}</p>
                 )}
               </div>
             )}
 
-            {problem && <p className="text-red-400 text-xs font-bold mt-4">{problem}</p>}
+            {blocked && <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{blocked}</p>}
+            {problem && problem !== blocked && (
+              <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>
+            )}
+
+            {!creditedLoaded && <p className="text-slate-500 text-xs font-bold mt-4 leading-relaxed">{t.invest.dividendsLoading}</p>}
 
             <button
               onClick={() => void save()}
               disabled={!canSave}
               className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
             >
-              {editing ? 'Save changes' : `Record this ${kind}`}
+              {editing ? t.common.saveChanges : t.invest.record[kind]}
             </button>
 
             {editing && (
               <button
                 onClick={() => void remove()}
-                className="w-full h-12 mt-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black active:scale-95 transition-transform"
+                disabled={busy || !creditedLoaded}
+                className="w-full h-12 mt-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black disabled:opacity-30 active:scale-95 transition-transform"
               >
-                Delete this trade
+                {t.invest.deleteTrade}
               </button>
             )}
           </>
         )}
       </div>
+
+      {refundAsk && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <RefundSheet
+            amountCents={refundAsk.cents}
+            banks={banks}
+            busy={busy}
+            goneGoalId={editing?.money?.mode === 'goal' ? editing.money.goalId : undefined}
+            activities={activities}
+            confirmLabel={refundAsk.removing ? t.invest.deleteTrade : editing ? t.common.saveChanges : t.invest.record[kind]}
+            onChoose={(refund) => void (refundAsk.removing ? removeWith(refund) : save(refund))}
+            onClose={() => setRefundAsk(null)}
+          />
+        </div>
+      )}
+
+      {takeBackAsk && previous && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <GoneShareSheet
+            distributions={
+              previous.activity?.distributions ??
+              // A sale into one goal whose row is no longer loaded: all of it went there.
+              (previous.trade.money?.mode === 'goal'
+                ? [{ bankId: previous.trade.money.goalId, amount: fromCents(tradeTotalCents(previous.trade)), percentage: 100 }]
+                : [])
+            }
+            banks={banks}
+            activities={activities}
+            busy={busy}
+            confirmLabel={takeBackAsk.removing ? t.invest.deleteTrade : t.common.saveChanges}
+            onChoose={(takeBack) => void (takeBackAsk.removing ? removeWith(undefined, takeBack) : save(undefined, takeBack))}
+            onClose={() => setTakeBackAsk(null)}
+          />
+        </div>
+      )}
+
+      {mismatch && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <FeeMismatchSheet
+            mismatch={mismatch}
+            invest={invest}
+            onUpdate={() => answerMismatch(true)}
+            onNotNow={() => answerMismatch(false)}
+          />
+        </div>
+      )}
     </div>
   );
 };

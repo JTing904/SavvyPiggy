@@ -5,13 +5,23 @@ import { uploadGoalImage } from '../services/storage';
 import { isStorageEnabled } from '../lib/firebase';
 import { archiveStrategy, isArchived, isFull, isInSplit } from '../services/ledger';
 import { useBackHandler } from '../hooks/useBackHandler';
-import { formatMoney } from '../services/money';
+import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
+import OlderRecordsNotice from './OlderRecordsNotice';
+import { formatMoney, percentReached, toCents } from '../services/money';
+import { useT } from '../contexts/LanguageContext';
+import { dateLocale, deviceDateLocale, noteText, type Messages } from '../i18n';
 
-const STYLES: Record<ActivityType, { label: string; icon: string; tint: string }> = {
-  'auto-save': { label: 'Scheduled Deposit', icon: 'magic_button', tint: 'bg-primary/10 text-primary' },
-  manual: { label: 'Deposit', icon: 'person', tint: 'bg-blue-400/10 text-blue-400' },
-  withdraw: { label: 'Spent', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
-  borrow: { label: 'Spent ahead', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
+/** Labels are looked up at render, so they follow the language. */
+const STYLES: Record<ActivityType, { label: (t: Messages) => string; icon: string; tint: string }> = {
+  'auto-save': { label: (t) => t.goals.scheduledDeposit, icon: 'magic_button', tint: 'bg-primary/10 text-primary' },
+  manual: { label: (t) => t.common.activity.manual, icon: 'person', tint: 'bg-blue-400/10 text-blue-400' },
+  withdraw: { label: (t) => t.common.activity.withdraw, icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
+  borrow: { label: (t) => t.common.activity.borrow, icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
+  invest: { label: (t) => t.common.activity.invest, icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent' },
+  divest: { label: (t) => t.common.activity.divest, icon: 'currency_exchange', tint: 'bg-accent/10 text-accent' },
+  transfer: { label: (t) => t.common.activity.transfer, icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300' },
+  toInvest: { label: (t) => t.common.activity.toInvest, icon: 'south_east', tint: 'bg-accent/10 text-accent' },
+  fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'north_west', tint: 'bg-accent/10 text-accent' },
 };
 
 
@@ -20,11 +30,15 @@ interface GoalDetailProps {
   bank: PiggyBank;
   banks: PiggyBank[];
   activities: Activity[];
+  /** The goal's history covers everything kept, so the older part is read when it opens. */
+  ledger: Ledger;
   onBack: () => void;
   onEditStrategy: () => void;
   onChangePhoto: (imageUrl: string) => Promise<void> | void;
   onArchive: () => void;
   onUnarchive: () => void;
+  /** A trade's row is corrected through its trade, so tapping one opens it. */
+  onOpenTrade?: (tradeId: string) => void;
 }
 
 const GoalDetail: React.FC<GoalDetailProps> = ({
@@ -32,12 +46,15 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   bank,
   banks,
   activities,
+  ledger,
   onBack,
   onEditStrategy,
   onChangePhoto,
   onArchive,
   onUnarchive,
+  onOpenTrade,
 }) => {
+  const t = useT();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +71,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
       const imageUrl = isStorageEnabled ? await uploadGoalImage(uid, file) : await compressImage(file);
       await onChangePhoto(imageUrl);
     } catch (e) {
-      setError((e as Error).message || 'Could not use that image.');
+      setError((e as Error).message || t.goals.couldNotUseImage);
     } finally {
       setUploading(false);
     }
@@ -74,7 +91,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   const paidIn = entries.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0);
   const takenOut = entries.filter((e) => e.amount < 0).reduce((sum, e) => sum - e.amount, 0);
 
-  const overspent = bank.currentAmount < 0;
+  const overspent = toCents(bank.currentAmount) < 0;
   const hasTarget = bank.targetAmount > 0;
   const progress = hasTarget
     ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
@@ -88,10 +105,14 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
     .map((b) => ({ name: b.name, gained: b.splitPercentage - (banks.find((x) => x.id === b.id)?.splitPercentage ?? 0) }))
     .filter((b) => b.gained > 0);
 
+  // Paid in and taken out are over everything kept; until the part older than
+  // the live three months is read they show nothing rather than a smaller sum.
+  const history = useLedgerRange(ledger, ledger.keptFrom);
+  const complete = history === 'ready';
   const stats = [
-    { label: 'Paid in', value: formatMoney(paidIn) },
-    { label: 'Taken out', value: formatMoney(takenOut) },
-    { label: 'Entries', value: String(entries.length) },
+    { label: t.goals.paidIn, value: complete ? formatMoney(paidIn) : '—' },
+    { label: t.goals.takenOut, value: complete ? formatMoney(takenOut) : '—' },
+    { label: t.goals.entries, value: complete ? String(entries.length) : '—' },
   ];
 
   return (
@@ -141,12 +162,12 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
             <span className="material-symbols-rounded text-lg">
               {bank.imageUrl ? 'edit' : 'add_photo_alternate'}
             </span>
-            {uploading ? 'Saving...' : bank.imageUrl ? 'Change' : 'Add photo'}
+            {uploading ? t.goals.saving : bank.imageUrl ? t.goals.change : t.goals.addPhoto}
           </button>
 
           <div className="absolute bottom-5 left-5 right-5">
             <p className="text-white/60 text-[10px] font-black uppercase tracking-widest mb-1">
-              {overspent ? 'Overspent' : 'Saved'}
+              {overspent ? t.goals.overspent : t.goals.saved}
             </p>
             <h1 className={`text-3xl font-extrabold tracking-tight ${overspent ? 'text-red-400' : 'text-white'}`}>
               {formatMoney(bank.currentAmount)}
@@ -165,7 +186,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
         <div className="bg-surface border border-white/5 rounded-[2rem] p-6 space-y-3 shadow-xl">
           <div className="flex items-baseline justify-between gap-3">
             <p className="text-slate-500 text-xs font-black uppercase tracking-widest">
-              {hasTarget ? 'Target' : 'No limit'}
+              {hasTarget ? t.goals.target : t.goals.noLimit}
             </p>
             <p className="text-white font-black">
               {hasTarget ? formatMoney(bank.targetAmount, { decimals: 0 }) : '∞'}
@@ -185,10 +206,10 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           </div>
           <p className="text-slate-500 text-xs font-medium">
             {hasTarget
-              ? remaining > 0
-                ? `${formatMoney(remaining)} to go · ${Math.round(progress)}% there`
-                : 'Target reached'
-              : 'Keep saving with no finish line.'}
+              ? toCents(remaining) > 0
+                ? t.goals.toGo(formatMoney(remaining), percentReached(bank.currentAmount, bank.targetAmount))
+                : t.goals.targetReached
+              : t.goals.noFinishLine}
           </p>
         </div>
 
@@ -210,9 +231,9 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-white font-bold">
-              {bank.autoSplit === false ? 'Excluded from deposits' : `${bank.splitPercentage}% of every deposit`}
+              {bank.autoSplit === false ? t.goals.excludedFromDeposits : t.goals.percentOfEveryDeposit(bank.splitPercentage)}
             </p>
-            <p className="text-slate-500 text-xs font-medium">Change on the Strategy tab</p>
+            <p className="text-slate-500 text-xs font-medium">{t.goals.changeOnStrategyTab}</p>
           </div>
           <span className="material-symbols-rounded text-slate-600">chevron_right</span>
         </button>
@@ -226,8 +247,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
               <span className="material-symbols-rounded text-2xl">unarchive</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-white font-bold">Archived</p>
-              <p className="text-slate-500 text-xs font-medium">Restore it to the list at 0% of deposits</p>
+              <p className="text-white font-bold">{t.goals.archived}</p>
+              <p className="text-slate-500 text-xs font-medium">{t.goals.restoreAtZero}</p>
             </div>
           </button>
         ) : (
@@ -239,9 +260,9 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
               <span className="material-symbols-rounded text-2xl">inventory_2</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-white font-bold">Archive this goal</p>
+              <p className="text-white font-bold">{t.goals.archiveThisGoal}</p>
               <p className="text-slate-500 text-xs font-medium">
-                {isFull(bank) ? 'Target reached — put it away, keep the money' : 'Put it away without deleting anything'}
+                {isFull(bank) ? t.goals.archiveFull : t.goals.archiveNotFull}
               </p>
             </div>
           </button>
@@ -249,41 +270,74 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
       </div>
 
       <div className="px-6 mt-8">
-        <h3 className="text-white text-lg font-bold mb-4">Activity</h3>
+        <h3 className="text-white text-lg font-bold mb-4">{t.goals.activity}</h3>
         <div className="space-y-3">
-          {entries.length === 0 ? (
+          {history !== 'ready' && <OlderRecordsNotice status={history} onRetry={ledger.retry} />}
+          {entries.length === 0 && history !== 'ready' ? null : entries.length === 0 ? (
             <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
               <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">receipt_long</span>
-              <p className="text-slate-500 font-bold">Nothing yet</p>
-              <p className="text-slate-600 text-xs mt-1">Deposits reaching this goal show up here</p>
+              <p className="text-slate-500 font-bold">{t.goals.nothingYet}</p>
+              <p className="text-slate-600 text-xs mt-1">{t.goals.depositsShowHere}</p>
             </div>
           ) : (
             entries.map(({ activity, amount }) => {
               const style = STYLES[activity.type];
-              return (
-                <div
-                  key={activity.id}
-                  className="flex items-center justify-between gap-3 p-4 rounded-2xl glass"
-                >
+              // Money moved for shares reads as the trade it was, and opens it.
+              const trade = activity.type === 'invest' || activity.type === 'divest';
+              const { tradeId } = activity;
+              const openTrade = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : null;
+              const when = new Date(activity.date).toLocaleDateString(deviceDateLocale(), {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              // The goal is this page, so a trade's line names only what else it did.
+              const meta = trade
+                ? [
+                    activity.units ? t.common.units(activity.units.toLocaleString('en-US')) : '',
+                    activity.type === 'divest' && activity.distributions.length > 1
+                      ? t.history.splitAcross(activity.distributions.length)
+                      : '',
+                    when,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                : when;
+              const title =
+                trade && activity.counter
+                  ? t.history.tradeTitle(style.label(t), activity.counter)
+                  : activity.type === 'transfer' && activity.fromGoal
+                    ? t.common.movedFrom(style.label(t), activity.fromGoal)
+                    : (activity.note && noteText(activity.note)) || style.label(t);
+              const content = (
+                <>
                   <div className="flex items-center gap-4 min-w-0">
                     <div className={`size-11 shrink-0 rounded-2xl flex items-center justify-center ${style.tint}`}>
                       <span className="material-symbols-rounded">{style.icon}</span>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-white font-bold text-sm truncate">{activity.note || style.label}</p>
-                      <p className="text-slate-500 text-[10px] font-medium">
-                        {new Date(activity.date).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
+                      <p className="text-white font-bold text-sm truncate">{title}</p>
+                      <p className="text-slate-500 text-[10px] font-medium truncate">{meta}</p>
                     </div>
                   </div>
                   <p className={`font-black shrink-0 tabular-nums ${amount < 0 ? 'text-slate-400' : 'text-white'}`}>
                     {formatMoney(amount, { signed: true })}
                   </p>
+                </>
+              );
+              return openTrade ? (
+                <button
+                  key={activity.id}
+                  onClick={openTrade}
+                  aria-label={t.history.openTrade}
+                  className="w-full flex items-center justify-between gap-3 p-4 rounded-2xl glass text-left active:scale-[0.99] transition-transform"
+                >
+                  {content}
+                </button>
+              ) : (
+                <div key={activity.id} className="flex items-center justify-between gap-3 p-4 rounded-2xl glass">
+                  {content}
                 </div>
               );
             })
@@ -297,24 +351,22 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           onClick={() => setConfirmArchive(false)}
         >
           <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
+            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-white text-2xl font-black">Archive {bank.name}?</h3>
+            <h3 className="text-white text-2xl font-black">{t.goals.archiveTitle(bank.name)}</h3>
             <p className="text-slate-400 text-sm font-medium mt-3 leading-relaxed">
-              Its {formatMoney(bank.currentAmount)} stays in your total savings and every record stays in your history. The goal
-              just leaves the Home and Strategy lists.
+              {t.goals.archiveBody(formatMoney(bank.currentAmount))}
             </p>
 
             {share > 0 && (
               <div className="mt-5 rounded-3xl bg-white/5 p-5">
                 <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                  Its {share}% goes to
+                  {t.goals.shareGoesTo(share)}
                 </p>
                 {handovers.length === 0 ? (
                   <p className="text-slate-400 text-xs font-medium mt-3 leading-relaxed">
-                    No other goal is taking a share yet, so {share}% of each deposit will be left unassigned until you set
-                    the split.
+                    {t.goals.noOtherGoal(share)}
                   </p>
                 ) : (
                   <div className="space-y-2 mt-3">
@@ -334,7 +386,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
                 onClick={() => setConfirmArchive(false)}
                 className="flex-1 h-14 rounded-2xl glass text-slate-300 font-black active:scale-95 transition-transform"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 onClick={() => {
@@ -343,7 +395,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
                 }}
                 className="flex-1 h-14 rounded-2xl bg-primary text-black font-black active:scale-95 transition-transform"
               >
-                Archive
+                {t.goals.archive}
               </button>
             </div>
           </div>

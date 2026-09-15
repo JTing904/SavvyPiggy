@@ -26,15 +26,32 @@ export interface MoneyFormat {
 /**
  * The one place money becomes text: RM1,240.50, -RM10.00, +RM45.00.
  * The sign always leads, so a negative never reads as "RM-10.00".
+ *
+ * Worked out in whole cents. Balances move by float increments, so
+ * 50.30 - 20.10 - 30.20 leaves -0.0000000000000036 behind, and judging the
+ * sign on that showed "-RM0.00". Whole-ringgit figures drop the cents rather
+ * than rounding them: RM1,240.50 is not yet RM1,241.
  */
 export const formatMoney = (amount: number, format: MoneyFormat = {}) => {
   const { decimals = 2, signed = false, symbol = true } = format;
-  const digits = Math.abs(amount).toLocaleString('en-US', {
+  const cents = toCents(Math.abs(amount));
+  const digits = (decimals === 0 ? Math.floor(cents / 100) : cents / 100).toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
-  const sign = amount < 0 ? '-' : signed ? '+' : '';
+  const sign = amount < 0 && cents > 0 ? '-' : signed ? '+' : '';
   return `${sign}${symbol ? CURRENCY : ''}${digits}`;
+};
+
+/**
+ * How far a balance is towards its target, as a whole percentage for labels.
+ * Floored in cents, so 100% means reached: rounding showed RM999.50 of
+ * RM1,000 as 100% while the goal still said what was left to go.
+ */
+export const percentReached = (current: number, target: number) => {
+  const targetCents = toCents(target);
+  if (targetCents <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.floor((toCents(current) * 100) / targetCents)));
 };
 
 export interface Share<T> {
@@ -120,4 +137,40 @@ export const splitProportionally = <T>(
 
   const placed = shares.reduce((sum, s) => sum + s.cents, 0);
   return distributeRemainder(shares, totalCents - placed);
+};
+
+/**
+ * The cents each part of a corrected deposit gets, in the order given.
+ *
+ * It is re-split by the percentages the deposit was split by, never by the
+ * cents each goal happened to get: a RM0.10 deposit at 33/33/34 placed
+ * 3/3/4 sen, and scaling those made RM1,000 into 300/300/400 instead of
+ * 330/330/340. A deposit that placed all of its amount places all of the new
+ * one too, reading its percentages as shares of the whole — they are stored
+ * to two places, so 33.33% × 3 must not shed a sen as a deliberate 0.01%
+ * left out. The odd cent goes to the largest percentage either way.
+ */
+export const resplitDeposit = (
+  newCents: number,
+  originalCents: number,
+  distributions: { amount: number; percentage: number }[]
+): number[] => {
+  const placedCents = distributions.reduce((sum, d) => sum + toCents(d.amount), 0);
+  // Entries without a usable percentage on every part only have their cents to go by.
+  const byCents = distributions.some((d) => toCents(d.amount) > 0 && !(d.percentage > 0));
+  const shares = byCents
+    ? splitProportionally(
+        originalCents > 0 ? Math.floor((newCents * Math.min(placedCents, originalCents)) / originalCents) : 0,
+        distributions.map((d, i) => ({ item: i, weight: toCents(d.amount) }))
+      )
+    : placedCents === originalCents
+      ? splitProportionally(
+          newCents,
+          distributions.map((d, i) => ({ item: i, weight: d.percentage }))
+        )
+      : splitByPercentage(
+          newCents,
+          distributions.map((d, i) => ({ item: i, percentage: d.percentage }))
+        );
+  return distributions.map((_, i) => shares.find((s) => s.item === i)?.cents ?? 0);
 };

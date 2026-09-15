@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, writeBatch, collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, writeBatch, collection, getDocs, query, orderBy, increment } from 'firebase/firestore';
 
 const PROJECT = 'savvypiggy-rules-test';
 let pass = 0, fail = 0;
@@ -133,6 +133,59 @@ await test('member bob cannot write into alice\'s tree', () =>
 
 await test('alice cannot delete her membership to free the code', () =>
   assertFails(setDoc(doc(alice, 'members/alice'), { code: 'BETA22', joinedAt: 2 })));
+
+console.log('\nINVESTMENT POT (settings/invest)');
+
+const invest = (db, uid = 'alice') => doc(db, `users/${uid}/settings/invest`);
+
+await test('alice can save investing settings before the pot has a balance', () =>
+  assertSucceeds(setDoc(invest(alice), { watchlist: [], brokerId: 'mplus' }, { merge: true })));
+
+await test('alice can move money into the pot', () =>
+  assertSucceeds(setDoc(invest(alice), { potBalance: increment(100.1) }, { merge: true })));
+
+await test('alice can read her investing settings', () =>
+  assertSucceeds(getDoc(invest(alice))));
+
+await test('a buy that takes the pot below zero is refused', () =>
+  assertFails(setDoc(invest(alice), { potBalance: increment(-150) }, { merge: true })));
+
+await test('a negative pot cannot be written directly', () =>
+  assertFails(setDoc(invest(alice), { potBalance: -5 }, { merge: true })));
+
+await test('the pot must be a number', () =>
+  assertFails(setDoc(invest(alice), { potBalance: '100' }, { merge: true })));
+
+await test('spending the pot to exactly nothing is allowed', () =>
+  assertSucceeds(setDoc(invest(alice), { potBalance: increment(-100.1) }, { merge: true })));
+
+await test('a float leftover just under zero is allowed', () =>
+  assertSucceeds(setDoc(invest(alice), { potBalance: -2.8e-17 }, { merge: true })));
+
+await test('other settings still save with no pot guard in the way', () =>
+  assertSucceeds(setDoc(doc(alice, 'users/alice/settings/savings'), { overflow: true }, { merge: true })));
+
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), 'users/alice/settings/invest'), { potBalance: -5, watchlist: [] });
+});
+
+await test('an already-negative pot does not block saving other investing settings', () =>
+  assertSucceeds(setDoc(invest(alice), { watchlist: [{ symbol: '1155.KL', name: 'MAYBANK' }] }, { merge: true })));
+
+await test('an already-negative pot cannot go lower', () =>
+  assertFails(setDoc(invest(alice), { potBalance: increment(-1) }, { merge: true })));
+
+await test('an already-negative pot can be topped up', () =>
+  assertSucceeds(setDoc(invest(alice), { potBalance: increment(10) }, { merge: true })));
+
+await test("member bob cannot read alice's investing settings", () =>
+  assertFails(getDoc(invest(bob, 'alice'))));
+
+await test("member bob cannot write alice's pot", () =>
+  assertFails(setDoc(invest(bob, 'alice'), { potBalance: 1000 }, { merge: true })));
+
+await test('bob can keep his own pot', () =>
+  assertSucceeds(setDoc(invest(bob, 'bob'), { potBalance: 20 }, { merge: true })));
 
 await env.cleanup();
 

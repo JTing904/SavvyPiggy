@@ -17,7 +17,14 @@ export interface PiggyBank {
   archivedAt?: number | null;
 }
 
-export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow';
+import type { FeeKey, SecurityType, TradeFees } from './services/fees';
+
+/**
+ * `invest` is money leaving goals to buy shares; `divest` is a sale's proceeds
+ * coming back into them. Neither is spending or saving — the report keeps them
+ * on their own lines — and both belong to a trade, which is where they are edited.
+ */
+export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest';
 
 export interface Activity {
   id: string;
@@ -40,6 +47,20 @@ export interface Activity {
    * which is every entry made before categories existed.
    */
   category?: string;
+  /** `invest` / `divest`: the trade this money moved for, and what it was. */
+  tradeId?: string;
+  counter?: string;
+  units?: number;
+  /**
+   * `transfer`: the name of the goal that was deleted and whose money moved
+   * here. Kept as the name, because the goal itself no longer exists.
+   */
+  fromGoal?: string;
+  /**
+   * `transfer`: the deleted goal's id, so a later undo of a record that fed
+   * that goal can say where its money went.
+   */
+  fromGoalId?: string;
 }
 
 /** Money taken out of the goals that future income is expected to put back. */
@@ -146,7 +167,31 @@ export interface Trade {
   tradedAt: number;
   /** Epoch ms it was entered, which orders two trades made the same day. */
   createdAt: number;
+  /**
+   * Buy and sell: the price in ten-thousandths of a ringgit, because penny
+   * stocks trade in half-sen (RM0.345 is 3450) and `priceCents` cannot hold
+   * that. Absent on trades made before it existed, whose `priceCents` is exact.
+   */
+  pricePoints?: number;
+  /** What the broker, the exchange and the tax took. Absent on older trades: none recorded. */
+  fees?: TradeFees;
+  /** Snapshot at the time: a REIT's fees and tax treatment differ from a share's. */
+  securityType?: SecurityType;
+  /** Where the money for a buy came from, or where a sale's went. Absent: nothing moved. */
+  money?: TradeMoney;
+  /** Fees typed over what the broker's rates gave, and in which direction. */
+  feeEdits?: Partial<Record<FeeKey, 1 | -1>>;
 }
+
+export type TradeMoney =
+  /** Buy: paid from one goal. Sell: deposited into one goal. */
+  | { mode: 'goal'; goalId: string; activityId: string }
+  /** Sell only: split like any deposit, spent ahead covered first. */
+  | { mode: 'split'; activityId: string }
+  /** Buy: paid from the investment pot. Sell: proceeds into it. No savings History row. */
+  | { mode: 'pot' }
+  /** Only the trade is recorded; no goal's money moved. */
+  | { mode: 'none' };
 
 export type AlertKind = 'receipt' | 'milestone' | 'reached' | 'streak' | 'dividend' | 'housekeeping';
 
@@ -246,6 +291,12 @@ export interface SavingsSettings {
   retentionMonths: number | null;
   /** True once the automatic clearing has been shown and accepted. */
   retentionAcknowledged: boolean;
+  /**
+   * ISO date: the window cutoff the Statements screen last showed, with every
+   * month before it listed as about to be cleared. Only records older than
+   * this may be deleted; absent means nothing has been shown yet.
+   */
+  retentionAcknowledgedCutoff?: string;
 }
 
 export interface NotificationPrefs {
@@ -277,4 +328,34 @@ export enum Tab {
   TRADES = 'trades',
   DIVIDENDS = 'dividends',
   GROWTH = 'growth'
+}
+
+/** How much weight each style gets in a pick; the three add up to 100. */
+export interface StyleMix {
+  /** 股息派: dividends that keep coming and are not cut. */
+  income: number;
+  /** 现金流派: the highest dividend yield. */
+  cash: number;
+  /** 股价派: total return, mostly from the price. */
+  price: number;
+}
+
+export interface InvestSettings {
+  /** A broker id from services/fees.ts, `custom`, or null before anyone chose. */
+  brokerId: string | null;
+  customRule: import('./services/fees').BrokerageRule | null;
+  /** The counters someone would buy. The pick only ever comes from these. */
+  watchlist: { symbol: string; name: string }[];
+  /** Answers to the style questions, and the mix they came to (possibly adjusted by hand). */
+  style: { answers: number[]; mix: StyleMix; at: number } | null;
+  /** A person's correction when a counter's REIT tag is wrong. */
+  typeOverrides: Record<string, SecurityType>;
+  /** Epoch ms the fee-mismatch question was last answered; only trades after it count. */
+  feePromptAt: number;
+  /**
+   * Cash in the investment pot, in ringgit like a goal's balance. Savings move
+   * in and out of it by hand; buys come out of it, sales and dividends go in.
+   * It never goes below zero and is not part of total savings.
+   */
+  potBalance: number;
 }

@@ -1,7 +1,7 @@
-import { buildMonthWorkbook, monthFileName, monthRows, savingsRows } from '../services/export';
+import { buildMonthWorkbook, ledgerAmount, monthFileName, monthRows, savingsRows, unitPrice } from '../services/export';
 import { buildImagePdf } from '../services/pdf';
 import { buildSheetXml, columnName, crc32, zip } from '../services/xlsx';
-import type { Activity, PiggyBank } from '../types';
+import type { Activity, PiggyBank, Trade } from '../types';
 import { eq, report } from './harness';
 
 const bank = (id: string, name: string): PiggyBank => ({
@@ -65,6 +65,43 @@ eq('a deposit has no category at all', rows[1][6], null);
   eq('a key this version does not know still totals as Other', unknown[1][6], 'Other');
 }
 
+// --- money moved for shares
+{
+  const TRADES: Activity[] = [
+    {
+      id: 'inv',
+      type: 'invest',
+      date: new Date(2026, 8, 6, 10, 0).toISOString(),
+      amount: 799.24,
+      distributions: [{ bankId: 'b', amount: -799.24, percentage: 100 }],
+      tradeId: 't1',
+      counter: 'RHBBANK',
+      units: 100,
+    },
+    {
+      id: 'div',
+      type: 'divest',
+      date: new Date(2026, 8, 7, 10, 0).toISOString(),
+      amount: 1070.32,
+      distributions: [{ bankId: 'a', amount: 1020.32, percentage: 100 }],
+      repaid: 50,
+      tradeId: 't2',
+      counter: 'MAYBANK',
+      units: 100,
+    },
+  ];
+  const sheet = savingsRows([...ACTS, ...TRADES], BANKS);
+  const [buy, sale] = [sheet[3], sheet[4]];
+  eq('a purchase is typed as invested', buy[2], 'Invested');
+  eq('and names its counter', buy[5], 'Invested · RHBBANK');
+  eq('a sale names its counter too', sale[5], 'Sale proceeds · MAYBANK');
+  eq('shares carry no category', [buy[6], sale[6]], [null, null]);
+  eq('the goal a purchase was paid from goes down', buy.slice(7), [null, -799.24, null]);
+  eq('a sale shows what cleared spent ahead and what reached a goal', [sale[3], sale[4], ...sale.slice(7)], [1070.32, 50, 1020.32, null, null]);
+  const noCounter = savingsRows([{ ...TRADES[0], counter: undefined, note: 'kept' }], BANKS);
+  eq('a row without a counter keeps its own note', noCounter[1][5], 'kept');
+}
+
 // --- the month, both halves
 {
   const sheet = monthRows({
@@ -82,6 +119,54 @@ eq('a deposit has no category at all', rows[1][6], null);
     ['SAVINGS', 'INVESTMENTS', 'POSITIONS AT MONTH END']);
   eq('an empty half says so rather than vanishing',
     [flat.includes('No trades this month'), flat.includes('Nothing held')], [true, true]);
+}
+
+// --- a transfer carries its own sign
+{
+  const handedOn: Activity = {
+    id: 't', type: 'transfer', date: new Date(2026, 8, 8).toISOString(), amount: 20,
+    distributions: [{ bankId: 'a', amount: -20, percentage: 100 }], fromGoal: 'Old',
+  };
+  eq('an overspent goal handed on reads as a minus', ledgerAmount(handedOn), -20);
+  eq('a positive one as a plus', ledgerAmount({ ...handedOn, distributions: [{ bankId: 'a', amount: 20, percentage: 100 }] }), 20);
+  eq('other rows keep their type\'s direction', [ledgerAmount(ACTS[0]), ledgerAmount(ACTS[1])], [-5, 100]);
+  eq('and the sheet shows the transfer signed', savingsRows([handedOn], BANKS)[1][3], -20);
+}
+
+// --- trades reconcile: value, fees, total
+{
+  eq('a half-sen price keeps its digits', [unitPrice(3450), unitPrice(125), unitPrice(100_000)], ['0.345', '0.0125', '10.00']);
+  const buy: Trade = {
+    id: 'b', symbol: '0001.KL', name: 'PENNY', kind: 'buy', units: 1000, priceCents: 35, pricePoints: 3450,
+    tradedAt: new Date(2026, 8, 6).getTime(), createdAt: 0,
+    fees: { brokerageCents: 800, clearingCents: 100, stampCents: 100, sstCents: 64 },
+  };
+  const div: Trade = {
+    id: 'd', symbol: '0001.KL', name: 'PENNY', kind: 'dividend', units: 1000, priceCents: 0, perUnitPoints: 125,
+    tradedAt: new Date(2026, 8, 7).getTime(), createdAt: 0,
+  };
+  const sheet = monthRows(
+    { label: 'September 2026', activities: [], banks: BANKS, trades: [buy, div], holdings: [], quotes: {} },
+    new Date(2026, 8, 13)
+  );
+  const at = sheet.findIndex((r) => r[0] === 'INVESTMENTS');
+  eq('the trade header has value, fees and total', sheet[at + 1].slice(5), ['Per unit', 'Value', 'Fees', 'Total']);
+  eq('a buy: exact price, value before fees, fees, and what it cost', sheet[at + 2].slice(5), [0.345, 345, 10.64, 355.64]);
+  eq('a dividend has no fees', sheet[at + 3].slice(5), [0.0125, 12.5, null, 12.5]);
+}
+
+// --- positions say their prices are today's
+{
+  const sheet = monthRows(
+    {
+      label: 'August 2026', activities: [], banks: BANKS, trades: [],
+      holdings: [{ id: '1155.KL', symbol: '1155.KL', name: 'MAYBANK', units: 100, costCents: 100_000, createdAt: 0 }],
+      quotes: {},
+    },
+    new Date(2026, 8, 13)
+  );
+  const at = sheet.findIndex((r) => r[0] === 'POSITIONS AT MONTH END');
+  eq('the positions block notes the date its prices are from', String(sheet[at + 1][0]).includes('2026-09-13'), true);
 }
 
 // --- the file itself
