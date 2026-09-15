@@ -55,7 +55,9 @@ export type TradeMoneyProblem =
   /** A split sale whose History row has been cleared, so the split cannot be undone exactly. */
   | { kind: 'rowGone' }
   | { kind: 'insufficient'; goalId: string; availableCents: number; neededCents: number }
-  | { kind: 'nothingToSplit' };
+  | { kind: 'nothingToSplit' }
+  /** A sale worth less than its fees costs money, and that has to come out of a named goal. */
+  | { kind: 'saleBelowFees'; cents: number };
 
 export interface ActivityDraft {
   type: 'invest' | 'divest';
@@ -166,8 +168,24 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
 
   if (next) {
     const { choice, totalCents } = next;
-    if (choice.mode === 'none' || totalCents <= 0) {
+    if (choice.mode === 'none' || totalCents === 0 || (next.kind === 'buy' && totalCents < 0)) {
       money = { mode: 'none' };
+    } else if (next.kind === 'sell' && totalCents < 0) {
+      // The fees were bigger than the sale, so it cost money: the shortfall is
+      // taken from one goal. Splitting a cost like a deposit would read as
+      // saving in reverse, so a goal has to be named.
+      if (choice.mode !== 'goal') return { problem: { kind: 'saleBelowFees', cents: -totalCents } };
+      add(bankDeltas, choice.goalId, totalCents);
+      draft = {
+        type: 'divest',
+        amount: fromCents(-totalCents),
+        distributions: [{ bankId: choice.goalId, amount: fromCents(totalCents), percentage: 100 }],
+        repaid: 0,
+        repayments: [],
+        counter: next.counter,
+        units: next.units,
+      };
+      money = { mode: 'goal', goalId: choice.goalId, activityId: existingId ?? '' };
     } else if (next.kind === 'buy') {
       if (choice.mode !== 'goal') return { problem: { kind: 'nothingToSplit' } };
       const bank = banks.find((b) => b.id === choice.goalId);

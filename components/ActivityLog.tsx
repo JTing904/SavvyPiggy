@@ -54,12 +54,14 @@ const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
 // A deleted goal's money moving into another goal is neither, either.
 const inflow = (a: Activity) => (a.type === 'divest' || a.type === 'transfer' ? 0 : credited(a));
 const outflow = (a: Activity) =>
-  a.type === 'invest' || a.type === 'transfer' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
 
 /** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
 const sharesCents = (a: Activity) =>
-  a.distributions.reduce((s, d) => s + Math.abs(toCents(d.amount)), 0) +
-  (a.type === 'divest' ? toCents(a.repaid ?? 0) : 0);
+  a.type === 'divest'
+    ? // Signed: a sale whose fees were bigger than the sale took money out.
+      a.distributions.reduce((s, d) => s + toCents(d.amount), 0) + toCents(a.repaid ?? 0)
+    : a.distributions.reduce((s, d) => s + Math.abs(toCents(d.amount)), 0);
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
@@ -166,7 +168,11 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       day.spent += outflow(a);
       if (a.type === 'borrow') day.borrowed += toCents(a.amount);
       if (a.type === 'invest') day.sharesOut += sharesCents(a);
-      else if (a.type === 'divest') day.sharesIn += sharesCents(a);
+      else if (a.type === 'divest') {
+        const cents = sharesCents(a);
+        if (cents >= 0) day.sharesIn += cents;
+        else day.sharesOut -= cents;
+      }
       // Spent ahead covered by a sale is part of the shares coming back, not a deposit's.
       else day.repaid += toCents(a.repaid ?? 0);
       out.set(key, day);

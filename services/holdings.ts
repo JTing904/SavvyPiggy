@@ -250,7 +250,9 @@ export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 
 export const tradeTotalCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints' | 'fees'>) => {
   const value = tradeCents(trade);
   if (trade.kind === 'buy') return value + totalFees(trade.fees);
-  if (trade.kind === 'sell') return Math.max(0, value - totalFees(trade.fees));
+  // What the sale really brought home. When the fees are bigger than the sale
+  // this is negative: the shortfall is taken from the goal the sale went to.
+  if (trade.kind === 'sell') return value - totalFees(trade.fees);
   return value;
 };
 

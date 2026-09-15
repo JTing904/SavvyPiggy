@@ -137,6 +137,7 @@ export const invest = {
     `${goal} holds ${available}, and this buy needs ${needed}. Buy fewer units, or pay from another goal.`,
   aGoal: 'That goal',
   rowGone: 'This sale’s entry has been cleared from History, so where its money went can no longer be undone exactly.',
+  saleBelowFees: (amount: string) => `The fees are bigger than this sale, so it costs you ${amount}. Choose the goal it comes out of.`,
   nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
   refundLater: 'The goal this buy was paid from has been deleted. When you save, you’ll be asked where its money goes back.',
 

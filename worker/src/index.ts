@@ -218,8 +218,17 @@ export default {
    * that lands overnight is already waiting when the app next opens.
    */
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
-    const listed = await env.DIVIDENDS.list({ prefix: KEY_PREFIX, limit: 200 });
-    for (const key of listed.keys) {
+    // The free plan allows 50 outbound fetches per run. Past that every
+    // refresh failed quietly, so a different slice of the list is refreshed
+    // each day; anything asked for by the app is still refreshed on demand.
+    const PER_RUN = 45;
+    const listed = await env.DIVIDENDS.list({ prefix: KEY_PREFIX, limit: 1000 });
+    const keys = listed.keys;
+    if (keys.length === 0) return;
+    const day = Math.floor(Date.now() / 86_400_000);
+    const start = keys.length > PER_RUN ? (day * PER_RUN) % keys.length : 0;
+    const slice = Array.from({ length: Math.min(PER_RUN, keys.length) }, (_, i) => keys[(start + i) % keys.length]);
+    for (const key of slice) {
       await load(env, key.name.slice(KEY_PREFIX.length), true);
     }
   },

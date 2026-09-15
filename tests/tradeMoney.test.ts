@@ -233,4 +233,16 @@ const invested = (amount: number, goalId = 'stocks'): Activity => ({
   eq('and still moves the goal only by the difference', p.bankDeltas, { stocks: -1_000 });
 }
 
+// --- a sale worth less than its fees
+
+{
+  const tiny = { ...buy(undefined, { kind: 'sell', units: 10, priceCents: 50, fees: { brokerageCents: 800, clearingCents: 1, stampCents: 100, sstCents: 0 } }) };
+  eq('RM5 of shares less RM9.01 of fees comes to -RM4.01', tradeTotalCents(tiny), -401);
+  const next = { kind: 'sell' as const, totalCents: -401, counter: 'X', units: 10 };
+  const p = plan({ next: { ...next, choice: { mode: 'goal', goalId: 'car' } } });
+  eq('the shortfall comes out of the chosen goal', p.bankDeltas, { car: -401 });
+  eq('and its row says so, signed', p.activity.write === 'create' ? p.activity.draft.distributions : null, [{ bankId: 'car', amount: -4.01, percentage: 100 }]);
+  eq('auto split cannot carry a cost', run({ next: { ...next, choice: { mode: 'split' } } }), { problem: { kind: 'saleBelowFees', cents: 401 } });
+}
+
 report();

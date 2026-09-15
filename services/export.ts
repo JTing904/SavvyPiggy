@@ -44,7 +44,12 @@ const money = (n: number) => Math.round(n * 100) / 100;
  * goals rather than from the stored amount.
  */
 export const ledgerAmount = (a: Pick<Activity, 'type' | 'amount' | 'distributions'>) => {
-  if (a.type === 'transfer') return fromCents(a.distributions.reduce((sum, d) => sum + toCents(d.amount), 0));
+  // Signed by where the money went: a transfer from an overspent goal, or a
+  // sale whose fees were bigger than the sale, took money out.
+  if (a.type === 'transfer' || a.type === 'divest') {
+    const signed = a.distributions.reduce((sum, d) => sum + toCents(d.amount), 0);
+    if (a.type === 'transfer' || signed < 0) return fromCents(signed);
+  }
   return a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' ? -a.amount : a.amount;
 };
 

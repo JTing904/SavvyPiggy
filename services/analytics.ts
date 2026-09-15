@@ -193,9 +193,12 @@ export const inflowCents = (a: Activity) =>
 
 /** What was spent out of goals. Buying shares is not spending, so it is left out. */
 const outflowCents = (a: Activity) =>
-  a.type === 'invest' || a.type === 'transfer' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
 
 const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
+
+/** A sale's effect on the goals, signed: negative when its fees were bigger than the sale. */
+const signedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + toCents(d.amount), 0);
 
 /**
  * How much one entry changed what the goals hold, on the Report's definition
@@ -206,7 +209,7 @@ const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Mat
 export const goalsChangeCents = (a: Activity) => {
   if (a.type === 'transfer') return 0;
   if (a.type === 'invest') return -movedCents(a);
-  if (a.type === 'divest') return movedCents(a);
+  if (a.type === 'divest') return signedCents(a);
   return inflowCents(a) - outflowCents(a);
 };
 
@@ -334,8 +337,8 @@ export const summarize = (
     // A deleted goal's money moving into another goal changes nothing overall.
     if (a.type === 'transfer') continue;
     if (a.type === 'divest') {
-      cameBack += movedCents(a) + toCents(a.repaid ?? 0);
-      cameBackToGoals += movedCents(a);
+      cameBack += signedCents(a) + toCents(a.repaid ?? 0);
+      cameBackToGoals += signedCents(a);
       continue;
     }
     const inflow = inflowCents(a);

@@ -124,6 +124,7 @@ export const invest: typeof English = {
     `${goal} 里只有 ${available}，这笔买入要 ${needed}。少买一些，或者从别的钱罐出钱。`,
   aGoal: '那个钱罐',
   rowGone: '这笔卖出的记录已经从记录里清除，所以没办法准确撤回它的钱去了哪里。',
+  saleBelowFees: (amount) => `手续费比卖出的钱还多，这笔卖出反而要花 ${amount}。请选从哪个钱罐扣。`,
   nothingToSplit: '没有钱罐参与存入分配，所以没地方可以分。',
   refundLater: '这笔买入出钱的钱罐已经删掉了。保存时会问你钱要退去哪里。',
 

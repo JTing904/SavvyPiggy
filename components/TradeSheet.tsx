@@ -415,6 +415,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
         return t.invest.rowGone;
       case 'nothingToSplit':
         return t.invest.nothingToSplit;
+      case 'saleBelowFees':
+        return t.invest.saleBelowFees(money(p.cents));
       case 'goalGone':
         return t.errors.tradeMoney.goalGone;
       case 'saleGoalGone':
