@@ -22,6 +22,8 @@ const STYLES: Record<
   invest: { label: 'invest', icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
   divest: { label: 'divest', icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
   transfer: { label: 'transfer', icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
+  toInvest: { label: 'toInvest', icon: 'south_east', tint: 'bg-accent/10 text-accent', outgoing: true },
+  fromInvest: { label: 'fromInvest', icon: 'north_west', tint: 'bg-accent/10 text-accent', outgoing: false },
 };
 
 interface ActivityLogProps {
@@ -52,9 +54,10 @@ const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
 /** What was saved and what was spent, in cents. A sale's proceeds are shares
     coming back rather than saving, and a purchase is not spending. */
 // A deleted goal's money moving into another goal is neither, either.
-const inflow = (a: Activity) => (a.type === 'divest' || a.type === 'transfer' ? 0 : credited(a));
+// Money moving to or from the investment pot is neither saving nor spending either.
+const inflow = (a: Activity) => (a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' ? 0 : credited(a));
 const outflow = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
 
 /** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
 const sharesCents = (a: Activity) =>
@@ -167,7 +170,8 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
       day.saved += inflow(a);
       day.spent += outflow(a);
       if (a.type === 'borrow') day.borrowed += toCents(a.amount);
-      if (a.type === 'invest') day.sharesOut += sharesCents(a);
+      if (a.type === 'invest' || a.type === 'toInvest') day.sharesOut += sharesCents(a);
+      else if (a.type === 'fromInvest') day.sharesIn += sharesCents(a);
       else if (a.type === 'divest') {
         const cents = sharesCents(a);
         if (cents >= 0) day.sharesIn += cents;
@@ -184,7 +188,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
   /** Only a plain split can be re-derived from its percentages. Anything that
       moved money out, or paid down a loan, has to be deleted and redone. */
   const canEdit = (activity: Activity) =>
-    !isTrade(activity) && activity.type !== 'transfer' && !STYLES[activity.type].outgoing && !activity.repaid;
+    !isTrade(activity) && activity.type !== 'transfer' && activity.type !== 'fromInvest' && !STYLES[activity.type].outgoing && !activity.repaid;
 
   /** How a trade's row opens its trade, or null when it cannot be opened from here. */
   const tradeOpener = (activity: Activity) => {
@@ -344,7 +348,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({
             tradeOpener(activity) && (
               <span className="material-symbols-rounded text-base text-slate-600 shrink-0">chevron_right</span>
             )
-          ) : activity.type === 'transfer' ? null : editingId === activity.id ? (
+          ) : activity.type === 'transfer' || activity.type === 'toInvest' || activity.type === 'fromInvest' ? null : editingId === activity.id ? (
             <>
               <input
                 autoFocus

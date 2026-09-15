@@ -15,8 +15,8 @@ export const files = {
   spentFromGoals: 'Spent from goals',
   debtRepaid: 'Debt repaid',
   /** Money that changed form, shown beside the savings but never counted as saved or spent. */
-  movedIntoShares: 'Moved into shares',
-  cameBackFromShares: 'Came back from shares',
+  movedIntoShares: 'Moved to investing',
+  cameBackFromShares: 'Back from investing',
   /** A trade's ledger row: "Invested · MAYBANK". */
   tradeNote: (label: string, counter: string) => `${label} · ${counter}`,
   spentAhead: 'Spent ahead',

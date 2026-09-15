@@ -1,7 +1,9 @@
 import type { plan as English } from '../en/plan';
 
 export const plan: typeof English = {
-  title: '每月定投',
+  title: '推荐',
+  buyThis: (name) => `买入 ${name}`,
+  buyThisHint: '打开买入页，股数和价格照你的成交单填，钱从投资钱罐出',
   changeBroker: '换券商',
 
   styles: {
@@ -145,7 +147,7 @@ export const plan: typeof English = {
     unitsWithFees: (units, amount) => `${units} 股 · 含手续费 ${amount}`,
     notALot: '还不够买一手',
     bestMatchFor: (mix) => `最符合 ${mix}`,
-    setUp: '设置每月定投',
+    setUp: '设置推荐',
     setUpHint: '回答六个问题，再挑出你想买的股票。',
     addCounters: '加入你想买的股票',
     addCountersHint: '推荐是比较出来的，至少要两只。',

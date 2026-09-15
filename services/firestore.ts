@@ -22,7 +22,7 @@ import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import type { InvestSettings } from '../types';
 import { planTradeMoney, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
-import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, AlertKind } from '../types';
+import type { Activity, ActivityType, Alert, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
 import { dayStart, tradeTotalCents } from './holdings';
@@ -771,6 +771,7 @@ export const DEFAULT_INVEST: InvestSettings = {
   typeOverrides: {},
   budgetGoalId: null,
   feePromptAt: 0,
+  potBalance: 0,
 };
 
 export const subscribeToInvest = (
@@ -806,6 +807,8 @@ export interface TradeWrite {
   /** Every debt, settled ones included — undoing a sale can reopen one. */
   loans: Loan[];
   savings?: SavingsSettings;
+  /** The investment pot's balance now, in ringgit. */
+  potBalance?: number;
 }
 
 /**
@@ -835,6 +838,7 @@ export const saveTrade = (uid: string, w: TradeWrite) => {
     overflow: (w.savings ?? DEFAULT_SAVINGS).overflow,
     refund: w.refund,
     takeBack: w.takeBack,
+    potCents: toCents(w.potBalance ?? 0),
   });
   if ('problem' in result) throw new TradeMoneyError(result.problem);
   const { plan } = result;
@@ -868,6 +872,7 @@ export const saveTrade = (uid: string, w: TradeWrite) => {
     }
   }
 
+  if (plan.potDelta !== 0) batch.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
   for (const [bankId, cents] of Object.entries(plan.bankDeltas)) {
     batch.update(bankRef(uid, bankId), { currentAmount: increment(fromCents(cents)) });
   }
@@ -879,7 +884,7 @@ export const saveTrade = (uid: string, w: TradeWrite) => {
   }
 
   if (next) {
-    const money = plan.money && plan.money.mode !== 'none' ? { ...plan.money, activityId: activityId ?? '' } : plan.money;
+    const money = plan.money && 'activityId' in plan.money ? { ...plan.money, activityId: activityId ?? '' } : plan.money;
     batch.set(
       ref,
       defined({
@@ -937,39 +942,24 @@ export const migrateHoldingsToTrades = async (uid: string) => {
 };
 
 /**
- * Paying a dividend into the savings, on the day it lands.
+ * Paying a dividend into the investment pot, on the day it lands.
  *
- * It goes in as an ordinary deposit — the same split across the same goals,
- * clearing any borrowing first — because it is ordinary money. What is not
- * ordinary is that the app decides to record it rather than the user, so two
- * things are true of this function:
+ * Dividends are income from the shares, so they stay on the investing side: the
+ * pot grows and nothing in savings moves. The app records it rather than the
+ * user, so two things are true of this function:
  *
  * It runs inside a transaction keyed on the dividend's own id, so opening the
- * app on two phones, or twice in a minute, credits it once. The id is the
- * counter and the ex-date, which is what identifies a payment.
+ * app on two phones, or twice in a minute, credits it once.
  *
  * And it writes the trade with the units it was worked out on, so the log
  * shows how the figure was reached. Companies deduct tax and fees, so the
- * amount that lands is often not the amount announced — the trade is editable
- * like any other, and the alert says to check it.
+ * amount that lands is often not the amount announced — the alert says to check it.
  */
-export const creditDividend = async (
-  uid: string,
-  due: DueDividend,
-  name: string,
-  banks: PiggyBank[],
-  loans: Loan[],
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
-) => {
+export const creditDividend = async (uid: string, due: DueDividend, name: string) => {
   const { dividend, units, amountCents } = due;
   // The id comes with the due dividend: a second payment on the same ex-date
   // carries a suffix, while the first keeps the id it was always paid under.
   const id = due.id;
-  const plan = planDeposit(amountCents, banks, loans, null, savings.overflow);
-  // Nowhere for it to go means nothing is recorded, and it stays due: better
-  // to credit it late, once there is a goal, than to lose it quietly.
-  if (plan.movements.length === 0 && plan.repayments.length === 0) return null;
-
   const now = new Date();
 
   return runTransaction(db, async (tx) => {
@@ -986,45 +976,13 @@ export const creditDividend = async (
       exDate: dividend.exDate,
       tradedAt: exchangeDay(dividend.payDate),
       createdAt: Date.now(),
+      money: { mode: 'pot' } satisfies TradeMoney,
     });
 
-    tx.set(doc(activitiesCol(uid)), {
-      type: 'manual' satisfies ActivityType,
-      date: now.toISOString(),
-      amount: fromCents(amountCents),
-      distributions: toDistributions(plan.movements),
-      repaid: fromCents(plan.repaidCents),
-      repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
-      note: `${name} dividend`,
-    });
+    tx.set(investRef(uid), { potBalance: increment(fromCents(amountCents)) }, { merge: true });
 
-    plan.movements.forEach((m) =>
-      tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
-    );
-
-    plan.repayments.forEach((r) => {
-      const left = outstandingCents(r.loan) - r.cents;
-      tx.update(loanRef(uid, r.loan.id), {
-        outstanding: increment(-fromCents(r.cents)),
-        settledAt: left === 0 ? now.toISOString() : null,
-      });
-    });
-
-    /*
-      The marker the guard above reads, written in the same transaction as the
-      money it describes.
-
-      It was missing. The guard read a document nothing ever wrote, so the set
-      of credited dividends stayed empty forever: `dueDividends` kept reporting
-      this one as unpaid and the guard never short-circuited. The trade row
-      survived that, because its id is derived from the counter and ex-date and
-      a repeat just overwrote it — but the money did not. Every app open added
-      another activity, incremented the goals again, and re-applied the loan
-      repayments. A dividend was being paid in over and over.
-
-      Same transaction is the whole point: either the money moved and this says
-      so, or neither happened.
-    */
+    // The marker the guard above reads, in the same transaction as the money:
+    // either the money moved and this says so, or neither happened.
     tx.set(creditedRef(uid, id), {
       creditedAt: now.toISOString(),
       symbol: dividend.symbol,
@@ -1033,8 +991,6 @@ export const creditDividend = async (
       amountCents,
     });
 
-    // This one the user did not type in, so it is worth telling them about
-    // whatever their milestone setting says.
     tx.set(alertRef(uid, `dividend_${id}`), {
       kind: 'dividend' satisfies AlertKind,
       date: now.toISOString(),
@@ -1044,21 +1000,67 @@ export const creditDividend = async (
       amount: fromCents(amountCents),
     });
 
-    if (alerts.milestones) {
-      for (const draft of milestoneAlerts(banks, plan.movements, now, savings.overflow)) {
-        const { id: alertId, ...rest } = draft;
-        tx.set(alertRef(uid, alertId), { ...rest, read: false });
-      }
-    }
-
-    // The caller may have more than one dividend to credit in a pass, and
-    // each one changes the debt the next is planned against.
-    return {
-      amountCents,
-      units,
-      repaid: plan.repayments.map((r) => ({ loanId: r.loan.id, cents: r.cents })),
-    };
+    return { amountCents, units };
   });
+};
+
+/* ---------------------------------------------------------- investment pot */
+
+/**
+ * Savings into the investment pot. Not spending: the money only changes side,
+ * so History records it as its own kind of row. A goal can't hand over more
+ * than it holds — this is a move, not a spend ahead.
+ */
+export const transferToPot = (uid: string, banks: PiggyBank[], goalId: string, cents: number) => {
+  const bank = banks.find((b) => b.id === goalId && !b.archivedAt);
+  if (!bank) throw new Error(messages().errors.goalRemoval.noDestination);
+  if (cents <= 0) throw new Error(messages().errors.enterAmount);
+  if (toCents(bank.currentAmount) < cents) throw new Error(messages().errors.potFromShort(bank.name));
+
+  const batch = writeBatch(db);
+  batch.update(bankRef(uid, goalId), { currentAmount: increment(-fromCents(cents)) });
+  batch.set(investRef(uid), { potBalance: increment(fromCents(cents)) }, { merge: true });
+  batch.set(doc(activitiesCol(uid)), {
+    type: 'toInvest' satisfies ActivityType,
+    date: new Date().toISOString(),
+    amount: fromCents(cents),
+    distributions: [{ bankId: goalId, amount: -fromCents(cents), percentage: 100 }],
+  });
+  return batch.commit();
+};
+
+/**
+ * The investment pot back into savings: one goal, or split by the strategy.
+ * It is not new income, so it does not clear spent ahead; a split under 100%
+ * still places every sen, the leftover going to the biggest share.
+ */
+export const transferFromPot = (
+  uid: string,
+  banks: PiggyBank[],
+  potBalance: number,
+  target: string | null,
+  cents: number,
+  savings: SavingsSettings = DEFAULT_SAVINGS
+) => {
+  if (cents <= 0) throw new Error(messages().errors.enterAmount);
+  if (toCents(potBalance) < cents) throw new Error(messages().errors.potShort);
+  const movements = planDeposit(cents, banks.filter((b) => !b.archivedAt), [], target, savings.overflow).movements.filter(
+    (m) => m.cents !== 0
+  );
+  if (movements.length === 0) throw new Error(messages().errors.goalRemoval.noDestination);
+  const placed = movements.reduce((sum, m) => sum + m.cents, 0);
+  if (placed < cents) movements.reduce((a, b) => (b.percentage > a.percentage ? b : a)).cents += cents - placed;
+
+  const batch = writeBatch(db);
+  movements.forEach((m) => batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) }));
+  batch.set(investRef(uid), { potBalance: increment(-fromCents(cents)) }, { merge: true });
+  batch.set(doc(activitiesCol(uid)), {
+    type: 'fromInvest' satisfies ActivityType,
+    date: new Date().toISOString(),
+    amount: fromCents(cents),
+    distributions: toDistributions(movements),
+  });
+  return batch.commit();
 };
 
 /* --------------------------------------------------------------- schedules */

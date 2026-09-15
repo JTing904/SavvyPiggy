@@ -26,6 +26,7 @@ export const home: typeof English = {
   trackHoldingsHint: '自动为你报价，和储蓄分开管理。',
   getStarted: '开始使用',
   today: '今日',
+  sharesAndPot: (shares, pot) => `股票 ${shares} · 投资钱罐 ${pot}`,
   counters: (n) => `${n} 只股票`,
   view: '查看',
 

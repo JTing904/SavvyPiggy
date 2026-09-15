@@ -21,6 +21,9 @@ export const errors = {
   scheduleGoalGone: (count: number) =>
     `${count} auto deposit${count === 1 ? '' : 's'} still point${count === 1 ? 's' : ''} at a deleted or archived goal and ${count === 1 ? 'was' : 'were'} not posted. Choose another goal for ${count === 1 ? 'it' : 'them'} in Auto deposits.`,
   coveredNowhere: 'This spent ahead was already covered by a deposit, and undoing it would put that money back — but no goal takes a full share of deposits right now. Set your split to 100% first.',
+  enterAmount: 'Enter an amount.',
+  potShort: 'The investment pot doesn’t hold that much.',
+  potFromShort: (goal: string) => `${goal} doesn’t hold that much.`,
   goneShare: 'Part of this went through a goal that has since been deleted. Choose where that part is settled.',
 
   /** Names written into new goals, in the language chosen when they were made. */
@@ -42,5 +45,7 @@ export const errors = {
     rowGone: 'This sale’s entry has been cleared from History, so its split can no longer be undone exactly.',
     insufficient: 'That goal doesn’t hold enough for this trade.',
     nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
+    saleBelowFees: 'The fees are bigger than this sale. Choose the goal the difference comes out of.',
+    potShort: 'The investment pot doesn’t hold enough for this.',
   },
 };

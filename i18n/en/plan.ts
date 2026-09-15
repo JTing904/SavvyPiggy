@@ -1,6 +1,8 @@
 /** The monthly buy page, the watchlist sheet and the pick card on the investing Home. */
 export const plan = {
-  title: 'Monthly buy',
+  title: 'Recommendation',
+  buyThis: (name: string) => `Buy ${name}`,
+  buyThisHint: 'Opens the Buy sheet: fill in units and price from your contract note. The money comes out of the investment pot.',
   changeBroker: 'Change broker',
 
   /** The three styles, by their key in services/advisor/model.ts. */
@@ -162,7 +164,7 @@ export const plan = {
     unitsWithFees: (units: string, amount: string) => `${units} units · ${amount} with fees`,
     notALot: 'Not enough for a full lot yet',
     bestMatchFor: (mix: string) => `Best match for ${mix}`,
-    setUp: 'Set up your monthly buy',
+    setUp: 'Set up recommendations',
     setUpHint: 'Answer six questions and pick the counters you would buy.',
     addCounters: "Add counters you'd buy",
     addCountersHint: 'The pick is a comparison, so it needs at least two.',

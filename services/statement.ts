@@ -38,6 +38,8 @@ const typeLabels = (): Record<Activity['type'], string> => ({
   invest: m().common.activity.invest,
   divest: m().common.activity.divest,
   transfer: m().common.activity.transfer,
+  toInvest: m().common.activity.toInvest,
+  fromInvest: m().common.activity.fromInvest,
 });
 
 const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
@@ -343,10 +345,10 @@ export const renderStatement = ({
       inPeriod.map((a) => {
         const parts = a.distributions.map((d) => `${nameOf(d.bankId)} ${signed(d.amount)}`);
         if (a.repaid) parts.unshift(f.debtRepaidAmount(money(a.repaid)));
-        const outgoing = a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest';
+        const outgoing = a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' || a.type === 'toInvest';
         // Shares and money moved between goals are not spending or saving, so
         // they are not coloured as either.
-        const neutral = a.type === 'invest' || a.type === 'divest' || a.type === 'transfer';
+        const neutral = a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' || a.type === 'fromInvest';
         const trade = a.type === 'invest' || a.type === 'divest';
         return [
           dateTime(new Date(a.date)),

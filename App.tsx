@@ -20,6 +20,7 @@ import Dividends from './components/Dividends';
 import Growth from './components/Growth';
 import TradeSheet, { type TradeDraft } from './components/TradeSheet';
 import ArchiveSchedulesSheet from './components/ArchiveSchedulesSheet';
+import PotTransferSheet from './components/invest/PotTransferSheet';
 import type { Mode } from './components/Navigation';
 import LanguagePicker from './components/LanguagePicker';
 import MonthlyBuy from './components/invest/MonthlyBuy';
@@ -75,6 +76,8 @@ const App: React.FC = () => {
   const [quickAction, setQuickAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [showMonthlyBuy, setShowMonthlyBuy] = useState(false);
+  /** Moving money between savings and the investment pot. */
+  const [potSheet, setPotSheet] = useState<'in' | 'out' | null>(null);
   /**
    * The two questions a first buy has to answer — style, then broker — and
    * the buy waiting behind them. Also used to edit either on its own, with no
@@ -315,7 +318,7 @@ const App: React.FC = () => {
     // is neither saving nor spending, so a buy does not turn today negative —
     // and nor is a deleted goal's money moving into another goal.
     return activities
-      .filter((a) => a.type !== 'invest' && a.type !== 'divest' && a.type !== 'transfer')
+      .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest'].includes(a.type))
       .filter((a) => new Date(a.date).toLocaleDateString() === today)
       .flatMap((a) => a.distributions)
       .reduce((sum, d) => sum + d.amount, 0);
@@ -494,7 +497,6 @@ const App: React.FC = () => {
           onBack={() => setShowMonthlyBuy(false)}
           onRecordBuy={(d) => openTrade({ mode: 'new', kind: 'buy', ...d })}
           onEditStyle={() => setSetup({ step: 'style', pending: null, editing: true })}
-          onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
         />
       );
     }
@@ -588,6 +590,7 @@ const App: React.FC = () => {
             onModeChange={setMode}
             onTrade={(holding, kind) => openTrade({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })}
             investSettings={invest}
+            onPotMove={setPotSheet}
             onOpenMonthlyBuy={() => setShowMonthlyBuy(true)}
             onOpenTrade={openTradeById}
             onOpenTrades={() => setActiveTab(Tab.TRADES)}
@@ -778,6 +781,23 @@ const App: React.FC = () => {
             }
           }}
           onClose={() => setSetup(null)}
+        />
+      )}
+      {potSheet && uid && (
+        <PotTransferSheet
+          direction={potSheet}
+          banks={banks}
+          potBalance={invest.potBalance ?? 0}
+          savings={savings}
+          onConfirm={(target, cents) => {
+            const direction = potSheet;
+            setPotSheet(null);
+            run(async () => {
+              if (direction === 'in' && target) await api.transferToPot(uid, banks, target, cents);
+              else if (direction === 'out') await api.transferFromPot(uid, banks, invest.potBalance ?? 0, target, cents, savings);
+            });
+          }}
+          onClose={() => setPotSheet(null)}
         />
       )}
       {archiving && uid && banks.some((b) => b.id === archiving) && (

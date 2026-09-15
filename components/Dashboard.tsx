@@ -13,6 +13,7 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import { portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
 import PickCard from './invest/PickCard';
+import PotCard from './invest/PotCard';
 import type { Mode as NavMode } from './Navigation';
 import { CATEGORIES, UNCATEGORISED } from '../services/categories';
 import { useT } from '../contexts/LanguageContext';
@@ -30,6 +31,8 @@ const activityLabel = (t: Messages, type: ActivityType) =>
     invest: t.common.activity.invest,
     divest: t.common.activity.divest,
     transfer: t.common.activity.transfer,
+    toInvest: t.common.activity.toInvest,
+    fromInvest: t.common.activity.fromInvest,
   })[type];
 
 const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoing: boolean }> = {
@@ -40,6 +43,8 @@ const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoi
   invest: { icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
   divest: { icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
   transfer: { icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
+  toInvest: { icon: 'south_east', tint: 'bg-accent/10 text-accent', outgoing: true },
+  fromInvest: { icon: 'north_west', tint: 'bg-accent/10 text-accent', outgoing: false },
 };
 
 interface DashboardProps {
@@ -72,6 +77,8 @@ interface DashboardProps {
   onQuickActionHandled: () => void;
   /** For this month's pick card; without it (or the opener) the card is not shown. */
   investSettings?: InvestSettings;
+  /** Opens moving money between savings and the investment pot. */
+  onPotMove?: (direction: 'in' | 'out') => void;
   onOpenMonthlyBuy?: () => void;
   /** A trade's money row opens that trade, which is the only place it is edited. */
   onOpenTrade?: (tradeId: string) => void;
@@ -120,6 +127,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   quickAction,
   onQuickActionHandled,
   investSettings,
+  onPotMove,
   onOpenMonthlyBuy,
   onOpenTrade,
 }) => {
@@ -193,6 +201,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   // Prices are whatever the holdings screen last cached — the Home card never
   // goes to the network itself.
   const portfolio = portfolioTotals(holdings, quotes);
+  // The investing total is the shares plus the cash waiting in the pot; savings never count it.
+  const potCents = toCents(investSettings?.potBalance ?? 0);
+  const investedTotal = portfolio.valueCents + potCents;
 
   /**
    * The rail is the mode switch. Scrolling past the halfway mark changes the
@@ -358,7 +369,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           className="relative overflow-hidden rounded-[2rem] bg-surface border border-accent/30 p-7 shadow-2xl shrink-0 h-[11.5rem] w-full snap-center text-left active:scale-[0.99] transition-transform flex flex-col justify-between"
         >
           <p className="text-accent text-xs font-bold uppercase tracking-widest mb-1">{t.home.investments}</p>
-          {holdings.length === 0 ? (
+          {holdings.length === 0 && potCents === 0 ? (
             <>
               <div>
 
@@ -377,10 +388,10 @@ const Dashboard: React.FC<DashboardProps> = ({
             <>
               <h2
                 className={`text-white font-extrabold tracking-tight ${
-                  formatMoney(fromCents(portfolio.valueCents)).length > 12 ? 'text-3xl' : 'text-4xl'
+                  formatMoney(fromCents(investedTotal)).length > 12 ? 'text-3xl' : 'text-4xl'
                 }`}
               >
-                {formatMoney(fromCents(portfolio.valueCents))}
+                {formatMoney(fromCents(investedTotal))}
               </h2>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`text-sm font-black ${portfolio.dayChangeCents < 0 ? 'text-slate-400' : 'text-primary'}`}>
@@ -389,8 +400,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <span className="text-slate-500 text-xs font-bold">{t.home.today}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-500 text-[11px] font-bold">
-                  {t.home.counters(holdings.length)}
+                <span className="text-slate-500 text-[11px] font-bold truncate">
+                  {t.home.sharesAndPot(formatMoney(fromCents(portfolio.valueCents)), formatMoney(fromCents(potCents)))}
                 </span>
                 <div className="flex-1" />
                 <span className="inline-flex items-center gap-1 text-accent text-xs font-black">
@@ -594,6 +605,11 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Clears the floating nav bar, which otherwise cuts the last button. */}
       <div className={`px-6 mt-4 pb-32 ${navMode === 'invest' ? '' : 'hidden'}`}>
+          {investSettings && onPotMove && (
+            <div className="mb-4">
+              <PotCard balance={investSettings.potBalance ?? 0} onMoveIn={() => onPotMove('in')} onMoveOut={() => onPotMove('out')} />
+            </div>
+          )}
           {investSettings && onOpenMonthlyBuy && (
             <div className="mb-6">
               <PickCard banks={banks} invest={investSettings} quotes={quotes} onOpen={onOpenMonthlyBuy} />

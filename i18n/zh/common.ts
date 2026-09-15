@@ -24,6 +24,8 @@ export const common: typeof English = {
     invest: '买股',
     divest: '卖股所得',
     transfer: '转入',
+    toInvest: '转去投资',
+    fromInvest: '从投资转回',
   },
 
   categories: {

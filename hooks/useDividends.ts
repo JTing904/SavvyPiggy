@@ -118,27 +118,11 @@ export const useDividends = ({ uid, trades, banks, loans, prefs, savings, ready 
     running.current = true;
     void (async () => {
       try {
-        // Each credit changes the debt the next one is planned against, so the
-        // loans are carried through the loop. Passing the same snapshot to
-        // every dividend had each one planning to clear a debt an earlier one
-        // in the same pass had already paid — so more went to repayment than
-        // was ever owed, and none of it reached the goals.
-        let openLoans = loans.map((l) => ({ ...l }));
-
         for (const item of due) {
           const name =
             trades.find((t) => t.symbol === item.dividend.symbol)?.name ?? item.dividend.symbol;
-          const result = await creditDividend(uid, item, name, banks, openLoans, {
-            alerts: prefs,
-            savings,
-          });
-          for (const r of result?.repaid ?? []) {
-            openLoans = openLoans.map((l) =>
-              l.id === r.loanId
-                ? { ...l, outstanding: Math.max(0, Math.round((l.outstanding - r.cents / 100) * 100) / 100) }
-                : l
-            );
-          }
+          // Dividends go into the investment pot, so nothing about goals or debt is planned here.
+          await creditDividend(uid, item, name);
         }
       } catch (e) {
         // A refused write leaves the dividend due, and the next app open tries

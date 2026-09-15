@@ -17,7 +17,7 @@ import { fromCents, toCents } from './money';
  * to the original, which read as the money arriving twice.
  */
 
-export type MoneyChoice = { mode: 'goal'; goalId: string } | { mode: 'split' } | { mode: 'none' };
+export type MoneyChoice = { mode: 'goal'; goalId: string } | { mode: 'split' } | { mode: 'pot' } | { mode: 'none' };
 
 export interface TradeSide {
   kind: 'buy' | 'sell';
@@ -46,6 +46,8 @@ export interface TradeMoneyInput {
    * deleted. Without it, the plan stops and asks.
    */
   takeBack?: GoneShareChoice;
+  /** The investment pot's balance now, in sen. */
+  potCents?: number;
 }
 
 export type TradeMoneyProblem =
@@ -57,7 +59,9 @@ export type TradeMoneyProblem =
   | { kind: 'insufficient'; goalId: string; availableCents: number; neededCents: number }
   | { kind: 'nothingToSplit' }
   /** A sale worth less than its fees costs money, and that has to come out of a named goal. */
-  | { kind: 'saleBelowFees'; cents: number };
+  | { kind: 'saleBelowFees'; cents: number }
+  /** The investment pot would go below zero; it never may. */
+  | { kind: 'potShort'; availableCents: number; neededCents: number };
 
 export interface ActivityDraft {
   type: 'invest' | 'divest';
@@ -76,6 +80,8 @@ export interface TradeMoneyPlan {
   loanDeltas: Record<string, number>;
   /** Outstanding after the plan, for the debts it touched — to settle or reopen them. */
   loanOutstanding: Record<string, number>;
+  /** Change to the investment pot, in sen. */
+  potDelta: number;
   activity:
     | { write: 'none' }
     | { write: 'delete'; id: string }
@@ -98,10 +104,16 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
   const { previous, next, banks, loans, overflow } = input;
   const bankDeltas: Record<string, number> = {};
   const loanDeltas: Record<string, number> = {};
+  const potCents = input.potCents ?? 0;
+  let potDelta = 0;
 
   // ---- 1. undo what the trade did before
   const before = previous?.trade.money;
-  if (previous && before && before.mode !== 'none') {
+  if (previous && before?.mode === 'pot') {
+    // The pot is one balance, so a trade that used it is undone from the trade alone.
+    const cents = tradeTotalCents(previous.trade);
+    potDelta += previous.trade.kind === 'buy' ? cents : -cents;
+  } else if (previous && before && before.mode !== 'none') {
     const { trade, activity } = previous;
     if (trade.kind === 'buy') {
       // A buy only ever takes from one goal.
@@ -164,12 +176,18 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
   const existingId = previous?.activity?.id ?? null;
   // A trade older than the loaded History still knows the id of its row.
   const staleId =
-    !existingId && previous?.trade.money && previous.trade.money.mode !== 'none' ? previous.trade.money.activityId || null : null;
+    !existingId && previous?.trade.money && 'activityId' in previous.trade.money ? previous.trade.money.activityId || null : null;
 
   if (next) {
     const { choice, totalCents } = next;
     if (choice.mode === 'none' || totalCents === 0 || (next.kind === 'buy' && totalCents < 0)) {
       money = { mode: 'none' };
+    } else if (choice.mode === 'pot') {
+      // The investment pot: a buy comes out of it, a sale's proceeds (negative
+      // when the fees were bigger) go into it. No savings History row — the
+      // savings side never sees it.
+      potDelta += next.kind === 'buy' ? -totalCents : totalCents;
+      money = { mode: 'pot' };
     } else if (next.kind === 'sell' && totalCents < 0) {
       // The fees were bigger than the sale, so it cost money: the shortfall is
       // taken from one goal. Splitting a cost like a deposit would read as
@@ -227,6 +245,12 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
     }
   }
 
+  // The pot never goes below zero, whatever brought it there: a buy it cannot
+  // pay for, a sale whose fees it cannot cover, or undoing a sale already spent.
+  if (potDelta < 0 && potCents + potDelta < 0) {
+    return { problem: { kind: 'potShort', availableCents: Math.max(0, potCents), neededCents: -potDelta } };
+  }
+
   // An undo and a redo that cancel out touch nothing.
   for (const map of [bankDeltas, loanDeltas]) for (const k of Object.keys(map)) if (map[k] === 0) delete map[k];
 
@@ -246,5 +270,5 @@ export const planTradeMoney = (input: TradeMoneyInput): { plan: TradeMoneyPlan }
       ? { write: 'delete', id: (existingId ?? staleId) as string }
       : { write: 'none' };
 
-  return { plan: { bankDeltas, loanDeltas, loanOutstanding, activity, money } };
+  return { plan: { bankDeltas, loanDeltas, loanOutstanding, potDelta, activity, money } };
 };

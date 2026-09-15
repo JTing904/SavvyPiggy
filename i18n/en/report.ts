@@ -57,11 +57,11 @@ export const report = {
   spent: 'Spent',
   outOfGoal: 'Out of a goal',
   /** Money that changed form rather than being spent or saved. */
-  movedIntoShares: 'Moved into shares',
-  cameBackFromShares: 'Came back from shares',
+  movedIntoShares: 'Moved to investing',
+  cameBackFromShares: 'Back from investing',
   goalsGrewBy: 'Your goals grew by',
   sharesNote:
-    'Buying shares is not spending, and a sale is not saving: the money only changed form. It still moved in and out of your goals, so it counts towards what they grew by.',
+    'Moving money to investing is not spending, and bringing it back is not saving: the money only changed place. It still moved in and out of your goals, so it counts towards what they grew by.',
   borrowNote:
     'Spending ahead never touches a goal. Your next deposits cover it before anything reaches them, which is why what you put in and what your goals grew by are different numbers.',
 

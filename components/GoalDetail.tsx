@@ -18,6 +18,8 @@ const STYLES: Record<ActivityType, { label: (t: Messages) => string; icon: strin
   invest: { label: (t) => t.common.activity.invest, icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent' },
   divest: { label: (t) => t.common.activity.divest, icon: 'currency_exchange', tint: 'bg-accent/10 text-accent' },
   transfer: { label: (t) => t.common.activity.transfer, icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300' },
+  toInvest: { label: (t) => t.common.activity.toInvest, icon: 'south_east', tint: 'bg-accent/10 text-accent' },
+  fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'north_west', tint: 'bg-accent/10 text-accent' },
 };
 
 

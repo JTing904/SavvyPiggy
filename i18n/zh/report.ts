@@ -41,11 +41,11 @@ export const report: typeof English = {
   reachedGoals: '分进钱罐',
   spent: '开销',
   outOfGoal: '从钱罐出',
-  movedIntoShares: '转去买股',
-  cameBackFromShares: '卖股转回',
+  movedIntoShares: '转去投资',
+  cameBackFromShares: '从投资转回',
   goalsGrewBy: '钱罐净增加',
   sharesNote:
-    '买股不算开销，卖股也不算存钱：钱只是换了形式。但它确实从钱罐进出，所以算进钱罐的增减里。',
+    '转去投资不算开销，从投资转回也不算存钱：钱只是换了地方。但它确实从钱罐进出，所以算进钱罐的增减里。',
   borrowNote:
     '预支不会动到钱罐。你之后存入的钱会先补回预支，剩下的才进钱罐，所以「存入」和「钱罐净增加」的数字会不一样。',
 

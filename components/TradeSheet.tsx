@@ -237,15 +237,20 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       const m = editing.money;
       if (m?.mode === 'goal') return banks.some((b) => b.id === m.goalId) ? { mode: 'goal', goalId: m.goalId } : { mode: 'none' };
       if (m?.mode === 'split') return { mode: 'split' };
+      if (m?.mode === 'pot') return { mode: 'pot' };
       return { mode: 'none' };
     }
-    if (draft.mode === 'new' && draft.kind === 'buy') {
-      if (draft.choice) return draft.choice;
-      const budget = invest.budgetGoalId;
-      if (budget && banks.some((b) => b.id === budget && !b.archivedAt)) return { mode: 'goal', goalId: budget };
-    }
-    return { mode: 'none' };
+    // Every new trade goes through the investment pot; savings goals are never touched.
+    return { mode: 'pot' };
   });
+
+  /**
+   * A trade recorded before the investment pot moved money in savings goals.
+   * It keeps those choices when corrected, so its money is undone where it
+   * went; everything else offers only the pot.
+   */
+  const legacyGoalMoney = !!editing && (editing.money?.mode === 'goal' || editing.money?.mode === 'split');
+  const potCents = toCents(invest.potBalance ?? 0);
 
   /** Asked when a buy's paying goal is gone; `removing` says what to retry. */
   const [refundAsk, setRefundAsk] = useState<{ cents: number; removing: boolean } | null>(null);
@@ -354,7 +359,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             trade: editing,
             activity:
               activities.find(
-                (a) => (editing.money?.mode !== 'none' && a.id === editing.money?.activityId) || a.tradeId === editing.id
+                (a) => (!!editing.money && 'activityId' in editing.money && a.id === editing.money.activityId) || a.tradeId === editing.id
               ) ?? null,
           }
         : null,
@@ -393,6 +398,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       banks,
       loans,
       overflow: savings.overflow,
+      potCents,
     };
     const first = planTradeMoney(input);
     if ('problem' in first && first.problem.kind === 'goalGone') {
@@ -403,7 +409,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     }
     return { result: first, refundPending: false, takeBackPending: false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, kind, totalCents, choice, name, symbol, unitsIn, previous, banks, loans, savings.overflow]);
+  }, [ready, kind, totalCents, choice, name, symbol, unitsIn, previous, banks, loans, savings.overflow, potCents]);
 
   const bankName = (id: string) => banks.find((b) => b.id === id)?.name ?? t.invest.aGoal;
 
@@ -417,6 +423,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
         return t.invest.nothingToSplit;
       case 'saleBelowFees':
         return t.invest.saleBelowFees(money(p.cents));
+      case 'potShort':
+        return t.invest.potShort(money(p.availableCents), money(p.neededCents));
       case 'goalGone':
         return t.errors.tradeMoney.goalGone;
       case 'saleGoalGone':
@@ -432,7 +440,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
    * forcing it into a goal now would count that money twice.
    */
   const legacyNone = !!editing && editing.kind === 'sell' && (!editing.money || editing.money.mode === 'none');
-  const needsChoice = (kind === 'sell' && choice.mode === 'none' && !legacyNone) || !picked;
+  const needsChoice = (legacyGoalMoney && kind === 'sell' && choice.mode === 'none' && !legacyNone) || !picked;
   const hasDestination = banks.some((b) => !b.archivedAt);
 
   /** Every trade in this counter as it stands, and as it would be with this change. */
@@ -492,7 +500,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       feeEdits,
     };
     try {
-      const { id, committed } = saveTrade(uid, { previous, trade: body, choice, refund, takeBack, banks, loans, savings });
+      const { id, committed } = saveTrade(uid, { previous, trade: body, choice, refund, takeBack, banks, loans, savings, potBalance: invest.potBalance });
       committed.catch((e) => onSyncError?.(e));
       setRefundAsk(null);
       setTakeBackAsk(null);
@@ -517,7 +525,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     setBusy(true);
     setProblem(null);
     try {
-      const { committed } = saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, takeBack, banks, loans, savings });
+      const { committed } = saveTrade(uid, { previous, trade: null, choice: { mode: 'none' }, refund, takeBack, banks, loans, savings, potBalance: invest.potBalance });
       committed.catch((e) => onSyncError?.(e));
       setRefundAsk(null);
       setTakeBackAsk(null);
@@ -579,6 +587,9 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   /** The lines under the totals that say what happens to the goals. */
   const moneyLines = () => {
     if (!plan) return null;
+    if (choice.mode === 'pot' || (plan.potDelta !== 0 && Object.keys(plan.bankDeltas).length === 0)) {
+      return <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />;
+    }
     const draftRow = plan.activity.write === 'create' || plan.activity.write === 'update' ? plan.activity.draft : null;
     if (choice.mode === 'split' && draftRow) {
       const repaid = toCents(draftRow.repaid);
@@ -845,7 +856,17 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 {kind === 'buy' ? t.invest.paidFrom : t.invest.depositTo}
               </p>
               <div className="space-y-2">
-                {goalOptions.map((b) => (
+                {!legacyGoalMoney && (
+                  <ChoiceRow
+                    icon="account_balance_wallet"
+                    label={t.invest.pot}
+                    sub={kind === 'buy' ? t.invest.potBuySub : t.invest.potSellSub}
+                    value={money(potCents)}
+                    on={picked && choice.mode === 'pot'}
+                    onClick={() => pick({ mode: 'pot' })}
+                  />
+                )}
+                {legacyGoalMoney && goalOptions.map((b) => (
                   <ChoiceRow
                     key={b.id}
                     icon={b.icon}
@@ -856,7 +877,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     onClick={() => pick({ mode: 'goal', goalId: b.id })}
                   />
                 ))}
-                {kind === 'sell' && (canSplit || choice.mode === 'split') && (
+                {legacyGoalMoney && kind === 'sell' && (canSplit || choice.mode === 'split') && (
                   <ChoiceRow
                     icon="call_split"
                     tone="split"
@@ -871,7 +892,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     icon="block"
                     tone="none"
                     label={kind === 'buy' ? t.common.notFromGoal : t.invest.notIntoGoal}
-                    sub={kind === 'buy' ? t.invest.notFromGoalSub : t.invest.notIntoGoalLegacySub}
+                    sub={kind === 'buy' ? t.invest.notFromPotSub : t.invest.notIntoGoalLegacySub}
                     on={picked && choice.mode === 'none'}
                     onClick={() => pick({ mode: 'none' })}
                   />

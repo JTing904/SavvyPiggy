@@ -31,7 +31,7 @@ export const history = {
   splitAcross: (n: number) => `split across ${n} goals`,
   coveredSpentAhead: (amount: string) => `covered spent ahead ${amount}`,
   /** A day's money moved for shares, kept apart from saved and spent: "shares −RM799.24 / +RM1,070.00". */
-  sharesMoved: (moves: string) => `shares ${moves}`,
+  sharesMoved: (moves: string) => `investing ${moves}`,
   openTrade: 'Open the trade',
 
   noGoalTouched: 'No goal was touched — your next deposits cover this before anything reaches them.',

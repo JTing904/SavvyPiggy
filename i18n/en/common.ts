@@ -27,6 +27,8 @@ export const common = {
     invest: 'Invested',
     divest: 'Sale proceeds',
     transfer: 'Moved in',
+    toInvest: 'Moved to investing',
+    fromInvest: 'Back from investing',
   },
 
   /** Spending categories, by their stored key. */

@@ -13,8 +13,8 @@ export const files: typeof English = {
   savedIntoGoals: '存入钱罐',
   spentFromGoals: '钱罐开销',
   debtRepaid: '补回预支',
-  movedIntoShares: '转去买股',
-  cameBackFromShares: '卖股转回',
+  movedIntoShares: '转去投资',
+  cameBackFromShares: '从投资转回',
   tradeNote: (label, counter) => `${label} · ${counter}`,
   spentAhead: '预支',
   summaryLine: (average, transactions, days, activeDays) =>

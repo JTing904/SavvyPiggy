@@ -245,4 +245,33 @@ const invested = (amount: number, goalId = 'stocks'): Activity => ({
   eq('auto split cannot carry a cost', run({ next: { ...next, choice: { mode: 'split' } } }), { problem: { kind: 'saleBelowFees', cents: 401 } });
 }
 
+// --- the investment pot
+
+{
+  const next = { kind: "buy" as const, totalCents: 79_924, choice: { mode: "pot" as const }, counter: "RHBBANK", units: 100 };
+  const p = plan({ next, potCents: 100_000 });
+  eq("a buy from the pot takes its total from the pot", p.potDelta, -79_924);
+  eq("and touches no savings goal", p.bankDeltas, {});
+  eq("and writes no savings History row", p.activity.write, "none");
+  eq("the trade says the pot paid", p.money, { mode: "pot" });
+  eq("a pot that cannot pay is refused", run({ next, potCents: 50_000 }), { problem: { kind: "potShort", availableCents: 50_000, neededCents: 79_924 } });
+}
+
+{
+  const sale = { kind: "sell" as const, totalCents: 79_076, choice: { mode: "pot" as const }, counter: "RHBBANK", units: 100 };
+  eq("a sale puts its proceeds into the pot", plan({ next: sale, potCents: 0 }).potDelta, 79_076);
+  const below = { ...sale, totalCents: -400 };
+  eq("a sale below its fees takes the shortfall from the pot", plan({ next: below, potCents: 1_000 }).potDelta, -400);
+  eq("but never below zero", run({ next: below, potCents: 100 }), { problem: { kind: "potShort", availableCents: 100, neededCents: 400 } });
+}
+
+{
+  const sold: Trade = { ...buy({ mode: "pot" }), kind: "sell", fees: undefined };
+  eq("deleting a pot sale takes its proceeds back out", plan({ previous: { trade: sold, activity: null }, potCents: 200_000 }).potDelta, -106_000);
+  eq("unless the pot has already spent them", run({ previous: { trade: sold, activity: null }, potCents: 5_000 }), { problem: { kind: "potShort", availableCents: 5_000, neededCents: 106_000 } });
+  const bought = buy({ mode: "pot" });
+  const corrected = plan({ previous: { trade: bought, activity: null }, potCents: 5_000, next: { kind: "buy", totalCents: 108_032, choice: { mode: "pot" }, counter: "MAYBANK", units: 100 } });
+  eq("correcting a pot buy moves the pot by the difference", corrected.potDelta, -1_000);
+}
+
 report();

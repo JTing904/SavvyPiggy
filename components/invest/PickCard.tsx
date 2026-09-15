@@ -1,13 +1,11 @@
 import React, { useMemo } from 'react';
 import type { InvestSettings, PiggyBank } from '../../types';
 import type { Quotes } from '../../services/holdings';
-import { brokerById, securityTypeOf } from '../../services/fees';
-import { formatMoney, fromCents, toCents } from '../../services/money';
 import { readCache as readQuoteCache } from '../../services/quotes';
 import { useAdvisor } from '../../hooks/useAdvisor';
 import { useT } from '../../contexts/LanguageContext';
 import { dateLocale } from '../../i18n';
-import { activeStyles, mergeQuotes, monthDate, pricePointsOfQuote, sizeBuy, watchSymbols } from './monthlyPlan';
+import { activeStyles, mergeQuotes, monthDate, watchSymbols } from './monthlyPlan';
 
 interface PickCardProps {
   banks: PiggyBank[];
@@ -42,7 +40,7 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
   const nothingScored = advisor.status === 'ready' && !pick;
 
   let headline: string;
-  let meta: string | null = null;
+  const meta: string | null = null;
   let why: string | null = null;
   let icon = 'chevron_right';
 
@@ -70,24 +68,6 @@ const PickCard: React.FC<PickCardProps> = ({ banks, invest, quotes, onOpen }) =>
         .map((s) => `${t.plan.styles[s]} ${mix[s]}%`)
         .join(' · ')
     );
-    // Sized only from the goal the monthly buy is paid from; with none chosen
-    // there is no budget to size against, and the card does not invent one.
-    const goal = invest.budgetGoalId ? banks.find((b) => b.id === invest.budgetGoalId && !b.archivedAt) : null;
-    const broker = brokerById(invest.brokerId, invest.customRule);
-    const points = pricePointsOfQuote(prices[pick.symbol]);
-    if (goal && broker && points) {
-      const sizing = sizeBuy(
-        Math.max(0, toCents(goal.currentAmount)),
-        points,
-        broker,
-        securityTypeOf(pick.symbol, invest.typeOverrides),
-        false
-      );
-      meta =
-        sizing.kind === 'lots'
-          ? c.unitsWithFees(sizing.order.units.toLocaleString('en-US'), formatMoney(fromCents(sizing.order.totalCents)))
-          : c.notALot;
-    }
   }
 
   const working = !!mix && symbols.length >= 2 && !pick && !nothingScored && advisor.status !== 'unavailable';

@@ -28,6 +28,8 @@ const typeLabels = (): Record<Activity['type'], string> => ({
   invest: m().common.activity.invest,
   divest: m().common.activity.divest,
   transfer: m().common.activity.transfer,
+  toInvest: m().common.activity.toInvest,
+  fromInvest: m().common.activity.fromInvest,
 });
 
 const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
@@ -50,7 +52,7 @@ export const ledgerAmount = (a: Pick<Activity, 'type' | 'amount' | 'distribution
     const signed = a.distributions.reduce((sum, d) => sum + toCents(d.amount), 0);
     if (a.type === 'transfer' || signed < 0) return fromCents(signed);
   }
-  return a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' ? -a.amount : a.amount;
+  return a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' || a.type === 'toInvest' ? -a.amount : a.amount;
 };
 
 /**

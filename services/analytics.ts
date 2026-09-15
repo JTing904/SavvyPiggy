@@ -189,11 +189,11 @@ export interface Summary {
  * rather than money saved, so it counts neither here nor towards a streak.
  */
 export const inflowCents = (a: Activity) =>
-  a.type === 'divest' || a.type === 'transfer' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
+  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
 
 /** What was spent out of goals. Buying shares is not spending, so it is left out. */
 const outflowCents = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
 
 const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
 
@@ -208,7 +208,8 @@ const signedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + to
  */
 export const goalsChangeCents = (a: Activity) => {
   if (a.type === 'transfer') return 0;
-  if (a.type === 'invest') return -movedCents(a);
+  if (a.type === 'invest' || a.type === 'toInvest') return -movedCents(a);
+  if (a.type === 'fromInvest') return movedCents(a);
   if (a.type === 'divest') return signedCents(a);
   return inflowCents(a) - outflowCents(a);
 };
@@ -330,7 +331,13 @@ export const summarize = (
   const byDay = new Map<string, number>();
 
   for (const { a, d } of inPeriod) {
-    if (a.type === 'invest') {
+    // Moving money to the investment pot sits on the same line as buying shares used to.
+    if (a.type === 'fromInvest') {
+      cameBack += movedCents(a);
+      cameBackToGoals += movedCents(a);
+      continue;
+    }
+    if (a.type === 'invest' || a.type === 'toInvest') {
       invested += movedCents(a);
       continue;
     }

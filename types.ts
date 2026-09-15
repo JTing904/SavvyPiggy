@@ -24,7 +24,7 @@ import type { FeeKey, SecurityType, TradeFees } from './services/fees';
  * coming back into them. Neither is spending or saving — the report keeps them
  * on their own lines — and both belong to a trade, which is where they are edited.
  */
-export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer';
+export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest';
 
 export interface Activity {
   id: string;
@@ -188,6 +188,8 @@ export type TradeMoney =
   | { mode: 'goal'; goalId: string; activityId: string }
   /** Sell only: split like any deposit, spent ahead covered first. */
   | { mode: 'split'; activityId: string }
+  /** Buy: paid from the investment pot. Sell: proceeds into it. No savings History row. */
+  | { mode: 'pot' }
   /** Only the trade is recorded; no goal's money moved. */
   | { mode: 'none' };
 
@@ -352,4 +354,10 @@ export interface InvestSettings {
   budgetGoalId: string | null;
   /** Epoch ms the fee-mismatch question was last answered; only trades after it count. */
   feePromptAt: number;
+  /**
+   * Cash in the investment pot, in ringgit like a goal's balance. Savings move
+   * in and out of it by hand; buys come out of it, sales and dividends go in.
+   * It never goes below zero and is not part of total savings.
+   */
+  potBalance: number;
 }

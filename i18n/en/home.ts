@@ -28,6 +28,7 @@ export const home = {
   trackHoldingsHint: 'Priced for you, kept apart from your savings.',
   getStarted: 'Get started',
   today: 'today',
+  sharesAndPot: (shares: string, pot: string) => `Shares ${shares} · Pot ${pot}`,
   counters: (n: number) => `${n} counter${n === 1 ? '' : 's'}`,
   view: 'View',
 

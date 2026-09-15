@@ -25,7 +25,7 @@ export const history: typeof English = {
   intoGoal: (goal) => `存进 ${goal}`,
   splitAcross: (n) => `分到 ${n} 个钱罐`,
   coveredSpentAhead: (amount) => `补回预支 ${amount}`,
-  sharesMoved: (moves) => `股票 ${moves}`,
+  sharesMoved: (moves) => `投资 ${moves}`,
   openTrade: '打开这笔交易',
 
   noGoalTouched: '没有动到任何钱罐——之后存入的钱会先补上这笔，再进到钱罐。',
