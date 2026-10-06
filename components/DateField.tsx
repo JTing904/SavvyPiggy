@@ -30,6 +30,13 @@ interface DateFieldProps {
   onChange: (value: string) => void;
   /** Latest selectable day, "YYYY-MM-DD". Days after it cannot be chosen. */
   max?: string;
+  /** Earliest selectable day. Earlier days cannot be chosen, and the month arrows stop at its month. */
+  min?: Date;
+  /**
+   * Draws whatever opens the picker in place of the built-in labelled button,
+   * for a screen whose own look the default does not fit. The picker is unchanged.
+   */
+  renderTrigger?: (open: () => void) => React.ReactNode;
   /** What the sheet asks, and why the answer matters. */
   title?: string;
   hint?: string;
@@ -40,6 +47,8 @@ const DateField: React.FC<DateFieldProps> = ({
   value,
   onChange,
   max,
+  min,
+  renderTrigger,
   title,
   hint,
 }) => {
@@ -63,6 +72,7 @@ const DateField: React.FC<DateFieldProps> = ({
 
   const today = toInputDate(Date.now());
   const ceiling = max ?? '9999-12-31';
+  const floor = min ? toInputDate(min.getTime()) : '0000-01-01';
 
   const pick = (key: string) => {
     onChange(key);
@@ -77,8 +87,15 @@ const DateField: React.FC<DateFieldProps> = ({
     view.year > ceilingDate.getFullYear() ||
     (view.year === ceilingDate.getFullYear() && view.month >= ceilingDate.getMonth());
 
+  // The month before the floor holds nothing selectable either.
+  const floorDate = new Date(fromInputDate(floor));
+  const atFloorMonth =
+    !!min &&
+    (view.year < floorDate.getFullYear() ||
+      (view.year === floorDate.getFullYear() && view.month <= floorDate.getMonth()));
+
   const quick = (text: string, key: string) => {
-    if (key > ceiling) return null;
+    if (key > ceiling || key < floor) return null;
     const on = key === value;
     return (
       <button
@@ -95,18 +112,24 @@ const DateField: React.FC<DateFieldProps> = ({
 
   return (
     <div className="flex-1 min-w-0">
-      <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 active:border-primary/50 transition-colors text-left"
-      >
-        <span className="material-symbols-rounded text-slate-500 text-xl shrink-0">calendar_month</span>
-        <span className="flex-1 min-w-0 text-white text-base font-black truncate">
-          {readableDate(value)}
-        </span>
-        <span className="material-symbols-rounded text-slate-600 text-lg shrink-0">expand_more</span>
-      </button>
+      {renderTrigger ? (
+        renderTrigger(() => setOpen(true))
+      ) : (
+        <>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="w-full flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 active:border-primary/50 transition-colors text-left"
+          >
+            <span className="material-symbols-rounded text-slate-500 text-xl shrink-0">calendar_month</span>
+            <span className="flex-1 min-w-0 text-white text-base font-black truncate">
+              {readableDate(value)}
+            </span>
+            <span className="material-symbols-rounded text-slate-600 text-lg shrink-0">expand_more</span>
+          </button>
+        </>
+      )}
 
       {open && (
         <div
@@ -130,8 +153,9 @@ const DateField: React.FC<DateFieldProps> = ({
               <button
                 type="button"
                 onClick={() => step(-1)}
+                disabled={atFloorMonth}
                 aria-label={t.pickers.previousMonth}
-                className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
+                className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform disabled:opacity-30 disabled:active:scale-100"
               >
                 <span className="material-symbols-rounded text-xl">chevron_left</span>
               </button>
@@ -162,7 +186,7 @@ const DateField: React.FC<DateFieldProps> = ({
               {monthGrid(view.year, view.month).flat().map((day, i) => {
                 if (day === null) return <span key={i} className="size-10" />;
                 const key = toInputDate(new Date(view.year, view.month, day).getTime());
-                const blocked = key > ceiling;
+                const blocked = key > ceiling || key < floor;
                 const on = key === value;
                 return (
                   <button

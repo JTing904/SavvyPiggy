@@ -29,6 +29,53 @@ export const errors: typeof English = {
   recordGone: '这笔记录已在另一台设备上被改动或删除，请重新打开页面。',
   coveringUnavailable: '补回这笔预支的存入记录读取不到，可能是没有网络。什么都没有删除，请联网后再试。',
 
+  potRowUseOwnUndo: '转入或转出投资资金的记录，要在「投资」页面撤回，不能在这里直接删除。',
+  transferLocked: '这笔记录是删除钱罐时搬动的钱，不能修改或删除。',
+
+  problems: {
+    thatGoal: '那个钱罐',
+    activity: {
+      notEditable: '这种记录不能在这里修改。请删除后重新记录。',
+      amountPositive: '金额必须大于 RM0.00。如果要撤回这笔记录，请直接删除。',
+      goalGone: '这笔记录用到的钱罐已被删除，无法修改。请删除后重新记录。',
+      goalArchived: (goal) => `「${goal}」已经封存，不再接收新的钱。请选别的钱罐，或先把它取回来。`,
+      staleRow: '这笔记录已在另一台设备上被改动，请重新打开。',
+      staleDebt: '这笔记录牵涉的预支已在另一台设备上被改动，请重新打开。',
+      loanGone: '这笔记录产生的预支已被删除，无法修改。请直接删除这笔记录。',
+      legacyBorrow: '这是旧版的预支，当时是直接从钱罐扣钱的，所以金额不能修改。请删除后重新记录。',
+      borrowBelowCovered: (covered) => `这笔预支已经补回了 ${covered}，金额不能比这个少。请输入 ${covered} 或更多。`,
+      dateBeforeDebt: '这笔存入补回过一笔预支，但那一天那笔预支还不存在。请选预支当天或之后，或删除后重新记录。',
+      unknownCategory: '没有这个开销类别，请从列表里选。',
+      noDestination: '现在没有钱罐参与分配，也没有预支要补回，这笔钱没地方放。请先设好分配比例。',
+    },
+    bank: {
+      nameEmpty: '请给钱罐取个名字。',
+      nameTooLong: (max) => `名字最多 ${max} 个字。`,
+      targetInvalid: '目标必须是 0 或更大的数字。不设目标请填 0。',
+      iconUnknown: '没有这个图标，请从列表里选。',
+    },
+    date: {
+      future: '不能记到未来的日子。请选今天或更早的日子。',
+      beforeAllowed: '那一天比应用能记录的最早日期还早。请选晚一点的日子。',
+      dateFuture: '不能把记录改到未来的日子。请选今天或更早的日子。',
+      dateTooOld: '不能把记录改到应用保留的最早日期之前。请选晚一点的日子。',
+    },
+    potTransfer: {
+      goalShort: (goal, available, needed) => `「${goal}」只有 ${available}，这笔要 ${needed}。请先往里面存钱。`,
+      needsChoice: '这笔转账涉及的钱罐已被删除。请选择钱要放去哪里。',
+      noDestination: '没有钱罐可以放这笔钱。',
+      notPotRow: '这笔记录不是转入或转出投资资金。',
+      goalGone: '这笔转账涉及的钱罐已被删除，无法修改。请删除这笔记录，并选择钱要放去哪里。',
+      amountPositive: '金额必须大于 RM0.00。如果要撤回这笔转账，请直接删除。',
+    },
+    dividend: {
+      notDividend: '这笔记录不是股息。',
+      notPot: '这笔股息没有存入投资资金，不能在这里修改。',
+      outOfSync: '这笔股息和存入投资资金的金额对不上，所以什么都没有改。请重新打开再试。',
+      amountPositive: '实收金额必须大于 RM0.00。如果要撤回这笔股息，请选择移除。',
+    },
+  },
+
   newGoal: '新钱罐',
   sampleGoals: {
     vacation: '旅行',

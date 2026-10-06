@@ -23,4 +23,18 @@ export const app = {
     tradeHint:
       'Every trade keeps the day it was done. That date is what decides which dividends are yours, so enter the day you dealt, not the day you typed it in.',
   },
+  toast: {
+    deposited: (amount: string) => `${amount} deposited`,
+    spent: (amount: string) => `${amount} spending recorded`,
+    spentAhead: (amount: string) => `${amount} spent ahead`,
+    movedToInvesting: (amount: string) => `${amount} moved to investing cash`,
+    movedBack: (amount: string) => `${amount} moved back to your goals`,
+    goalCreated: 'Goal created',
+    samplesAdded: 'Three sample goals added',
+    entrySaved: 'Entry updated',
+    entryDeleted: 'Entry deleted',
+    potMoveSaved: 'Move updated',
+    potMoveDeleted: 'Move deleted',
+    deleteFailed: 'Could not delete that entry. It is back in the list.',
+  },
 };

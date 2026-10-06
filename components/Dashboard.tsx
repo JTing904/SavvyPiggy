@@ -2,20 +2,19 @@
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings, InvestSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { balanceCents, planDeposit, totalDebtCents } from '../services/ledger';
+import { totalDebtCents } from '../services/ledger';
 import { formatMoney, fromCents, percentReached, toCents } from '../services/money';
 import { ledgerAmount } from '../services/export';
 import { sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
 import Avatar from './Avatar';
-import { useBackHandler } from '../hooks/useBackHandler';
 import { portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
 import PickCard from './invest/PickCard';
 import PotCard from './invest/PotCard';
 import type { Mode as NavMode } from './Navigation';
-import { CATEGORIES, UNCATEGORISED } from '../services/categories';
+import MoneySheet from './MoneySheet';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, deviceDateLocale, noteText, type Messages } from '../i18n';
 
@@ -53,9 +52,10 @@ interface DashboardProps {
   banks: PiggyBank[];
   activities: Activity[];
   loans: Loan[];
-  onDeposit: (amount: number, targetBankId: string | null) => void;
-  onWithdraw: (amount: number, sourceBankId: string, note: string, category: string) => void;
-  onBorrow: (amount: number, note: string) => void;
+  /** `at` is only given for a day other than today (local midnight of that day). */
+  onDeposit: (amount: number, targetBankId: string | null, at?: Date) => void | Promise<void>;
+  onWithdraw: (amount: number, sourceBankId: string, note: string, category: string, at?: Date) => void | Promise<void>;
+  onBorrow: (amount: number, note: string, at?: Date) => void | Promise<void>;
   onViewAll: () => void;
   onSelectGoal: (id: string) => void;
   onOpenProfile: () => void;
@@ -82,6 +82,12 @@ interface DashboardProps {
   onOpenMonthlyBuy?: () => void;
   /** A trade's money row opens that trade, which is the only place it is edited. */
   onOpenTrade?: (tradeId: string) => void;
+  /** Any other money row on Home opens that entry. */
+  onOpenEntry?: (id: string) => void;
+  /** Whose remembered deposit / spend choices the sheet uses. */
+  uid: string;
+  /** The earliest day an entry can be dated. */
+  liveFrom: Date;
 }
 
 /** "2 min ago" — how stale the worst price on screen is. */
@@ -130,6 +136,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   onPotMove,
   onOpenMonthlyBuy,
   onOpenTrade,
+  onOpenEntry,
+  uid,
+  liveFrom,
 }) => {
   const { user } = useAuth();
   const t = useT();
@@ -143,69 +152,21 @@ const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => {
     if (navMode === 'invest') setInvestSeen(true);
   }, [navMode]);
-  const [amount, setAmount] = useState('');
-  const [note, setNote] = useState('');
-  const [category, setCategory] = useState<string>(UNCATEGORISED);
-  // In deposit mode null means "split by strategy"; in withdraw mode it means
-  // "borrowed from outside", which touches no goal at all.
-  const [target, setTarget] = useState<string | null>(null);
   const [order, setOrder] = useSortOrder('savvypiggy.sort.home');
   const sortedBanks = sortBanks(banks, order);
 
   const displayName = user?.displayName || user?.email?.split('@')[0] || t.home.defaultName;
-  // Goals switched out of auto-split take no share and do not count here.
-  const allocated = banks.reduce((sum, b) => (b.autoSplit === false ? sum : sum + b.splitPercentage), 0);
-
   const openLoans = loans.filter((l) => l.outstanding > 0);
   const debtCents = totalDebtCents(openLoans);
-
-  const cents = toCents(parseFloat(amount) || 0);
-  const isBorrow = mode === 'withdraw' && target === null;
-  // The same overflow rule the write uses. Planning without it here meant a
-  // user with overflow on was shown a split that is not the one that happens.
-  const preview =
-    mode === 'deposit' ? planDeposit(cents, banks, openLoans, target, savings.overflow) : null;
-
-  const blockedReason = () => {
-    if (cents <= 0) return null;
-    if (mode === 'deposit' && target === null && allocated === 0 && debtCents === 0)
-      return t.home.sheet.noSplit;
-    return null;
-  };
-
-  const canSubmit = cents > 0 && blockedReason() === null;
-
-  const closeModal = () => {
-    setMode(null);
-    setAmount('');
-    setNote('');
-    setTarget(null);
-    // The next spend starts uncategorised rather than silently reusing this one.
-    setCategory(UNCATEGORISED);
-  };
-
-  useBackHandler(mode !== null, closeModal);
 
   // The nav button lives outside this screen, so it asks through a prop.
   useEffect(() => {
     if (!quickAction) return;
-    open(quickAction);
+    setMode(quickAction);
     onQuickActionHandled();
   }, [quickAction]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleConfirm = () => {
-    if (!canSubmit || !mode) return;
-    const value = fromCents(cents);
-    if (mode === 'deposit') onDeposit(value, target);
-    else if (isBorrow) onBorrow(value, note);
-    else onWithdraw(value, target!, note, category);
-    closeModal();
-  };
-
-  const open = (next: Mode) => {
-    setMode(next);
-    setTarget(null);
-  };
+  const open = (next: Mode) => setMode(next);
 
   // Prices are whatever the holdings screen last cached — the Home card never
   // goes to the network itself.
@@ -297,9 +258,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     placed.current = true;
     return () => window.clearTimeout(release.current);
   }, [navMode]);
-
-  const confirmLabel =
-    mode === 'deposit' ? t.home.sheet.confirmDeposit : isBorrow ? t.home.sheet.recordSpending : t.home.sheet.withdraw;
 
   return (
     <div className="flex flex-col min-h-full pb-40 safe-pt relative">
@@ -572,7 +530,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                 const style = ACTIVITY_STYLES[activity.type];
                 const trade = activity.type === 'invest' || activity.type === 'divest';
                 const { tradeId } = activity;
-                const openTrade = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : undefined;
+                // A trade's row opens the trade; every other row opens its own entry.
+                const openRow = trade
+                  ? tradeId && onOpenTrade
+                    ? () => onOpenTrade(tradeId)
+                    : undefined
+                  : onOpenEntry
+                    ? () => onOpenEntry(activity.id)
+                    : undefined;
                 // Buying shares is not spending and a sale is not saving, so a
                 // trade's row is named for the trade, never for a note.
                 const title = trade
@@ -585,9 +550,20 @@ const Dashboard: React.FC<DashboardProps> = ({
                 return (
                   <div
                     key={activity.id}
-                    onClick={openTrade}
-                    role={openTrade ? 'button' : undefined}
-                    className={`flex items-center justify-between gap-3 p-4 rounded-2xl glass transition-all active:bg-white/5 ${openTrade ? 'cursor-pointer' : ''}`}
+                    onClick={openRow}
+                    role={openRow ? 'button' : undefined}
+                    tabIndex={openRow ? 0 : undefined}
+                    onKeyDown={
+                      openRow
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openRow();
+                            }
+                          }
+                        : undefined
+                    }
+                    className={`flex items-center justify-between gap-3 p-4 rounded-2xl glass transition-all active:bg-white/5 ${openRow ? 'cursor-pointer' : ''}`}
                   >
                     <div className="flex items-center gap-4 min-w-0">
                       <div className={`size-12 shrink-0 rounded-2xl flex items-center justify-center ${style.tint}`}>
@@ -670,181 +646,19 @@ const Dashboard: React.FC<DashboardProps> = ({
           )}
       </div>
 
-      {/* Money movement. The header stays put and only the middle scrolls, so
-          the close button can never be pushed off the top of the screen. */}
       {mode && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
-          onClick={closeModal}
-        >
-          <div
-            className="w-full max-w-md max-h-[88vh] flex flex-col bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="shrink-0 px-7 pt-7 pb-4 flex items-center justify-between gap-3">
-              <h3 className="text-white text-2xl font-black">
-                {mode === 'deposit' ? t.home.deposit : t.home.sheet.spend}
-              </h3>
-              <button
-                onClick={closeModal}
-                className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
-              >
-                <span className="material-symbols-rounded">close</span>
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto no-scrollbar px-7 space-y-5">
-              <div className="relative">
-                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-600">RM</span>
-                <input
-                  autoFocus
-                  type="number"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full h-20 pl-[4.75rem] pr-6 rounded-3xl bg-white/5 border border-white/10 text-3xl font-black text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-800"
-                />
-              </div>
-
-              <div className="grid grid-cols-4 gap-2">
-                {[10, 25, 50, 100].map((val) => (
-                  <button
-                    key={val}
-                    onClick={() => setAmount(val.toString())}
-                    className="py-3 rounded-2xl glass border border-white/5 text-white font-bold text-sm active:scale-90 transition-transform"
-                  >
-                    RM{val}
-                  </button>
-                ))}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">
-                  {mode === 'deposit' ? t.home.sheet.goesTo : t.home.sheet.comesFrom}
-                </label>
-                <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">
-                  <button
-                    onClick={() => setTarget(null)}
-                    className={`shrink-0 px-4 h-11 rounded-2xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      target === null ? 'bg-primary text-black' : 'bg-white/5 text-slate-400'
-                    }`}
-                  >
-                    {mode === 'withdraw' && (
-                      <span className="material-symbols-rounded text-base">account_balance</span>
-                    )}
-                    {mode === 'deposit' ? t.common.autoSplit : t.common.notFromGoal}
-                  </button>
-                  {banks.map((b) => (
-                    <button
-                      key={b.id}
-                      onClick={() => setTarget(b.id)}
-                      className={`shrink-0 px-4 h-11 rounded-2xl text-sm font-bold transition-all flex items-center gap-2 ${
-                        target === b.id ? 'bg-primary text-black' : 'bg-white/5 text-slate-400'
-                      }`}
-                    >
-                      <span className="material-symbols-rounded text-base">{b.icon}</span>
-                      {b.name}
-                    </button>
-                  ))}
-                </div>
-                {mode === 'withdraw' && (
-                  <p className="text-slate-500 text-[10px] text-center pt-1 font-medium leading-relaxed">
-                    {isBorrow
-                      ? t.home.sheet.borrowHint
-                      : t.home.sheet.inThisGoal(formatMoney(fromCents(balanceCents(banks, target))))}
-                  </p>
-                )}
-              </div>
-
-              {mode === 'withdraw' && (
-                <div className="space-y-2">
-                  <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">{t.home.sheet.whatFor}</label>
-                  <input
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder={isBorrow ? t.home.sheet.borrowPlaceholder : t.home.sheet.spendPlaceholder}
-                    className="w-full h-14 px-5 rounded-2xl bg-white/5 border border-white/10 text-base font-bold text-white focus:outline-none focus:border-primary transition-all placeholder:text-slate-700"
-                  />
-
-                  {/* Borrowing is not spending, so it gets no heading. */}
-                  {!isBorrow && (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {CATEGORIES.map((c) => {
-                        const on = category === c.key;
-                        return (
-                          <button
-                            key={c.key}
-                            type="button"
-                            onClick={() => setCategory(c.key)}
-                            className={`flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-2xl text-[11px] font-black border transition-colors ${
-                              on
-                                ? 'bg-primary text-black border-primary'
-                                : 'bg-white/5 border-white/10 text-slate-400'
-                            }`}
-                          >
-                            <span className={`material-symbols-rounded text-base ${on ? '' : c.tint}`}>
-                              {c.icon}
-                            </span>
-                            {c.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Exactly where the money lands, worked out before you commit. */}
-              {mode === 'deposit' && cents > 0 && (
-                <div className="rounded-2xl bg-white/5 border border-white/10 px-5 py-4 space-y-2">
-                  {preview!.repaidCents > 0 && (
-                    <p className="text-amber-300 text-xs font-bold">
-                      {t.home.sheet.coversEarlier(formatMoney(fromCents(preview!.repaidCents)))}
-                    </p>
-                  )}
-                  {preview!.splitMovements.map((m) => {
-                    const bank = banks.find((b) => b.id === m.bankId);
-                    return (
-                      <div key={m.bankId} className="flex items-center justify-between gap-3">
-                        <span className="text-slate-400 text-xs font-medium truncate">{bank?.name}</span>
-                        <span className="text-white text-xs font-black tabular-nums">
-                          {formatMoney(fromCents(m.cents))}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {target === null && allocated > 0 && allocated < 100 && preview!.repaidCents < cents && (
-                    <p className="text-slate-500 text-[10px] font-medium pt-1">
-                      {t.home.sheet.partlyAllocated(allocated)}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {blockedReason() && (
-                <div className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4">
-                  <span className="material-symbols-rounded text-red-400 text-lg">error</span>
-                  <p className="text-red-300 text-xs font-bold leading-relaxed">{blockedReason()}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="shrink-0 px-7 pt-4 pb-8 safe-pb">
-              <button
-                onClick={handleConfirm}
-                disabled={!canSubmit}
-                className={`w-full h-16 rounded-[2rem] font-black text-lg shadow-2xl transition-all ${
-                  canSubmit
-                    ? 'bg-primary text-black shadow-primary/20 active:scale-95'
-                    : 'bg-white/5 text-slate-700 cursor-not-allowed'
-                }`}
-              >
-                {confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
+        <MoneySheet
+          mode={mode === 'deposit' ? 'deposit' : 'spend'}
+          banks={banks}
+          loans={loans}
+          savings={savings}
+          uid={uid}
+          liveFrom={liveFrom}
+          onDeposit={onDeposit}
+          onWithdraw={onWithdraw}
+          onBorrow={onBorrow}
+          onClose={() => setMode(null)}
+        />
       )}
     </div>
   );

@@ -1,747 +1,249 @@
 import React, { useMemo, useState } from 'react';
-import { Activity, ActivityType, PiggyBank } from '../types';
-import { formatMoney, fromCents, toCents } from '../services/money';
-import { ledgerAmount } from '../services/export';
-import { useBackHandler } from '../hooks/useBackHandler';
-import { SLICE_COLORS } from './DonutChart';
-import { CATEGORIES, categoryOf } from '../services/categories';
-import { useConfirm } from '../contexts/ConfirmContext';
+import type { Activity, PiggyBank } from '../types';
 import { useT } from '../contexts/LanguageContext';
-import { dateLocale, noteText, type Messages } from '../i18n';
-import { goneShareCents, type GoneShareChoice } from '../services/ledger';
-import GoneShareSheet from './GoneShareSheet';
-import OlderRecordsNotice from './OlderRecordsNotice';
-import { historyNeedsFrom } from '../services/ledgerWindow';
+import { dateLocale } from '../i18n';
+import { dayKey } from '../services/analytics';
+import { groupByDay, monthSummary } from '../services/historyDays';
+import { cursorForMonth, shiftDay, shiftMonth } from '../services/monthCells';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
-
-const STYLES: Record<
-  ActivityType,
-  { label: keyof Messages['common']['activity']; icon: string; tint: string; outgoing: boolean }
-> = {
-  'auto-save': { label: 'autoSave', icon: 'cycle', tint: 'bg-primary/10 text-primary', outgoing: false },
-  manual: { label: 'manual', icon: 'person', tint: 'bg-blue-400/10 text-blue-400', outgoing: false },
-  withdraw: { label: 'withdraw', icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
-  borrow: { label: 'borrow', icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400', outgoing: true },
-  invest: { label: 'invest', icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent', outgoing: true },
-  divest: { label: 'divest', icon: 'currency_exchange', tint: 'bg-accent/10 text-accent', outgoing: false },
-  transfer: { label: 'transfer', icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
-  toInvest: { label: 'toInvest', icon: 'south_east', tint: 'bg-accent/10 text-accent', outgoing: true },
-  fromInvest: { label: 'fromInvest', icon: 'north_west', tint: 'bg-accent/10 text-accent', outgoing: false },
-};
+import { EmptyState } from './ui/EmptyState';
+import { Icon } from './ui/Icon';
+import { CalendarHeader, HistoryCalendar } from './history/HistoryCalendar';
+import { DayGroup } from './history/DayGroup';
+import { MonthPickerSheet } from './history/MonthPickerSheet';
+import { MonthLoading } from './history/MonthLoading';
 
 interface ActivityLogProps {
   activities: Activity[];
   /** How far back `activities` goes; an older month asks for its records. */
   ledger: Ledger;
   banks: PiggyBank[];
-  /** `takeBack` settles the share of a goal deleted since; only asked for when there is one. */
-  onDeleteActivity: (id: string, takeBack?: GoneShareChoice) => void;
-  onEditActivity: (id: string, newAmount: number) => void;
-  /** Re-labelling what a withdrawal was for. Moves no money. */
-  onSetCategory: (id: string, category: string) => void;
+  /** Every row except a trade's opens in the entry sheet, which owns editing and deleting. */
+  onOpenEntry: (id: string) => void;
   /**
    * A trade's row belongs to the trade: correcting or deleting it has to move
-   * the goal money and the holding together, so tapping it opens the trade
-   * instead of this list's own edit and delete.
+   * the goal money and the holding together, so tapping it opens the trade.
    */
   onOpenTrade?: (tradeId: string) => void;
+  /** The empty History's one action. */
+  onDeposit: () => void;
 }
 
-/** Callers put the sign on themselves, so this only ever renders the size. */
-const money = (n: number) => formatMoney(Math.abs(n));
-
-/** What actually reached the goals, in cents, whatever brought it there. */
-const credited = (a: Activity) => a.distributions.reduce((s, d) => (d.amount > 0 ? s + toCents(d.amount) : s), 0);
-
-/** Money moved for shares: neither saving nor spending, only a change of form. */
-const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
-
-/** What was saved and what was spent, in cents. A sale's proceeds are shares
-    coming back rather than saving, and a purchase is not spending. */
-// A deleted goal's money moving into another goal is neither, either.
-// Money moving to or from the investment pot is neither saving nor spending either.
-const inflow = (a: Activity) => (a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' ? 0 : credited(a));
-const outflow = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' ? 0 : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
-
-/** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
-const sharesCents = (a: Activity) =>
-  a.type === 'divest'
-    ? // Signed: a sale whose fees were bigger than the sale took money out.
-      a.distributions.reduce((s, d) => s + toCents(d.amount), 0) + toCents(a.repaid ?? 0)
-    : a.distributions.reduce((s, d) => s + Math.abs(toCents(d.amount)), 0);
-
-const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-const monthLabel = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
-const shortMonth = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', year: 'numeric' });
-
-const sameDay = (a: Date, b: Date) =>
-  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-
-/** TODAY / YESTERDAY / SATURDAY, SEP 5 — or 今天 · 9月8日 in Chinese. */
-const dayLabel = (d: Date, now: Date, t: Messages) => {
-  const date = d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' }).toUpperCase();
-  if (sameDay(d, now)) return t.history.dayToday(date);
-  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return t.history.dayYesterday(date);
-  return t.history.dayOther(t.common.weekdaysLong[d.getDay()].toUpperCase(), date);
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const fromKey = (key: string) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
 };
 
-interface Day {
-  key: string;
-  date: Date;
-  entries: Activity[];
-  saved: number;
-  spent: number;
-  borrowed: number;
-  repaid: number;
-  /** Paid out of goals for shares, and a sale's proceeds back in. */
-  sharesOut: number;
-  sharesIn: number;
-}
-
-const ActivityLog: React.FC<ActivityLogProps> = ({
-  activities,
-  ledger,
-  banks,
-  onDeleteActivity,
-  onEditActivity,
-  onSetCategory,
-  onOpenTrade,
-}) => {
+/**
+ * History: a calendar on top (a week by default, the whole month when opened,
+ * and a month picker for older months), then the records of the month, or of
+ * one picked day, grouped by day.
+ *
+ * Only three months are live. An older month is read once when it is opened;
+ * until it is here the page shows a skeleton or the notice, never a month that
+ * only looks empty.
+ */
+const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, onOpenEntry, onOpenTrade, onDeposit }) => {
   const t = useT();
-  const confirm = useConfirm();
   const now = new Date();
-  const [month, setMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
-  const [openDay, setOpenDay] = useState<string | null>(null);
-  const [openEntry, setOpenEntry] = useState<string | null>(null);
-  const [pickMonth, setPickMonth] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  /** Which entry is having its category changed, if any. */
-  const [pickingFor, setPickingFor] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-  /** An entry being deleted that went through a goal deleted since. */
-  const [settling, setSettling] = useState<Activity | null>(null);
+  const today = startOfDay(now);
+  const todayKey = dayKey(now);
 
-  /*
-    Only three months are live. A month older than that — and the month
-    before it, which its comparison needs — is read when it is picked, and the
-    picker only lists earlier months once asked to, so jumping between recent
-    months costs nothing.
-  */
-  const [wantEarlier, setWantEarlier] = useState(false);
-  const monthNeed = historyNeedsFrom(month, ledger.liveFrom, ledger.keptFrom);
-  useLedgerRange(ledger, wantEarlier ? ledger.keptFrom : monthNeed);
-  const monthStatus = ledger.status(monthNeed);
-  const earlierStatus = ledger.status(ledger.keptFrom);
+  /** A day of the month in view: its week is the strip. */
+  const [cursor, setCursor] = useState(today);
+  /** "YYYY-MM-DD" of the one day the list is limited to. */
+  const [selected, setSelected] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [picker, setPicker] = useState(false);
+  /** Days the person opened or closed themselves; the rest follow the default. */
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
 
-  useBackHandler(pickMonth, () => setPickMonth(false));
-  useBackHandler(pickingFor !== null, () => setPickingFor(null));
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const monthStart = new Date(year, month, 1);
+  const monthName = monthStart.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
+  const monthShort = monthStart.toLocaleDateString(dateLocale('en-US'), { month: 'short', year: 'numeric' });
 
-  const colorOf = (bankId: string) =>
-    SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === bankId)) % SLICE_COLORS.length];
+  // The month in view and everything after it have to be here before it is drawn.
+  const status = useLedgerRange(ledger, monthStart);
+  const ready = status === 'ready';
 
-  /** Every month that holds a record, newest first, plus the current one. */
-  const months = useMemo(() => {
-    const seen = new Map<string, { date: Date; saved: number }>();
-    const current = new Date(now.getFullYear(), now.getMonth(), 1);
-    seen.set(monthKey(current), { date: current, saved: 0 });
+  const days = useMemo(() => groupByDay(activities, { year, month }), [activities, year, month]);
+  const dayMap = useMemo(() => new Map(days.map((d) => [d.key, d])), [days]);
+  const summary = useMemo(() => monthSummary(activities, year, month), [activities, year, month]);
 
-    for (const a of activities) {
-      const d = new Date(a.date);
-      const first = new Date(d.getFullYear(), d.getMonth(), 1);
-      const row = seen.get(monthKey(first)) ?? { date: first, saved: 0 };
-      row.saved += inflow(a);
-      seen.set(monthKey(first), row);
-    }
-    return [...seen.values()].sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [activities]); // eslint-disable-line react-hooks/exhaustive-deps
+  const keptDay = startOfDay(ledger.keptFrom);
+  const clamp = (d: Date) => (d.getTime() > today.getTime() ? today : d.getTime() < keptDay.getTime() ? keptDay : d);
 
-  const savedIn = (d: Date) => months.find((m) => monthKey(m.date) === monthKey(d))?.saved ?? 0;
-  const savedThisMonth = savedIn(month);
-  const savedLastMonth = savedIn(new Date(month.getFullYear(), month.getMonth() - 1, 1));
-  const change =
-    savedLastMonth > 0 ? Math.round(((savedThisMonth - savedLastMonth) / savedLastMonth) * 1000) / 10 : null;
-
-  /** The selected month's records, bundled by day, newest day first. */
-  const days = useMemo(() => {
-    const out = new Map<string, Day>();
-    for (const a of activities) {
-      const d = new Date(a.date);
-      if (d.getFullYear() !== month.getFullYear() || d.getMonth() !== month.getMonth()) continue;
-
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      const day =
-        out.get(key) ??
-        ({
-          key,
-          date: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
-          entries: [],
-          saved: 0,
-          spent: 0,
-          borrowed: 0,
-          repaid: 0,
-          sharesOut: 0,
-          sharesIn: 0,
-        } as Day);
-
-      day.entries.push(a);
-      day.saved += inflow(a);
-      day.spent += outflow(a);
-      if (a.type === 'borrow') day.borrowed += toCents(a.amount);
-      if (a.type === 'invest' || a.type === 'toInvest') day.sharesOut += sharesCents(a);
-      else if (a.type === 'fromInvest') day.sharesIn += sharesCents(a);
-      else if (a.type === 'divest') {
-        const cents = sharesCents(a);
-        if (cents >= 0) day.sharesIn += cents;
-        else day.sharesOut -= cents;
-      }
-      // Spent ahead covered by a sale is part of the shares coming back, not a deposit's.
-      else day.repaid += toCents(a.repaid ?? 0);
-      out.set(key, day);
-    }
-    // Activities arrive newest first, so each day's entries already are too.
-    return [...out.values()].sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [activities, month]);
-
-  /** Only a plain split can be re-derived from its percentages. Anything that
-      moved money out, or paid down a loan, has to be deleted and redone. */
-  const canEdit = (activity: Activity) =>
-    !isTrade(activity) && activity.type !== 'transfer' && activity.type !== 'fromInvest' && !STYLES[activity.type].outgoing && !activity.repaid;
-
-  /** How a trade's row opens its trade, or null when it cannot be opened from here. */
-  const tradeOpener = (activity: Activity) => {
-    const { tradeId } = activity;
-    return isTrade(activity) && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : null;
+  /** Header arrows: a week at a time on the strip, a month at a time on the grid. */
+  const stepped = (dir: 1 | -1) => clamp(expanded ? shiftMonth(cursor, dir) : shiftDay(cursor, 7 * dir));
+  const canStep = (dir: 1 | -1) => {
+    const next = stepped(dir);
+    return dayKey(next) !== dayKey(cursor);
+  };
+  const step = (dir: 1 | -1) => {
+    setCursor(stepped(dir));
+    setSelected(null);
   };
 
-  const nameOf = (bankId: string) => banks.find((b) => b.id === bankId)?.name ?? t.history.deletedGoal;
-
-  /** "100 units · from Stocks", or "100 units · split across 5 goals · covered spent ahead RM50.00". */
-  const tradeDetail = (activity: Activity) => {
-    const parts: string[] = [];
-    if (activity.units) parts.push(t.common.units(activity.units.toLocaleString('en-US')));
-    const goals = activity.distributions;
-    if (activity.type === 'invest') {
-      if (goals.length > 0) parts.push(t.history.fromGoal(nameOf(goals[0].bankId)));
-    } else {
-      if (goals.length === 1) parts.push(t.history.intoGoal(nameOf(goals[0].bankId)));
-      else if (goals.length > 1) parts.push(t.history.splitAcross(goals.length));
-      if ((activity.repaid ?? 0) > 0) parts.push(t.history.coveredSpentAhead(money(activity.repaid ?? 0)));
-    }
-    return parts.join(' · ');
+  const pick = (date: Date) => {
+    setCursor(date);
+    setSelected(dayKey(date));
+  };
+  const stepDay = (dir: 1 | -1) => {
+    if (!selected) return;
+    const next = shiftDay(fromKey(selected), dir);
+    if (next.getTime() > today.getTime() || next.getTime() < keptDay.getTime()) return;
+    pick(next);
   };
 
-  const handleSaveEdit = (id: string) => {
-    const val = parseFloat(editValue);
-    // Zero (or under a sen) is refused: an entry that moved nothing is a delete.
-    if (!isNaN(val) && toCents(val) > 0) onEditActivity(id, val);
-    setEditingId(null);
+  const goToday = () => {
+    setCursor(today);
+    setSelected(null);
   };
 
-  const handleDelete = async (activity: Activity) => {
-    // Part of it sits in a goal that is gone; that sheet asks where it is
-    // settled, and is the confirmation.
-    if (goneShareCents(activity.distributions, banks) !== 0) {
-      setSettling(activity);
-      return;
-    }
-    const style = STYLES[activity.type];
-    // Spending ahead never touched a goal, so there is nothing of it to hand back.
-    const undo =
-      activity.type === 'borrow'
-        ? t.history.undoBorrow
-        : style.outgoing
-          ? t.history.undoOutgoing(money(activity.amount))
-          : t.history.undoIncoming(money(activity.amount));
-    const ok = await confirm({
-      title: t.history.removeTitle,
-      body: undo,
-      tone: 'danger',
-      confirmLabel: t.history.remove,
-      // The row exactly as it reads in the list above, so the entry being
-      // deleted is visible at the moment of deciding.
-      detail: {
-        icon: style.icon,
-        tint: style.tint,
-        label: (activity.note && noteText(activity.note)) || t.common.activity[style.label],
-        meta: new Date(activity.date).toLocaleString(dateLocale('en-GB'), {
-          day: 'numeric',
-          month: 'short',
-          hour: 'numeric',
-          minute: '2-digit',
-        }),
-        amount: `${style.outgoing ? '−' : '+'}${money(activity.amount)}`,
-        amountTint: style.outgoing ? 'text-slate-400' : 'text-white',
-      },
-    });
-    if (ok) onDeleteActivity(activity.id);
-  };
+  // Today is open when it has entries; otherwise the newest day is, so the list never opens on a wall of closed rows.
+  const todayHasEntries = days.some((d) => d.key === todayKey);
+  const isOpen = (key: string, index: number) =>
+    selected !== null || (toggled[key] ?? (key === todayKey || (!todayHasEntries && index === 0)));
+  const toggle = (key: string, index: number) => setToggled((prev) => ({ ...prev, [key]: !isOpen(key, index) }));
 
-  /** Where one entry's money went, as coloured rows carrying their share. */
-  const splitRows = (activity: Activity) => {
-    const total = credited(activity);
-    // Borrowing is money from outside, so it touches no goal at all.
-    if (activity.distributions.length === 0) {
-      // A sale that only covered spent ahead already says so on its own row.
-      if (isTrade(activity)) return null;
-      return (
-        <p className="text-slate-500 text-xs font-medium py-2 leading-relaxed">
-          {t.history.noGoalTouched}
-        </p>
-      );
-    }
-    return activity.distributions.map((dist) => {
-      const bank = banks.find((b) => b.id === dist.bankId);
-      const color = colorOf(dist.bankId);
-      const share = total > 0 && dist.amount > 0 ? Math.round((toCents(dist.amount) / total) * 100) : null;
-      return (
-        <div key={dist.bankId} className="flex items-center gap-3 py-2">
-          <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-          <span className="text-slate-300 text-sm font-bold truncate">{bank?.name ?? t.history.deletedGoal}</span>
-          {share !== null && (
-            <span
-              className="text-[10px] font-black px-1.5 py-0.5 rounded-md shrink-0"
-              style={{ color, backgroundColor: `${color}1f` }}
-            >
-              {share}%
-            </span>
-          )}
-          <span className={`ml-auto text-sm font-black shrink-0 ${dist.amount < 0 ? 'text-slate-400' : 'text-white'}`}>
-            {dist.amount < 0 ? '-' : '+'}
-            {money(dist.amount)}
-          </span>
-        </div>
-      );
-    });
-  };
-
-  /**
-   * One entry: what it was and how much, then its time and buttons underneath.
-   * Two rows rather than one, so a long name still fits on a narrow phone.
-   */
-  const entryRow = (activity: Activity, boxed: boolean) => {
-    const style = STYLES[activity.type];
-    const trade = isTrade(activity);
-    const label = t.common.activity[style.label];
-    const title =
-      trade && activity.counter
-        ? t.history.tradeTitle(label, activity.counter)
-        : activity.type === 'transfer' && activity.fromGoal
-          ? t.common.movedFrom(label, activity.fromGoal)
-          : (activity.note && noteText(activity.note)) || label;
-    const detail = trade ? tradeDetail(activity) : '';
-    return (
-      <div className={boxed ? '' : 'pt-3 mt-1 border-t border-white/5'}>
-        <div className="flex items-center gap-3">
-          <span className={`size-8 shrink-0 rounded-xl flex items-center justify-center ${style.tint}`}>
-            <span className="material-symbols-rounded text-base">{style.icon}</span>
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-slate-300 text-xs font-bold truncate">{title}</p>
-            {detail && <p className="text-slate-500 text-[10px] font-bold mt-0.5 truncate">{detail}</p>}
-            {activity.type === 'withdraw' && (
-              <button
-                onClick={() => setPickingFor(activity.id)}
-                className="flex items-center gap-1 mt-0.5 active:opacity-60"
-              >
-                <span className={`material-symbols-rounded text-[13px] ${categoryOf(activity.category).tint}`}>
-                  {categoryOf(activity.category).icon}
-                </span>
-                <span className="text-slate-500 text-[10px] font-bold">
-                  {categoryOf(activity.category).label}
-                </span>
-              </button>
-            )}
-          </div>
-          <span className={`text-sm font-black shrink-0 ${style.outgoing ? 'text-slate-400' : 'text-white'}`}>
-            {ledgerAmount(activity) < 0 ? '-' : '+'}
-            {money(activity.amount)}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 mt-1.5 pl-11">
-          <p className="text-slate-600 text-[10px] font-medium truncate flex-1">
-            {new Date(activity.date).toLocaleTimeString(dateLocale('en-US'), { hour: 'numeric', minute: '2-digit' })}
-            {activity.repaid && !trade ? ` · ${t.history.toDebt(money(activity.repaid))}` : ''}
-          </p>
-
-          {trade ? (
-            // Corrected or removed only through the trade itself, so the shares
-            // and the goal money never disagree.
-            tradeOpener(activity) && (
-              <span className="material-symbols-rounded text-base text-slate-600 shrink-0">chevron_right</span>
-            )
-          ) : activity.type === 'transfer' || activity.type === 'toInvest' || activity.type === 'fromInvest' ? null : editingId === activity.id ? (
-            <>
-              <input
-                autoFocus
-                type="number"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                className="w-20 bg-white/10 border border-primary/30 rounded-lg px-2 py-1 text-white font-black text-right outline-none"
-              />
-              <button onClick={() => setEditingId(null)} className="text-[10px] text-slate-500 font-black uppercase">
-                {t.common.cancel}
-              </button>
-              <button onClick={() => handleSaveEdit(activity.id)} className="text-[10px] text-primary font-black uppercase">
-                {t.common.save}
-              </button>
-            </>
-          ) : (
-            <>
-              {canEdit(activity) && (
-                <button
-                  onClick={() => {
-                    setEditingId(activity.id);
-                    setEditValue(activity.amount.toString());
-                  }}
-                  className="size-8 shrink-0 rounded-full flex items-center justify-center bg-white/5 text-slate-500 active:scale-90"
-                >
-                  <span className="material-symbols-rounded text-base">edit</span>
-                </button>
-              )}
-              <button
-                onClick={() => handleDelete(activity)}
-                className="size-8 shrink-0 rounded-full flex items-center justify-center bg-red-500/5 text-red-500/40 active:scale-90"
-              >
-                <span className="material-symbols-rounded text-base">delete</span>
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
+  const shown = selected ? days.filter((d) => d.key === selected) : days;
+  const selectedDate = selected ? fromKey(selected) : null;
+  const selectedLabel = selectedDate
+    ? selectedDate.toLocaleDateString(dateLocale('en-GB'), { weekday: 'short', day: 'numeric', month: 'short' })
+    : '';
+  const canPrevDay = !!selectedDate && shiftDay(selectedDate, -1).getTime() >= keptDay.getTime();
+  const canNextDay = !!selectedDate && shiftDay(selectedDate, 1).getTime() <= today.getTime();
 
   return (
-    <div className="flex flex-col min-h-full pb-32 safe-pt">
-      {/* Header */}
-      <div className="px-6 pt-6 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-white text-3xl font-black tracking-tight">{t.history.title}</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">{t.history.subtitle}</p>
-        </div>
-        <button
-          onClick={() => setPickMonth(true)}
-          aria-label={t.history.pickMonth}
-          className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-        >
-          <span className="material-symbols-rounded">calendar_month</span>
-        </button>
-      </div>
+    <div className="flex min-h-full flex-col px-5 pb-32 pt-3 font-figtree text-ink safe-pt">
+      <h1 className="mb-1 mt-1.5 text-[32px] font-extrabold leading-[1.1] tracking-[-0.035em]">{t.history.title}</h1>
 
-      {/* Month total */}
-      <div className="px-6 mt-6">
-        <div className="rounded-[2rem] border border-primary/20 bg-primary/5 p-6">
-          <p className="text-primary/70 text-[10px] font-black uppercase tracking-widest">
-            {t.history.totalSaved(monthLabel(month))}
-          </p>
-          <div className="flex items-end gap-3 mt-2 flex-wrap">
-            <h3 className="text-white text-3xl font-black tracking-tight">{money(fromCents(savedThisMonth))}</h3>
-            {change !== null && monthStatus === 'ready' && (
-              <span
-                className={`flex items-center gap-0.5 text-sm font-black ${change < 0 ? 'text-slate-400' : 'text-primary'}`}
+      <CalendarHeader
+        title={monthShort}
+        expanded={expanded}
+        canPrev={canStep(-1)}
+        canNext={canStep(1)}
+        onTitle={() => setPicker(true)}
+        onToday={goToday}
+        onPrev={() => step(-1)}
+        onNext={() => step(1)}
+        onToggle={() => setExpanded((v) => !v)}
+      />
+
+      <HistoryCalendar
+        cursor={cursor}
+        now={now}
+        selected={selected}
+        expanded={expanded}
+        days={dayMap}
+        loading={!ready}
+        notBefore={ledger.keptFrom}
+        onPick={pick}
+        summary={summary}
+      />
+
+      {!ready ? (
+        <MonthLoading status={status === 'failed' ? 'failed' : 'loading'} month={monthName} onRetry={ledger.retry} />
+      ) : (
+        <>
+          {selectedDate && (
+            <div className="mt-3 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => stepDay(-1)}
+                disabled={!canPrevDay}
+                aria-label={t.calendar.previousDay}
+                className={`grid size-11 shrink-0 place-items-center rounded-full ${canPrevDay ? 'active:opacity-70' : 'opacity-30'}`}
               >
-                <span className="material-symbols-rounded text-base">
-                  {change < 0 ? 'trending_down' : 'trending_up'}
+                <Icon name="left" size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                aria-label={t.calendar.clearDay(selectedLabel)}
+                className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full bg-cta py-1.5 pl-4 pr-2 text-[12.5px] font-extrabold text-cta-fg active:opacity-80"
+              >
+                <span className="truncate">{selectedLabel}</span>
+                <span className="grid size-5 shrink-0 place-items-center rounded-full bg-cta-fg/25" aria-hidden="true">
+                  <Icon name="close" size={10} strokeWidth={2.4} />
                 </span>
-                {change > 0 ? '+' : ''}
-                {change}%
+              </button>
+              <button
+                type="button"
+                onClick={() => stepDay(1)}
+                disabled={!canNextDay}
+                aria-label={t.calendar.nextDay}
+                className={`grid size-11 shrink-0 place-items-center rounded-full ${canNextDay ? 'active:opacity-70' : 'opacity-30'}`}
+              >
+                <Icon name="right" size={18} />
+              </button>
+              <span className="ml-auto shrink-0 text-[12px] font-bold text-mute">
+                {t.calendar.entryCount(shown.reduce((n, d) => n + d.entries.length, 0))}
               </span>
-            )}
-          </div>
-          {/* The month before is not read yet: no comparison rather than a wrong one. */}
-          {monthStatus === 'ready' && (
-            <p className="text-slate-500 text-xs font-medium mt-1">
-              {change === null ? t.history.nothingSavedBefore : t.history.comparedWithBefore}
-            </p>
+            </div>
           )}
-        </div>
-        {monthStatus !== 'ready' && (
-          <OlderRecordsNotice status={monthStatus} onRetry={ledger.retry} className="mt-3" />
-        )}
-      </div>
 
-      {/* Timeline */}
-      <div className="px-6 mt-8">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <h3 className="text-white text-lg font-black">{t.history.activityFeed}</h3>
-          <p className="text-primary text-xs font-black">{shortMonth(month)}</p>
-        </div>
-
-        {days.length === 0 ? (
-          <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
-            <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">history</span>
-            <p className="text-slate-500 font-bold">{t.history.nothingIn(monthLabel(month))}</p>
-            <p className="text-slate-600 text-xs mt-1">{t.history.pickAnotherMonth}</p>
-          </div>
-        ) : (
-          <div className="relative">
-            {/* The rail the day markers sit on. */}
-            <div className="absolute left-[1.375rem] top-4 bottom-4 w-px bg-white/5" />
-
-            <div className="space-y-3">
-              {days.map((day) => {
-                const open = openDay === day.key;
-                const hasShares = day.sharesOut > 0 || day.sharesIn > 0;
-                // A day that only moved money for shares has no saving or
-                // spending to headline, so it headlines what the shares moved.
-                const sharesOnly =
-                  hasShares && day.saved === 0 && day.spent === 0 && day.borrowed === 0 && day.repaid === 0;
-                const net = sharesOnly ? day.sharesIn - day.sharesOut : day.saved - day.spent;
-                const tint = sharesOnly
-                  ? 'bg-accent/10 text-accent'
-                  : day.borrowed > 0
-                    ? 'bg-amber-500/10 text-amber-400'
-                    : net < 0
-                      ? 'bg-slate-500/10 text-slate-400'
-                      : 'bg-primary/10 text-primary';
-                const icon = sharesOnly
-                  ? 'candlestick_chart'
-                  : day.borrowed > 0
-                    ? 'account_balance'
-                    : net < 0
-                      ? 'north_east'
-                      : 'savings';
-                const single = day.entries.length === 1;
-                const notes: { text: string; tint?: string }[] = [];
-                if (day.saved > 0) notes.push({ text: t.history.savedAmount(money(fromCents(day.saved))) });
-                if (day.spent > 0) notes.push({ text: t.history.spentAmount(money(fromCents(day.spent))) });
-                if (day.repaid > 0) {
-                  notes.push({ text: t.history.toDebt(money(fromCents(day.repaid))), tint: 'text-amber-400' });
-                }
-                if (day.borrowed > 0) {
-                  notes.push({ text: t.history.spentAheadAmount(money(fromCents(day.borrowed))), tint: 'text-amber-400' });
-                }
-                if (hasShares) {
-                  const moves = [
-                    day.sharesOut > 0 ? `-${money(fromCents(day.sharesOut))}` : '',
-                    day.sharesIn > 0 ? `+${money(fromCents(day.sharesIn))}` : '',
-                  ].filter(Boolean);
-                  notes.push({ text: t.history.sharesMoved(moves.join(' / ')), tint: 'text-accent' });
-                }
-
-                return (
-                  <div key={day.key} className="relative pl-14">
-                    <span
-                      className={`absolute left-0 top-4 size-11 rounded-2xl flex items-center justify-center ring-4 ring-bg-dark ${tint}`}
-                    >
-                      <span className="material-symbols-rounded">{icon}</span>
-                    </span>
-
-                    <div className="bg-surface border border-white/5 rounded-3xl shadow-lg overflow-hidden">
-                      <button
-                        onClick={() => {
-                          setOpenDay(open ? null : day.key);
-                          setOpenEntry(null);
-                        }}
-                        className="w-full p-5 flex items-start gap-3 text-left"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                            {dayLabel(day.date, now, t)}
-                          </p>
-                          <p className={`text-2xl font-black mt-1 ${net < 0 ? 'text-slate-300' : 'text-white'}`}>
-                            {net < 0 ? '-' : '+'}
-                            {money(fromCents(net))}
-                          </p>
-                          {(day.spent > 0 || day.borrowed > 0 || day.repaid > 0 || hasShares) && (
-                            <p className="text-slate-500 text-[11px] font-bold mt-1">
-                              {notes.map((note, i) => (
-                                <React.Fragment key={i}>
-                                  {i > 0 && ' · '}
-                                  <span className={note.tint}>{note.text}</span>
-                                </React.Fragment>
-                              ))}
-                            </p>
-                          )}
-                        </div>
-                        <span
-                          className={`material-symbols-rounded text-slate-600 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
-                        >
-                          expand_more
-                        </span>
-                      </button>
-
-                      {open && (
-                        <div className="px-5 pb-5">
-                          {single ? (
-                            <>
-                              <div className="divide-y divide-white/5">{splitRows(day.entries[0])}</div>
-                              {(() => {
-                                const openTrade = tradeOpener(day.entries[0]);
-                                return openTrade ? (
-                                  <button
-                                    onClick={openTrade}
-                                    aria-label={t.history.openTrade}
-                                    className="w-full text-left active:opacity-70"
-                                  >
-                                    {entryRow(day.entries[0], false)}
-                                  </button>
-                                ) : (
-                                  entryRow(day.entries[0], false)
-                                );
-                              })()}
-                            </>
-                          ) : (
-                            <div className="space-y-2">
-                              {day.entries.map((entry) => {
-                                const shown = openEntry === entry.id;
-                                const openTrade = tradeOpener(entry);
-                                return (
-                                  <div key={entry.id} className="rounded-2xl bg-white/5 p-3">
-                                    {isTrade(entry) ? (
-                                      // Its own row already says where the money went.
-                                      openTrade ? (
-                                        <button
-                                          onClick={openTrade}
-                                          aria-label={t.history.openTrade}
-                                          className="w-full text-left active:opacity-70"
-                                        >
-                                          {entryRow(entry, true)}
-                                        </button>
-                                      ) : (
-                                        entryRow(entry, true)
-                                      )
-                                    ) : (
-                                      <button onClick={() => setOpenEntry(shown ? null : entry.id)} className="w-full text-left">
-                                        {entryRow(entry, true)}
-                                      </button>
-                                    )}
-                                    {shown && (
-                                      <div className="mt-2 pt-2 border-t border-white/5 divide-y divide-white/5">
-                                        {splitRows(entry)}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+          {activities.length === 0 ? (
+            <EmptyState
+              icon="hist"
+              title={t.calendar.emptyAllTitle}
+              body={t.calendar.emptyAllBody}
+              action={{ label: t.calendar.emptyAllAction, onClick: onDeposit }}
+              className="mt-6"
+            />
+          ) : shown.length === 0 ? (
+            selected ? (
+              <EmptyState
+                icon="hist"
+                title={t.calendar.emptyDayTitle}
+                body={t.calendar.emptyDayBody}
+                action={{ label: t.calendar.showWholeMonth, onClick: () => setSelected(null) }}
+                className="mt-4"
+              />
+            ) : (
+              <EmptyState
+                icon="hist"
+                title={t.calendar.emptyMonthTitle(monthName)}
+                body={t.calendar.emptyMonthBody}
+                action={{ label: t.common.today, onClick: goToday }}
+                className="mt-4"
+              />
+            )
+          ) : (
+            <div className="mt-1">
+              {shown.map((day, i) => (
+                <DayGroup
+                  key={day.key}
+                  day={day}
+                  banks={banks}
+                  now={now}
+                  open={isOpen(day.key, i)}
+                  onToggle={selected ? undefined : () => toggle(day.key, i)}
+                  onOpenEntry={onOpenEntry}
+                  onOpenTrade={onOpenTrade}
+                />
+              ))}
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Re-labelling what a withdrawal was for. It moves no money, which is
-          why it needs no confirmation and no reversal. */}
-      {pickingFor && (() => {
-        const current = activities.find((a) => a.id === pickingFor);
-        // Only spending has a category; a trade's row never does.
-        if (current && isTrade(current)) return null;
-        return (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => setPickingFor(null)}
-        >
-          <div
-            className="w-full max-w-md bg-surface sheet-rise rounded-t-[2.5rem] p-6 safe-pb"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
-            <h3 className="text-white text-xl font-black">{t.history.whatWasThisFor}</h3>
-            <p className="text-slate-500 text-[11px] font-bold mt-1">
-              {t.history.labelOnly}
-            </p>
-            <div className="flex flex-wrap gap-2 mt-5">
-              {CATEGORIES.map((c) => {
-                const on = categoryOf(current?.category).key === c.key;
-                return (
-                  <button
-                    key={c.key}
-                    onClick={() => {
-                      onSetCategory(pickingFor, c.key);
-                      setPickingFor(null);
-                    }}
-                    className={`flex items-center gap-1.5 pl-2 pr-3 py-2.5 rounded-2xl text-[11px] font-black border active:scale-95 transition-transform ${
-                      on
-                        ? 'bg-primary text-black border-primary'
-                        : 'bg-white/5 border-white/10 text-slate-300'
-                    }`}
-                  >
-                    <span className={`material-symbols-rounded text-base ${on ? '' : c.tint}`}>
-                      {c.icon}
-                    </span>
-                    {c.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-        );
-      })()}
-
-      {/* Month picker */}
-      {pickMonth && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => setPickMonth(false)}
-        >
-          <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-white text-2xl font-black">{t.history.jumpToMonth}</h3>
-            <p className="text-slate-500 text-sm font-medium mt-1">{t.history.onlyMonthsWithRecords}</p>
-
-            <div className="mt-5 space-y-2 max-h-[50vh] overflow-y-auto no-scrollbar">
-              {months.map((m) => {
-                const on = monthKey(m.date) === monthKey(month);
-                return (
-                  <button
-                    key={monthKey(m.date)}
-                    onClick={() => {
-                      setMonth(m.date);
-                      setOpenDay(null);
-                      setPickMonth(false);
-                    }}
-                    className={`w-full flex items-center justify-between gap-3 rounded-2xl px-5 h-14 transition-colors ${
-                      on ? 'bg-primary text-black' : 'bg-white/5 text-white'
-                    }`}
-                  >
-                    <span className="font-black">{monthLabel(m.date)}</span>
-                    <span className={`text-sm font-black ${on ? 'text-black/70' : 'text-slate-400'}`}>
-                      {money(fromCents(m.saved))}
-                    </span>
-                  </button>
-                );
-              })}
-              {/* Months before the live three are read only when asked for. */}
-              {earlierStatus !== 'ready' &&
-                (wantEarlier ? (
-                  <OlderRecordsNotice status={earlierStatus} onRetry={ledger.retry} />
-                ) : (
-                  <button
-                    onClick={() => setWantEarlier(true)}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl px-5 h-14 border border-dashed border-white/15 text-slate-300 font-black active:scale-[0.98] transition-transform"
-                  >
-                    <span className="material-symbols-rounded text-lg">history</span>
-                    {t.history.showEarlierMonths}
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
-      {settling && (
-        <GoneShareSheet
-          distributions={settling.distributions}
-          banks={banks}
-          activities={activities}
-          confirmLabel={t.history.remove}
-          onChoose={(takeBack) => {
-            onDeleteActivity(settling.id, takeBack);
-            setSettling(null);
+      {picker && (
+        <MonthPickerSheet
+          current={{ year, month }}
+          keptFrom={ledger.keptFrom}
+          liveFrom={ledger.liveFrom}
+          loadedFrom={ledger.loadedFrom}
+          now={now}
+          onPick={(y, m) => {
+            setCursor(clamp(cursorForMonth(y, m, now)));
+            setSelected(null);
+            setPicker(false);
           }}
-          onClose={() => setSettling(null)}
+          onClose={() => setPicker(false)}
         />
       )}
     </div>

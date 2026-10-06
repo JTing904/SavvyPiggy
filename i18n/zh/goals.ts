@@ -2,7 +2,6 @@ import type { goals as English } from '../en/goals';
 
 export const goals: typeof English = {
   saving: '保存中…',
-  noLimit: '无上限',
   targetReached: '已达到目标金额',
   overspent: '超支',
 
@@ -15,12 +14,10 @@ export const goals: typeof English = {
   change: '更换',
   addPhoto: '添加照片',
   saved: '已存',
-  target: '目标金额',
   toGo: (amount, percent) => `还差 ${amount} · 已完成 ${percent}%`,
   noFinishLine: '没有终点，一直存下去。',
   excludedFromDeposits: '不参与存入分配',
   percentOfEveryDeposit: (percent) => `每笔存入的 ${percent}%`,
-  changeOnStrategyTab: '在「分配」页修改',
   archived: '已封存',
   restoreAtZero: '恢复到列表，分配比例为 0%',
   archiveThisGoal: '封存这个钱罐',
@@ -39,37 +36,6 @@ export const goals: typeof English = {
 
   // CreateGoal
   couldNotCreate: '无法创建这个钱罐。',
-  newPiggyBank: '新钱罐',
-  createGoal: '创建钱罐',
-  whatSavingFor: '你在为什么存钱？',
-  coverImage: '封面图片',
-  changeImage: '更换图片',
-  optionalUpload: '可选——点一下上传',
-  goalName: '钱罐名称',
-  goalNamePlaceholder: '例如：梦想婚礼',
-  targetAmount: '目标金额',
-  openEndedHint: '不设目标金额——没有终点，一直存下去。',
-  selectIcon: '选择图标',
-  categoryIs: (category) => `分类：${category}`,
-  iconCategories: {
-    directions_car: '交通',
-    flight: '旅行',
-    home: '居家',
-    shopping_bag: '购物',
-    restaurant: '餐饮',
-    devices: '科技',
-    pets: '宠物',
-    fitness_center: '健康',
-    movie: '娱乐',
-    Celebration: '娱乐',
-    School: '教育',
-    Medical_Services: '健康',
-  },
-  automaticSplit: '自动分配',
-  takesShare: '这个钱罐会分到每笔存入的一部分',
-  skippedInSplit: '分配存入时会跳过这个钱罐',
-  newGoalsStartAtZero: '新钱罐的分配比例从 0% 开始。到「分配」页设定它在每笔存入中占多少。',
-  confirmGoal: '确认创建',
 
   // StrategyEditor
   less: '减少',

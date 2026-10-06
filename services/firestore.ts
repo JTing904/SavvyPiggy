@@ -25,18 +25,27 @@ import { db } from '../lib/firebase';
 import type { InvestSettings } from '../types';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
 import type { Activity, ActivityType, Alert, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
-import { allowedRetention } from './analytics';
+import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
 import { dayStart, tradeTotalCents } from './holdings';
 import type { LangChoice } from '../i18n';
 import { m as messages } from '../i18n';
 import { dividendsAfterChange, exchangeDay, type CreditedDividend, type DueDividend } from './dividends';
 import { dueOccurrences, localDate, runStamp, scheduleDay } from './schedules';
-import { fromCents, resplitDeposit, toCents } from './money';
+import { fromCents, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type GoneShareChoice, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 import { activityRowsChanged } from './ledgerEvents';
 import { localKey, readLocal, writeLocal } from './localFlags';
+import { debtExistedOn, stampFor } from './activityDate';
+import { planActivityEdit, staleCheck, type ActivityEdit } from './activityEdit';
+import { planBankEdit, type BankEdit } from './bankEdit';
+import { GOAL_ICON_SET } from './goalIcons';
+import { firstGoalSplit } from './firstGoalSplit';
+import { liveWindowStart } from './ledgerWindow';
+import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from './potTransfers';
+import { planDividendCorrection, planDividendRemoval } from './dividendCorrection';
+import { activityEditProblemText, bankEditProblemText, dateProblemText, dividendProblemText, potTransferProblemText } from './problemText';
 
 export { isInSplit, isArchived, isFull } from './ledger';
 
@@ -76,7 +85,35 @@ export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
 export interface DepositOptions {
   alerts?: AlertOptions;
   savings?: SavingsSettings;
+  /** Record it on this day instead of now (a past day, at most). */
+  at?: Date;
+  /** The earliest day an entry may be dated; the retention cutoff when left out. */
+  notBefore?: Date;
 }
+
+/** Back-dating for a withdrawal or a borrow. */
+export interface DatedOptions {
+  at?: Date;
+  notBefore?: Date;
+}
+
+/**
+ * The stamp a new row is written with. A day in the future, or before the
+ * earliest kept day, is refused with the words every screen shows.
+ */
+const stampOrThrow = (at: Date | undefined, now: Date, notBefore: Date | undefined, months?: number | null) => {
+  const stamped = stampFor(at, now, notBefore ?? retentionCutoff(now, months));
+  if ('problem' in stamped) throw new Error(dateProblemText(stamped.problem, messages()));
+  return { stamp: stamped.stamp, when: new Date(stamped.stamp) };
+};
+
+/**
+ * A new row dated before the live window is not in the live listener, so the
+ * older ledger is told to read it from the server.
+ */
+const announceBackDated = (id: string, when: Date, now: Date) => {
+  if (when.getTime() < liveWindowStart(now).getTime()) activityRowsChanged([{ id, server: true, moved: true }]);
+};
 
 /** Alerts ride in the same batch as the money they describe. */
 const queueAlerts = (batch: ReturnType<typeof writeBatch>, uid: string, drafts: AlertDraft[]) =>
@@ -328,13 +365,13 @@ export const saveLanguage = (uid: string, choice: LangChoice) => {
 
 /* ------------------------------------------------------------------- banks */
 
-export const createBank = async (uid: string, goal: Partial<PiggyBank>) => {
+export const createBank = async (uid: string, goal: Partial<PiggyBank>, existing: PiggyBank[] = []) => {
   const name = goal.name || messages().errors.newGoal;
   const bank: Omit<PiggyBank, 'id'> = {
     name,
     targetAmount: Math.max(0, goal.targetAmount ?? 1000),
     currentAmount: 0,
-    splitPercentage: 0,
+    splitPercentage: firstGoalSplit(existing, goal.autoSplit),
     icon: goal.icon || 'savings',
     // Empty means "no upload"; the card draws its own artwork instead of
     // depending on an image host that may not be reachable.
@@ -360,8 +397,19 @@ export const saveStrategy = async (uid: string, banks: PiggyBank[]) => {
   await batch.commit();
 };
 
-export const updateBank = (uid: string, id: string, patch: Partial<PiggyBank>) =>
-  updateDoc(bankRef(uid, id), patch);
+/**
+ * Name, target and icon only, written as a patch: the balance and the split are
+ * never part of an edit, so a concurrent deposit cannot be overwritten by it.
+ */
+export const updateBank = async (uid: string, id: string, edit: BankEdit) => {
+  // planBankEdit reads the balance only to warn about a target below it, which the screen does itself.
+  const result = planBankEdit({ currentAmount: 0 } as PiggyBank, edit, GOAL_ICON_SET);
+  if ('problem' in result) throw new Error(bankEditProblemText(result.problem, messages()));
+  if (Object.keys(result.patch).length === 0) return;
+  await updateDoc(bankRef(uid, id), result.patch);
+};
+
+export const setBankPhoto = (uid: string, id: string, imageUrl: string) => updateDoc(bankRef(uid, id), { imageUrl });
 
 /**
  * Deletes a goal and moves whatever it held — see planGoalRemoval. One batch:
@@ -461,19 +509,23 @@ export const deposit = async (
   banks: PiggyBank[],
   loans: Loan[],
   targetBankId: string | null = null,
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, at, notBefore }: DepositOptions = {}
 ) => {
-  const plan = planDeposit(toCents(amount), banks, loans, targetBankId, savings.overflow);
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
+  // A deposit recorded for a past day can only repay a debt that was already owed that day.
+  const owed = at ? loans.filter((l) => debtExistedOn(new Date(l.createdAt).toISOString(), when)) : loans;
+  const plan = planDeposit(toCents(amount), banks, owed, targetBankId, savings.overflow);
   if (plan.movements.length === 0 && plan.repayments.length === 0) {
     throw new Error(messages().errors.nothingToDepositInto);
   }
 
-  const now = new Date();
   const batch = writeBatch(db);
 
-  batch.set(doc(activitiesCol(uid)), {
+  const entry = doc(activitiesCol(uid));
+  batch.set(entry, {
     type: 'manual' satisfies ActivityType,
-    date: now.toISOString(),
+    date: stamp,
     amount: fromCents(toCents(amount)),
     distributions: toDistributions(plan.movements),
     repaid: fromCents(plan.repaidCents),
@@ -499,7 +551,7 @@ export const deposit = async (
     const left = outstandingCents(r.loan) - r.cents;
     batch.update(loanRef(uid, r.loan.id), {
       outstanding: increment(-fromCents(r.cents)),
-      settledAt: left === 0 ? now.toISOString() : null,
+      settledAt: left === 0 ? stamp : null,
     });
   });
 
@@ -507,7 +559,8 @@ export const deposit = async (
   if (alerts.milestones) queueAlerts(batch, uid, milestoneAlerts(banks, plan.movements, now, savings.overflow));
 
   await batch.commit();
-  return plan;
+  announceBackDated(entry.id, when, now);
+  return { ...plan, id: entry.id };
 };
 
 /**
@@ -519,15 +572,19 @@ export const withdraw = async (
   amount: number,
   sourceBankId: string,
   note = '',
-  category: string = UNCATEGORISED
+  category: string = UNCATEGORISED,
+  { at, notBefore }: DatedOptions = {}
 ) => {
   const movements = planWithdrawal(toCents(amount), sourceBankId);
   if (movements.length === 0) throw new Error(messages().errors.enterWithdrawAmount);
 
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore);
+  const entry = doc(activitiesCol(uid));
   const batch = writeBatch(db);
-  batch.set(doc(activitiesCol(uid)), {
+  batch.set(entry, {
     type: 'withdraw' satisfies ActivityType,
-    date: new Date().toISOString(),
+    date: stamp,
     amount: fromCents(toCents(amount)),
     distributions: toDistributions(movements),
     note,
@@ -537,15 +594,19 @@ export const withdraw = async (
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
   await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id };
 };
 
 /**
  * Borrowing is money from outside, so no goal is touched — it only records what
  * is owed, which the next untargeted deposits clear before anything is split.
  */
-export const borrow = async (uid: string, amount: number, note = '') => {
+export const borrow = async (uid: string, amount: number, note = '', { at, notBefore }: DatedOptions = {}) => {
   const cents = toCents(amount);
   if (cents <= 0) throw new Error(messages().errors.enterSpendAmount);
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore);
 
   // One batch, with the loan's id made on the phone. Two awaited addDocs waited
   // for the server between them, so offline the debt was queued and the
@@ -557,18 +618,22 @@ export const borrow = async (uid: string, amount: number, note = '') => {
     outstanding: fromCents(cents),
     note,
     sources: [],
-    createdAt: Date.now(),
+    // The day the debt began, so a back-dated deposit only repays what was owed by then.
+    createdAt: at ? when.getTime() : now.getTime(),
     settledAt: null,
   });
-  batch.set(doc(activitiesCol(uid)), {
+  const entry = doc(activitiesCol(uid));
+  batch.set(entry, {
     type: 'borrow' satisfies ActivityType,
-    date: new Date().toISOString(),
+    date: stamp,
     amount: fromCents(cents),
     distributions: [],
     loanId: loan.id,
     note,
   });
   await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id, loanId: loan.id };
 };
 
 /** Re-labelling a past entry. Touches no balance, so it needs no transaction. */
@@ -607,8 +672,13 @@ export const deleteActivity = (
   shownCovering: Activity[] = [],
   /** Where the share of a goal deleted since is settled — see GoneShareChoice. */
   takeBack?: GoneShareChoice
-) =>
-  runTransaction(db, async (tx) => {
+) => {
+  // Money moved to or from the pot, or by a goal's deletion, is undone from where it was made.
+  if (shown.type === 'toInvest' || shown.type === 'fromInvest') {
+    return Promise.reject(new Error(messages().errors.potRowUseOwnUndo));
+  }
+  if (shown.type === 'transfer') return Promise.reject(new Error(messages().errors.transferLocked));
+  return runTransaction(db, async (tx) => {
     // What is undone is the record as it stands, not the copy on screen: an
     // older row is not listened to, so another device may have edited or
     // deleted it since, and undoing the stale copy would move the money twice.
@@ -694,6 +764,7 @@ export const deleteActivity = (
       ...(shown.loanId ? shownCovering.map((paid) => ({ id: paid.id, server: true })) : []),
     ])
   );
+};
 
 /** One ledger row read inside a transaction, or null when it is gone. */
 const readRow = async (tx: Transaction, uid: string, id: string): Promise<Activity | null> => {
@@ -701,48 +772,135 @@ const readRow = async (tx: Transaction, uid: string, id: string): Promise<Activi
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Activity) : null;
 };
 
-/** Rewrites a plain deposit's amount and applies the delta to each goal. */
-/**
- * Correcting the amount of a past deposit.
- *
- * The shares are re-split with the same rule the original deposit used, so
- * the parts still add up to the whole: splitting each one on its own and
- * flooring shed the odd cent, leaving the entry's total larger than the sum
- * of what it says reached the goals.
- *
- * Anything this cannot honestly rewrite is refused rather than half-applied.
- * A missing goal used to be skipped silently while the total was rewritten
- * anyway, which left the ledger and the balances disagreeing with no trace.
- */
-export const editActivity = (uid: string, shown: Activity, newAmount: number) =>
-  runTransaction(db, async (tx) => {
-    // Rewritten from the record as it stands, not the copy on screen — see deleteActivity.
-    const activity = await readRow(tx, uid, shown.id);
-    if (!activity) throw new Error(messages().errors.recordGone);
-    if (activity.repaid || (activity.repayments?.length ?? 0) > 0) {
-      throw new Error(messages().errors.editRepaidDebt);
-    }
-    // Zero would leave an entry that moved nothing; taking it back is what delete is for.
-    if (toCents(newAmount) <= 0) throw new Error(messages().errors.editAmountPositive);
+/** Everything an edit needs that is not the row itself, as the screen has it. */
+export interface ActivityEditContext {
+  banks: PiggyBank[];
+  loans: Loan[];
+  savings: SavingsSettings;
+  /** The earliest day an entry may be moved to. */
+  notBefore: Date;
+  now?: Date;
+}
 
-    const cents = resplitDeposit(toCents(newAmount), toCents(activity.amount), activity.distributions);
-    const distributions = activity.distributions.map((d, i) => ({ ...d, amount: fromCents(cents[i]) }));
+const staleText = (kind: 'staleRow' | 'staleDebt') => activityEditProblemText({ kind }, messages());
 
-    const refs = distributions.map((d) => bankRef(uid, d.bankId));
-    const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+/** Whether an edit can re-run the deposit plan, and so may repay or release debts the row never touched. */
+const replansDeposit = (row: Activity, edit: ActivityEdit) =>
+  (row.type === 'manual' || row.type === 'auto-save') &&
+  (!!edit.target || toCents(row.repaid ?? 0) > 0 || (row.repayments?.length ?? 0) > 0);
 
-    const missing = snaps.findIndex((snap) => !snap.exists());
-    if (missing >= 0) {
-      throw new Error(messages().errors.editDeletedGoal);
-    }
+const applyActivityEdit = async (
+  uid: string,
+  shown: Activity,
+  edit: ActivityEdit,
+  ctx: ActivityEditContext,
+  /** Without the screen's loans there is nothing to compare the debts with. */
+  lenient: boolean
+) => {
+  const now = ctx.now ?? new Date();
+  let from = shown.date;
+  let to = shown.date;
 
-    snaps.forEach((snap, i) => {
-      const delta = toCents(distributions[i].amount) - toCents(activity.distributions[i].amount);
-      const next = toCents(snap.data().currentAmount ?? 0) + delta;
-      tx.update(refs[i], { currentAmount: fromCents(next) });
+  await runTransaction(db, async (tx) => {
+    const fresh = await readRow(tx, uid, shown.id);
+    if (!fresh) throw new Error(messages().errors.recordGone);
+    from = fresh.date;
+
+    const replan = replansDeposit(fresh, edit);
+    const loanIds = new Set<string>([...(fresh.repayments ?? []).map((r) => r.loanId), ...(fresh.loanId ? [fresh.loanId] : [])]);
+    if (replan) ctx.loans.filter((l) => outstandingCents(l) > 0).forEach((l) => loanIds.add(l.id));
+    const bankIds = new Set<string>(fresh.distributions.map((d) => d.bankId));
+    if (edit.source) bankIds.add(edit.source);
+    if (edit.target?.mode === 'goal') bankIds.add(edit.target.goalId);
+    if (replan) ctx.banks.forEach((b) => bankIds.add(b.id));
+
+    // Every read has to happen before the first write, and a transaction cannot query: ids only.
+    const loanSnaps = await Promise.all([...loanIds].map((id) => tx.get(loanRef(uid, id))));
+    const bankSnaps = await Promise.all([...bankIds].map((id) => tx.get(bankRef(uid, id))));
+    const bankSnapOf = new Map(bankSnaps.map((snap) => [snap.id, snap]));
+    const freshLoans = loanSnaps.filter((s) => s.exists()).map((s) => ({ id: s.id, ...s.data() }) as Loan);
+    const freshBanks = bankSnaps.filter((s) => s.exists()).map((s) => ({ id: s.id, ...s.data() }) as PiggyBank);
+
+    const stale = staleCheck(shown, fresh, lenient ? freshLoans : ctx.loans, freshLoans);
+    if (stale) throw new Error(staleText(stale));
+
+    const result = planActivityEdit({
+      activity: fresh,
+      edit,
+      banks: freshBanks,
+      loans: freshLoans,
+      overflow: ctx.savings.overflow,
+      notBefore: ctx.notBefore,
+      now,
     });
-    tx.update(activityRef(uid, activity.id), { amount: fromCents(toCents(newAmount)), distributions });
-  }).then(() => activityRowsChanged([{ id: shown.id, server: true }]));
+    if ('problem' in result) throw new Error(activityEditProblemText(result.problem, messages(), freshBanks));
+    const { plan } = result;
+    to = plan.patch.date ?? fresh.date;
+
+    // One write per goal, with the figure worked out from what this transaction read.
+    for (const [id, delta] of Object.entries(plan.bankDeltas)) {
+      const snap = bankSnapOf.get(id);
+      if (!snap?.exists()) throw new Error(activityEditProblemText({ kind: 'goalGone', goalId: id }, messages()));
+      tx.update(bankRef(uid, id), { currentAmount: fromCents(toCents(snap.data().currentAmount ?? 0) + delta) });
+    }
+    for (const id of Object.keys(plan.loanDeltas)) {
+      const owed = plan.loanOutstanding[id];
+      tx.update(loanRef(uid, id), {
+        ...(fresh.type === 'borrow' && plan.patch.amount !== undefined ? { amount: plan.patch.amount } : {}),
+        outstanding: fromCents(owed),
+        settledAt: owed === 0 ? now.toISOString() : null,
+      });
+    }
+
+    const patch = defined({ ...plan.patch } as Record<string, unknown>);
+    if (Object.keys(patch).length > 0) tx.update(activityRef(uid, fresh.id), patch);
+  });
+
+  const moved = to !== from;
+  // A transaction does not update the phone's cache, so the row is read back from the server.
+  activityRowsChanged([{ id: shown.id, server: true, moved, ...(moved ? { dates: { from, to } } : {}) }]);
+};
+
+/**
+ * Correcting an entry in History: its amount, date, note, category, where a
+ * deposit went or which goal a spend came out of.
+ *
+ * A transaction over the row as it stands now, not the copy on screen: the
+ * row, every goal and every debt it touches are re-read and the plan is made
+ * from those. A row or debt that differs from the copy on screen is refused
+ * rather than applied twice. Rows that carry no money (notes) still go through
+ * it so one path answers every edit.
+ */
+export const updateActivity = (uid: string, shown: Activity, edit: ActivityEdit, ctx: ActivityEditContext) =>
+  applyActivityEdit(uid, shown, edit, ctx, false);
+
+/**
+ * Correcting the amount of a past entry, for callers that have no goals and
+ * debts to hand: they are looked up here instead.
+ */
+export const editActivity = async (uid: string, shown: Activity, newAmount: number, ctx?: ActivityEditContext) => {
+  if (ctx) return applyActivityEdit(uid, shown, { amount: newAmount }, ctx, false);
+  const now = new Date();
+  const [banks, savings, open] = await Promise.all([
+    getDocs(banksCol(uid)),
+    getDoc(savingsRef(uid)),
+    getDocs(query(loansCol(uid), where('settledAt', '==', null))),
+  ]);
+  const saved = { ...DEFAULT_SAVINGS, ...(savings.data() ?? {}) } as SavingsSettings;
+  return applyActivityEdit(
+    uid,
+    shown,
+    { amount: newAmount },
+    {
+      banks: banks.docs.map((d) => ({ id: d.id, ...d.data() }) as PiggyBank),
+      loans: open.docs.map((d) => ({ id: d.id, ...d.data() }) as Loan),
+      savings: saved,
+      notBefore: retentionCutoff(now, allowedRetention(saved.retentionMonths)),
+      now,
+    },
+    true
+  );
+};
 
 /**
  * Housekeeping, not an undo: clears old ledger entries so the app stays light
@@ -1154,6 +1312,63 @@ export const creditDividend = async (uid: string, due: DueDividend, name: string
   });
 };
 
+/**
+ * Reads the three documents a dividend correction rests on. The marker shares
+ * the trade's id (see creditDividend); the pot is the settings document.
+ */
+const readDividend = async (tx: Transaction, uid: string, tradeId: string) => {
+  const [trade, marker, pot] = await Promise.all([tx.get(tradeRef(uid, tradeId)), tx.get(creditedRef(uid, tradeId)), tx.get(investRef(uid))]);
+  if (!trade.exists()) throw new Error(messages().errors.recordGone);
+  if (!marker.exists()) throw new Error(dividendProblemText({ problem: 'outOfSync' }, messages()));
+  return {
+    trade: { id: trade.id, ...trade.data() } as Trade,
+    marker: { ...marker.data(), id: marker.id } as CreditedDividend,
+    potCents: potCentsOf(pot.data()),
+  };
+};
+
+/**
+ * The amount that really arrived for a dividend already paid into the pot
+ * (tax withheld, a rounded payout). The pot moves by the difference, the trade
+ * row and its marker both say the new figure, and the marker is flagged so a
+ * later change to the units leaves it alone.
+ */
+export const correctDividend = async (uid: string, tradeId: string, newCents: number) => {
+  const now = new Date();
+  await runTransaction(db, async (tx) => {
+    const { trade, marker, potCents } = await readDividend(tx, uid, tradeId);
+    const result = planDividendCorrection({ trade, marker, newCents, potCents });
+    if (!('plan' in result)) throw new Error(dividendProblemText(result, messages()));
+    const { plan } = result;
+
+    tx.update(tradeRef(uid, tradeId), { amountCents: plan.trade.amountCents });
+    tx.update(creditedRef(uid, tradeId), { amountCents: plan.marker.amountCents, corrected: true, correctedAt: now.toISOString() });
+    if (plan.potDelta !== 0) tx.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
+  });
+  // Cosmetic, so outside the transaction: an alert another device cleared must not fail the money.
+  void updateDoc(alertRef(uid, `dividend_${tradeId}`), { amount: fromCents(newCents) }).catch(() => undefined);
+};
+
+/**
+ * Taking a paid dividend back out of the pot. The trade row and its alert go;
+ * the marker stays, marked removed and keeping its units, so the reconcile
+ * never reads the dividend as owed again.
+ */
+export const removeDividend = async (uid: string, tradeId: string) => {
+  const now = new Date();
+  await runTransaction(db, async (tx) => {
+    const { trade, marker, potCents } = await readDividend(tx, uid, tradeId);
+    const result = planDividendRemoval({ trade, marker, potCents });
+    if (!('plan' in result)) throw new Error(dividendProblemText(result, messages()));
+    const { plan } = result;
+
+    tx.delete(tradeRef(uid, tradeId));
+    tx.update(creditedRef(uid, tradeId), { removed: true, amountCents: plan.marker.amountCents, correctedAt: now.toISOString() });
+    tx.delete(alertRef(uid, `dividend_${tradeId}`));
+    if (plan.potDelta !== 0) tx.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
+  });
+};
+
 /* ---------------------------------------------------------- investment pot */
 
 /**
@@ -1211,6 +1426,106 @@ export const transferFromPot = (
     distributions: toDistributions(movements),
   });
   return batch.commit();
+};
+
+/** The pot as a transaction read it, in whole sen. */
+const potCentsOf = (data: Record<string, unknown> | undefined) => toCents(Number(data?.potBalance ?? 0));
+
+const readGoals = async (tx: Transaction, uid: string, ids: Iterable<string>) => {
+  const snaps = await Promise.all([...new Set(ids)].map((id) => tx.get(bankRef(uid, id))));
+  return snaps.filter((snap) => snap.exists()).map((snap) => ({ id: snap.id, ...snap.data() }) as PiggyBank);
+};
+
+/** Goal and pot changes of a plan, each goal written once from the figure the transaction read. */
+const applyPotPlan = (
+  tx: Transaction,
+  uid: string,
+  goals: PiggyBank[],
+  plan: { bankDeltas: Record<string, number>; potDelta: number }
+) => {
+  for (const [id, delta] of Object.entries(plan.bankDeltas)) {
+    const goal = goals.find((b) => b.id === id);
+    if (!goal) throw new Error(potTransferProblemText({ problem: 'goalGone', goalId: id }, messages()));
+    tx.update(bankRef(uid, id), { currentAmount: fromCents(toCents(goal.currentAmount) + delta) });
+  }
+  if (plan.potDelta !== 0) tx.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
+};
+
+const potRowOf = async (tx: Transaction, uid: string, shown: Activity) => {
+  const fresh = await readRow(tx, uid, shown.id);
+  // Changed on another device since it was shown: the plan was made from a copy that is no longer true.
+  if (!fresh || staleCheck(shown, fresh, [], [])) throw new Error(messages().errors.recordGone);
+  return fresh;
+};
+
+/**
+ * Undoing a move to or from the investment pot, in full: the goals and the pot
+ * go back as they were and the row goes. Refused (never trimmed) when that
+ * would leave the pot or a goal below zero.
+ */
+export const deletePotTransfer = async (
+  uid: string,
+  shown: Activity,
+  ctx: { banks: PiggyBank[]; savings: SavingsSettings; returnTo?: PotReturn }
+) => {
+  await runTransaction(db, async (tx) => {
+    const fresh = await potRowOf(tx, uid, shown);
+    const ids = fresh.distributions.map((d) => d.bankId);
+    if (ctx.returnTo) ids.push(...ctx.banks.map((b) => b.id));
+    const goals = await readGoals(tx, uid, ids);
+    const potCents = potCentsOf((await tx.get(investRef(uid))).data());
+
+    const result = planPotTransferDelete({ activity: fresh, banks: goals, potCents, returnTo: ctx.returnTo, savings: ctx.savings });
+    if (!('plan' in result)) throw new Error(potTransferProblemText(result, messages(), ctx.banks));
+    applyPotPlan(tx, uid, goals, result.plan);
+    tx.delete(activityRef(uid, fresh.id));
+  });
+  activityRowsChanged([{ id: shown.id, deleted: true }]);
+};
+
+const DAY_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Correcting a move to or from the pot: its amount, its day, or the goal it
+ * came from. Money moves by the difference only.
+ */
+export const editPotTransfer = async (
+  uid: string,
+  shown: Activity,
+  edit: { amount?: number; date?: string; goalId?: string | null },
+  ctx: { banks: PiggyBank[]; savings: SavingsSettings; notBefore: Date; now?: Date }
+) => {
+  const now = ctx.now ?? new Date();
+  let from = shown.date;
+  let to = shown.date;
+
+  await runTransaction(db, async (tx) => {
+    const fresh = await potRowOf(tx, uid, shown);
+    from = fresh.date;
+    const goals = await readGoals(tx, uid, [...fresh.distributions.map((d) => d.bankId), ...(edit.goalId ? [edit.goalId] : [])]);
+    const potCents = potCentsOf((await tx.get(investRef(uid))).data());
+
+    const result = planPotTransferEdit({ activity: fresh, edit, banks: goals, potCents, notBefore: ctx.notBefore, now, savings: ctx.savings });
+    if (!('plan' in result)) throw new Error(potTransferProblemText(result, messages(), ctx.banks));
+    const { plan } = result;
+
+    // The planner accepts a bare day; a row is always stored as an instant, stamped like any other entry.
+    let date: string | undefined = plan.activity.date;
+    const day = date ? DAY_ONLY.exec(date) : null;
+    if (day) {
+      const stamped = stampFor(new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])), now, ctx.notBefore);
+      if ('problem' in stamped) throw new Error(dateProblemText(stamped.problem, messages()));
+      date = stamped.stamp;
+    }
+    to = date ?? fresh.date;
+
+    applyPotPlan(tx, uid, goals, plan);
+    const patch = defined({ amount: plan.activity.amount, date, distributions: plan.activity.distributions } as Record<string, unknown>);
+    if (Object.keys(patch).length > 0) tx.update(activityRef(uid, fresh.id), patch);
+  });
+
+  const moved = to !== from;
+  activityRowsChanged([{ id: shown.id, server: true, moved, ...(moved ? { dates: { from, to } } : {}) }]);
 };
 
 /* --------------------------------------------------------------- schedules */

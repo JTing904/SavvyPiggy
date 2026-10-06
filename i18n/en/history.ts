@@ -1,24 +1,17 @@
 /** The History tab, and the sort sheet used on the goal lists. */
 export const history = {
   title: 'History',
-  subtitle: 'Every deposit, and where it landed.',
-  pickMonth: 'Pick a month',
-  totalSaved: (month: string) => `Total saved · ${month}`,
-  nothingSavedBefore: 'Nothing saved the month before.',
-  comparedWithBefore: 'Compared with the month before.',
-  activityFeed: 'Activity feed',
-  nothingIn: (month: string) => `Nothing in ${month}`,
-  pickAnotherMonth: 'Pick another month with the calendar above',
 
-  /** Day headings: "TODAY, SEP 8", "SATURDAY, SEP 5". */
-  dayToday: (date: string) => `TODAY, ${date}`,
-  dayYesterday: (date: string) => `YESTERDAY, ${date}`,
-  dayOther: (weekday: string, date: string) => `${weekday}, ${date}`,
+  /** Day headings: "Today · 15 Sep", "Yesterday · 14 Sep", "Sun 13 Sep". */
+  dayToday: (date: string) => `Today · ${date}`,
+  dayYesterday: (date: string) => `Yesterday · ${date}`,
+  dayOther: (weekday: string, date: string) => `${weekday} ${date}`,
 
-  savedAmount: (amount: string) => `saved ${amount}`,
-  spentAmount: (amount: string) => `spent ${amount}`,
-  spentAheadAmount: (amount: string) => `spent ahead ${amount}`,
   toDebt: (amount: string) => `${amount} to debt`,
+
+  /** Money moving to or from investing is not spending, and not saving. */
+  notSpending: 'not spending',
+  notSaving: 'not saving',
 
   /**
    * A trade's row. Buying shares is not spending and a sale is not saving, so
@@ -30,25 +23,15 @@ export const history = {
   /** Only ever more than one goal. */
   splitAcross: (n: number) => `split across ${n} goals`,
   coveredSpentAhead: (amount: string) => `covered spent ahead ${amount}`,
-  /** A day's money moved for shares, kept apart from saved and spent: "shares −RM799.24 / +RM1,070.00". */
-  sharesMoved: (moves: string) => `investing ${moves}`,
   openTrade: 'Open the trade',
 
-  noGoalTouched: 'No goal was touched — your next deposits cover this before anything reaches them.',
   deletedGoal: 'Deleted goal',
 
-  removeTitle: 'Remove this entry?',
+  /** What deleting an entry does, said before it is done. */
+  undoOutgoing: (amount: string) => `If you delete it, the ${amount} goes back into your goals.`,
+  undoIncoming: (amount: string) => `If you delete it, the ${amount} is taken back out of your goals.`,
+  undoBorrow: 'If you delete it, this spend-ahead is cancelled. Any part your deposits already covered goes back into your goals.',
   remove: 'Remove',
-  undoOutgoing: (amount: string) => `The ${amount} goes back into your goals.`,
-  undoIncoming: (amount: string) => `The ${amount} is taken back out of your goals.`,
-  undoBorrow: 'This spend-ahead is cancelled. Any part your deposits already covered goes back into your goals.',
-
-  whatWasThisFor: 'What was this for?',
-  labelOnly: 'Changes the label only — the money stays exactly where it is.',
-
-  jumpToMonth: 'Jump to a month',
-  onlyMonthsWithRecords: 'Only months holding records are listed.',
-  showEarlierMonths: 'Show earlier months',
 
   /** The sort sheet. */
   sortAria: (label: string) => `Sort: ${label}`,

@@ -9,6 +9,8 @@ import Navigation from './components/Navigation';
 import Login from './components/Login';
 import Profile from './components/Profile';
 import GoalDetail from './components/GoalDetail';
+import EntrySheet from './components/EntrySheet';
+import FirstRun from './components/FirstRun';
 import SetupNotice from './components/SetupNotice';
 import RedeemInvite from './components/RedeemInvite';
 import AutoDeposits from './components/AutoDeposits';
@@ -32,6 +34,8 @@ import { useAuth } from './contexts/AuthContext';
 import { usePiggyData } from './hooks/usePiggyData';
 import { useMembership } from './hooks/useMembership';
 import { useBackHandler } from './hooks/useBackHandler';
+import { useScreenLook } from './hooks/useScreenLook';
+import { useToast } from './contexts/ToastContext';
 import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
 import { useSnapshots } from './hooks/useSnapshots';
@@ -40,8 +44,11 @@ import { cachedRecords } from './hooks/useAdvisor';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
-import { fromCents, toCents } from './services/money';
+import { formatMoney, fromCents, toCents } from './services/money';
+import { createUndoQueue } from './services/undoQueue';
 import type { GoalMoneyChoice, GoneShareChoice } from './services/ledger';
+import type { ActivityEdit } from './services/activityEdit';
+import type { PotReturn } from './services/potTransfers';
 import { staleAlerts, staleAlertsCutoff, streakAlertFor } from './services/alerts';
 import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
@@ -63,11 +70,16 @@ const App: React.FC = () => {
   const uid = isMember ? user?.uid : undefined;
   const { lang } = useLanguage();
   const t = useT();
+  const toast = useToast();
   const [languageChosen, setLanguageChosen] = useState(hasChosenLanguage);
   useEffect(() => onLangChange(() => setLanguageChosen(true)), []);
 
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
   const [showCreateGoal, setShowCreateGoal] = useState(false);
+  /** A starter the first-run screen picked, for the new goal's name and icon. */
+  const [goalPrefill, setGoalPrefill] = useState<{ name?: string; icon?: string } | undefined>(undefined);
+  /** The entry open in the shared edit sheet. */
+  const [entryId, setEntryId] = useState<string | null>(null);
   const [showAutoDeposits, setShowAutoDeposits] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
@@ -331,6 +343,7 @@ const App: React.FC = () => {
         setShowStatements(false);
         setShowMonthlyBuy(false);
         setShowCreateGoal(false);
+        setEntryId(null);
         setShowAutoDeposits(false);
         setShowQuickPick(false);
         setQuickAction(null);
@@ -397,16 +410,57 @@ const App: React.FC = () => {
     void job().catch(fail);
   };
 
-  const handleDeposit = (amount: number, targetBankId: string | null) => {
-    if (uid) run(() => api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings }));
+  /**
+   * A write that goes to the server as one batch settles only when the server
+   * answers, so offline it never does and a sheet waiting on it spun forever
+   * over money the phone had already saved. A refusal (a date too old, a goal
+   * gone) arrives at once and goes back to the caller; a write still pending
+   * after the grace period is queued on the phone, and if it is refused later
+   * the banner says so.
+   */
+  const settleOrQueue = (job: Promise<unknown>, graceMs = 1500) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        job.catch(fail);
+        resolve();
+      }, graceMs);
+      job.then(
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        }
+      );
+    });
+
+  /** The first day a record can be dated on or moved to: the live three months. */
+  const notBefore = ledger.liveFrom;
+
+  // The sheet only shows a generic line when a handler throws, so the reason goes to the banner.
+  const refuse = (e: unknown): never => {
+    fail(e);
+    throw e;
   };
 
-  const handleWithdraw = (amount: number, sourceBankId: string, note: string, category: string) => {
-    if (uid) run(() => api.withdraw(uid, amount, sourceBankId, note, category));
+  const handleDeposit = async (amount: number, targetBankId: string | null, at?: Date) => {
+    if (!uid) return;
+    await settleOrQueue(api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings, at, notBefore })).catch(refuse);
+    toast.show({ message: t.app.toast.deposited(formatMoney(amount)), tone: 'success' });
   };
 
-  const handleBorrow = (amount: number, note: string) => {
-    if (uid) run(() => api.borrow(uid, amount, note));
+  const handleWithdraw = async (amount: number, sourceBankId: string, note: string, category: string, at?: Date) => {
+    if (!uid) return;
+    await settleOrQueue(api.withdraw(uid, amount, sourceBankId, note, category, { at, notBefore })).catch(refuse);
+    toast.show({ message: t.app.toast.spent(formatMoney(amount)), tone: 'success' });
+  };
+
+  const handleBorrow = async (amount: number, note: string, at?: Date) => {
+    if (!uid) return;
+    await settleOrQueue(api.borrow(uid, amount, note, { at, notBefore })).catch(refuse);
+    toast.show({ message: t.app.toast.spentAhead(formatMoney(amount)), tone: 'success' });
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
@@ -420,16 +474,37 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
-    // Not awaited: addDoc settles only when the server confirms, so offline the
-    // sheet spun forever over a goal the phone had already saved. A refusal
-    // still surfaces through run.
-    if (uid) run(() => api.createBank(uid, newGoal));
+  const openCreateGoal = (prefill?: { name?: string; icon?: string }) => {
+    setGoalPrefill(prefill);
+    setShowCreateGoal(true);
+  };
+  const closeCreateGoal = () => {
     setShowCreateGoal(false);
+    setGoalPrefill(undefined);
+  };
+
+  const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
+    if (!uid) return;
+    // The first goal takes every deposit; the page to land on is Home then,
+    // since the goals list has nothing else to show yet.
+    const first = activeBanks.length === 0;
+    closeCreateGoal();
     // A goal can be started from the investing side (a sale with nowhere to go);
     // the goals page belongs to saving, so its tab bar has to come with it.
     setMode('save');
-    setActiveTab(Tab.BANKS);
+    setActiveTab(first ? Tab.HOME : Tab.BANKS);
+    settleOrQueue(api.createBank(uid, newGoal, banks)).then(
+      () => toast.show({ message: t.app.toast.goalCreated, tone: 'success' }),
+      fail
+    );
+  };
+
+  const handleSeedSamples = () => {
+    if (!uid) return;
+    settleOrQueue(api.seedSampleBanks(uid)).then(
+      () => toast.show({ message: t.app.toast.samplesAdded, tone: 'success' }),
+      fail
+    );
   };
 
   const handleSaveSavings = (patch: Partial<SavingsSettings>) => {
@@ -470,14 +545,67 @@ const App: React.FC = () => {
    */
   const [pendingDelete, setPendingDelete] = useState<{ id: string; takeBack?: GoneShareChoice } | null>(null);
 
+  /**
+   * A delete waits five seconds so it can be taken back: the row is hidden at
+   * once and the real delete is only written when the time is up. What the
+   * delete needs (goals, settings, the rows that covered a spent-ahead) is read
+   * when it runs, not when it was asked for.
+   */
+  const latest = useRef({ uid, banks, savings, activities });
+  latest.current = { uid, banks, savings, activities };
+  const [, bumpHidden] = useState(0);
+  type PendingDelete = { id: string; activity: Activity; takeBack?: GoneShareChoice };
+  const undoQueue = useRef<ReturnType<typeof createUndoQueue<PendingDelete>> | null>(null);
+  if (!undoQueue.current) {
+    undoQueue.current = createUndoQueue<PendingDelete>({
+      commit: async ({ activity, takeBack }) => {
+        const now = latest.current;
+        if (!now.uid) return;
+        // Deleting spending that was already covered puts that money back into
+        // the goals, so the strategy travels with it — and so do the deposits
+        // that covered it, which are the entries that get corrected.
+        const covering = activity.loanId ? coveringRows(activity.loanId, undefined, now.activities).rows : [];
+        await api.deleteActivity(now.uid, activity, now.banks, now.savings, covering, takeBack);
+      },
+      onRestore: (_item, error) => {
+        fail(error);
+        toast.show({ message: t.app.toast.deleteFailed, tone: 'error' });
+      },
+      onChange: () => bumpHidden((n) => n + 1),
+    });
+  }
+  // Leaving the page must not lose a delete that is still waiting.
+  useEffect(() => {
+    const queue = undoQueue.current!;
+    const flush = () => void queue.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+
   const deleteNow = (activity: Activity, takeBack?: GoneShareChoice) => {
-    if (!uid) return;
-    // Deleting spending that was already covered puts that money back into
-    // the goals, so the strategy travels with it — and so do the deposits
-    // that covered it, which are the entries that get corrected.
-    const covering = activity.loanId ? coveringRows(activity.loanId, undefined, activities).rows : [];
-    run(() => api.deleteActivity(uid, activity, banks, savings, covering, takeBack));
+    undoQueue.current!.push({ id: activity.id, activity, takeBack }, t.app.toast.entryDeleted);
+    setEntryId(null);
+    toast.show({
+      message: t.app.toast.entryDeleted,
+      action: { label: t.ui.undo, run: () => undoQueue.current!.undo() },
+      durationMs: 5000,
+    });
   };
+
+  /** The rows the screens list: one waiting to be deleted is already gone from them. */
+  const hidden = undoQueue.current.hiddenIds();
+  const visibleActivities = useMemo(
+    () => (hidden.size === 0 ? activities : activities.filter((a) => !hidden.has(a.id))),
+    [activities, hidden.size] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const handleDeleteActivity = (id: string, takeBack?: GoneShareChoice) => {
     const activity = activities.find((a) => a.id === id);
@@ -508,9 +636,29 @@ const App: React.FC = () => {
     else fail(new Error(t.errors.recordGone));
   }, [pendingDelete, ledger, activities]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleEditActivity = (id: string, newAmount: number) => {
-    const activity = activities.find((a) => a.id === id);
-    if (uid && activity) run(() => api.editActivity(uid, activity, newAmount));
+  const selectedGoal = banks.find((b) => b.id === selectedGoalId);
+  // The screen on top decides the look. Sheets (money, entry, new goal) are not
+  // listed: they follow whatever is under them.
+  const topOverlay = selectedGoal
+    ? 'goalDetail'
+    : showAlerts
+      ? 'alerts'
+      : showMonthlyBuy
+        ? 'monthlyBuy'
+        : showStatements
+          ? 'statements'
+          : showProfile
+            ? 'profile'
+            : showAutoDeposits
+              ? 'autoDeposits'
+              : null;
+  useScreenLook({ tab: activeTab, overlays: topOverlay ? [topOverlay] : [] });
+
+  const entryActivity = entryId ? visibleActivities.find((a) => a.id === entryId) : undefined;
+
+  const handleSaveEntry = async (activity: Activity, edit: ActivityEdit) => {
+    if (!uid) return;
+    await api.updateActivity(uid, activity, edit, { banks, loans, savings, notBefore });
   };
 
   const renderContent = () => {
@@ -532,20 +680,17 @@ const App: React.FC = () => {
       );
     }
 
-    if (showCreateGoal) {
-      return <CreateGoal uid={uid!} onCancel={() => setShowCreateGoal(false)} onCreate={handleCreateGoal} />;
-    }
-
-    const selectedGoal = banks.find((b) => b.id === selectedGoalId);
     if (selectedGoal) {
       return (
         <GoalDetail
           uid={uid!}
           bank={selectedGoal}
           banks={banks}
-          activities={activities}
+          activities={visibleActivities}
           ledger={ledger}
-          onChangePhoto={(imageUrl) => api.updateBank(uid!, selectedGoal.id, { imageUrl })}
+          onChangePhoto={(imageUrl) => api.setBankPhoto(uid!, selectedGoal.id, imageUrl)}
+          onEditGoal={(edit) => api.updateBank(uid!, selectedGoal.id, edit)}
+          onOpenEntry={setEntryId}
           onBack={() => setSelectedGoalId(null)}
           onArchive={() => {
             handleArchiveBank(selectedGoal.id);
@@ -664,12 +809,18 @@ const App: React.FC = () => {
 
     switch (activeTab) {
       case Tab.HOME:
+        if (mode === 'save' && banks.length === 0 && activities.length === 0 && trades.length === 0) {
+          return <FirstRun onCreateGoal={openCreateGoal} onSeedSamples={handleSeedSamples} />;
+        }
         return (
           <Dashboard
+            uid={uid!}
+            liveFrom={ledger.liveFrom}
+            onOpenEntry={setEntryId}
             totalBalance={totalBalance}
             savingsToday={savingsToday}
             banks={activeBanks}
-            activities={activities}
+            activities={visibleActivities}
             loans={loans}
             onDeposit={handleDeposit}
             onWithdraw={handleWithdraw}
@@ -714,7 +865,7 @@ const App: React.FC = () => {
             onUpdateBanks={handleSaveStrategy}
             onDeleteBank={handleDeleteBank}
             onArchiveBank={handleArchiveBank}
-            onAddGoal={() => setShowCreateGoal(true)}
+            onAddGoal={() => openCreateGoal()}
             scheduleCount={schedules.filter((s) => s.enabled).length}
             schedules={schedules}
             onOpenAutoDeposits={() => setShowAutoDeposits(true)}
@@ -723,13 +874,16 @@ const App: React.FC = () => {
       case Tab.LOG:
         return (
           <ActivityLog
-            activities={activities}
+            activities={visibleActivities}
             ledger={ledger}
             banks={banks}
-            onDeleteActivity={handleDeleteActivity}
-            onEditActivity={handleEditActivity}
-            onSetCategory={(id, category) => uid && run(() => api.setActivityCategory(uid, id, category))}
+            onOpenEntry={setEntryId}
             onOpenTrade={openTradeById}
+            onDeposit={() => {
+              if (banks.length === 0) return openCreateGoal();
+              setActiveTab(Tab.HOME);
+              setQuickAction('deposit');
+            }}
           />
         );
       case Tab.TRADES:
@@ -747,7 +901,7 @@ const App: React.FC = () => {
             dividends={dividends}
             alertIds={alertIds}
             onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
-            onCreateGoal={() => setShowCreateGoal(true)}
+            onCreateGoal={() => openCreateGoal()}
             onBack={() => setActiveTab(Tab.HOME)}
           />
         );
@@ -859,14 +1013,47 @@ const App: React.FC = () => {
           dividends={dividends}
           alertIds={alertIds}
           draft={tradeDraft}
+          quotes={quotes}
+          potCents={toCents(invest.potBalance ?? 0)}
+          dividendMarker={tradeDraft.mode === 'edit' ? creditedDividends.find((c) => c.id === tradeDraft.trade.id) ?? null : null}
+          onCorrectDividend={(tradeId, cents) => api.correctDividend(uid, tradeId, cents)}
+          onRemoveDividend={(tradeId) => api.removeDividend(uid, tradeId)}
           onClose={() => setTradeDraft(null)}
           onDone={() => undefined}
           onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
           onSyncError={fail}
           onCreateGoal={() => {
             setTradeDraft(null);
-            setShowCreateGoal(true);
+            openCreateGoal();
           }}
+        />
+      )}
+
+      {showCreateGoal && uid && !dataLoading && (
+        <CreateGoal
+          uid={uid}
+          prefill={goalPrefill}
+          isFirstGoal={activeBanks.length === 0}
+          onCancel={closeCreateGoal}
+          onCreate={handleCreateGoal}
+        />
+      )}
+
+      {entryActivity && uid && (
+        <EntrySheet
+          key={entryActivity.id}
+          activity={entryActivity}
+          banks={banks}
+          loans={loans}
+          savings={savings}
+          notBefore={notBefore}
+          potCents={toCents(invest.potBalance ?? 0)}
+          activities={activities}
+          onSave={(edit) => handleSaveEntry(entryActivity, edit)}
+          onSavePot={(edit) => api.editPotTransfer(uid, entryActivity, edit, { banks, savings, notBefore })}
+          onDelete={(takeBack) => handleDeleteActivity(entryActivity.id, takeBack)}
+          onDeletePot={(returnTo?: PotReturn) => api.deletePotTransfer(uid, entryActivity, { banks, savings, returnTo })}
+          onClose={() => setEntryId(null)}
         />
       )}
 
@@ -892,13 +1079,24 @@ const App: React.FC = () => {
           banks={banks}
           potBalance={invest.potBalance ?? 0}
           savings={savings}
+          uid={uid}
           onConfirm={(target, cents) => {
             const direction = potSheet;
             setPotSheet(null);
-            run(async () => {
+            const job = (async () => {
               if (direction === 'in' && target) await api.transferToPot(uid, banks, target, cents);
               else if (direction === 'out') await api.transferFromPot(uid, banks, invest.potBalance ?? 0, target, cents, savings);
-            });
+            })();
+            const amount = formatMoney(fromCents(cents));
+            return settleOrQueue(job).then(
+              () => {
+                toast.show({ message: direction === 'in' ? t.app.toast.movedToInvesting(amount) : t.app.toast.movedBack(amount), tone: 'success' });
+              },
+              (e) => {
+                fail(e);
+                throw e;
+              }
+            );
           }}
           onClose={() => setPotSheet(null)}
         />
@@ -967,6 +1165,7 @@ const App: React.FC = () => {
                       openTrade({ mode: 'new', kind: option.key });
                       return;
                     }
+                    if (banks.length === 0) return openCreateGoal();
                     setActiveTab(Tab.HOME);
                     setQuickAction(option.key);
                   }}
@@ -997,7 +1196,7 @@ const App: React.FC = () => {
 
   return shell(
     renderContent(),
-    !showCreateGoal && !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !dataLoading
+    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !dataLoading
   );
 };
 

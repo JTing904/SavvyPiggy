@@ -56,23 +56,6 @@ export const home = {
   heldAtCost: (n: number) => `${n} held at cost`,
   allTrades: (n: number) => `All trades (${n})`,
 
-  sheet: {
-    spend: 'Spend',
-    goesTo: 'Goes to',
-    comesFrom: 'Comes from',
-    borrowHint: 'Money you had not set aside yet. No goal is touched — your next deposits cover it first.',
-    inThisGoal: (amount: string) => `${amount} in this goal. Spending more takes it negative.`,
-    whatFor: 'What for',
-    borrowPlaceholder: 'e.g. Lunch',
-    spendPlaceholder: 'e.g. Groceries',
-    coversEarlier: (amount: string) => `${amount} covers earlier spending first`,
-    partlyAllocated: (percent: number) => `Only ${percent}% is allocated, so the rest stays unassigned.`,
-    noSplit: 'No goal has a split yet — pick one above, or set percentages on Strategy.',
-    confirmDeposit: 'Confirm Deposit',
-    recordSpending: 'Record Spending',
-    withdraw: 'Withdraw',
-  },
-
   /** The expanded holding card. */
   stack: {
     marketValue: 'Market value',

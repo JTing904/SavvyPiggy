@@ -224,7 +224,14 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, credited, trades, busy
               {paid.map((trade) => (
                 <div key={trade.id} className="flex items-center gap-3 p-4 rounded-3xl glass">
                   <div className="flex-1 min-w-0">
-                    <p className="text-white font-black text-[13px] truncate">{trade.name}</p>
+                    <p className="text-white font-black text-[13px] truncate">
+                      {trade.name}
+                      {(trade.amountCents !== undefined || credited?.some((c) => c.id === trade.id && c.corrected)) && (
+                        <span className="ml-2 align-middle text-[9px] font-black px-1.5 py-0.5 rounded-full border border-amber-400/40 bg-amber-400/10 text-amber-300 tracking-wider">
+                          {t.invest.dividendCorrected}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-slate-500 text-[11px] font-bold mt-0.5">
                       {day(trade.tradedAt)} · {t.common.units(trade.units.toLocaleString('en-US'))} ×{' '}
                       {rate(trade.perUnitPoints ?? 0)}

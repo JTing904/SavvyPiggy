@@ -52,23 +52,6 @@ export const home: typeof English = {
   heldAtCost: (n) => `${n} 只按成本计`,
   allTrades: (n) => `全部交易（${n}）`,
 
-  sheet: {
-    spend: '开销',
-    goesTo: '存到',
-    comesFrom: '从哪里出',
-    borrowHint: '这笔钱你还没存下来。不动任何钱罐——你之后的存入会先把它还清。',
-    inThisGoal: (amount) => `这个钱罐里有 ${amount}。再开销就会变成负数。`,
-    whatFor: '用途',
-    borrowPlaceholder: '例如：午餐',
-    spendPlaceholder: '例如：日用杂货',
-    coversEarlier: (amount) => `${amount} 会先还清之前的预支`,
-    partlyAllocated: (percent) => `只分配了 ${percent}%，剩下的不归入任何钱罐。`,
-    noSplit: '还没有钱罐设置分配比例——在上面选一个，或到「分配」设置百分比。',
-    confirmDeposit: '确认存入',
-    recordSpending: '记录开销',
-    withdraw: '取出',
-  },
-
   stack: {
     marketValue: '市值',
     today: (amount) => `今日 ${amount}`,

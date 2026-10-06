@@ -2,7 +2,6 @@
 export const goals = {
   // Shared by more than one of the three screens.
   saving: 'Saving...',
-  noLimit: 'No limit',
   targetReached: 'Target reached',
   overspent: 'Overspent',
 
@@ -15,12 +14,10 @@ export const goals = {
   change: 'Change',
   addPhoto: 'Add photo',
   saved: 'Saved',
-  target: 'Target',
   toGo: (amount: string, percent: number) => `${amount} to go · ${percent}% there`,
   noFinishLine: 'Keep saving with no finish line.',
   excludedFromDeposits: 'Excluded from deposits',
   percentOfEveryDeposit: (percent: number) => `${percent}% of every deposit`,
-  changeOnStrategyTab: 'Change on the Strategy tab',
   archived: 'Archived',
   restoreAtZero: 'Restore it to the list at 0% of deposits',
   archiveThisGoal: 'Archive this goal',
@@ -39,38 +36,6 @@ export const goals = {
 
   // CreateGoal
   couldNotCreate: 'Could not create this goal.',
-  newPiggyBank: 'New Piggy Bank',
-  createGoal: 'Create Goal',
-  whatSavingFor: 'What are you saving up for?',
-  coverImage: 'Cover Image',
-  changeImage: 'Change image',
-  optionalUpload: 'Optional — tap to upload',
-  goalName: 'Goal Name',
-  goalNamePlaceholder: 'e.g. Dream Wedding',
-  targetAmount: 'Target Amount',
-  openEndedHint: 'Open-ended — keep saving with no finish line.',
-  selectIcon: 'Select Icon',
-  categoryIs: (category: string) => `Category: ${category}`,
-  /** What each goal icon suggests the goal is for, by icon name. */
-  iconCategories: {
-    directions_car: 'Transport',
-    flight: 'Travel',
-    home: 'Home',
-    shopping_bag: 'Shopping',
-    restaurant: 'Food',
-    devices: 'Tech',
-    pets: 'Pets',
-    fitness_center: 'Health',
-    movie: 'Fun',
-    Celebration: 'Fun',
-    School: 'Education',
-    Medical_Services: 'Health',
-  } as Record<string, string>,
-  automaticSplit: 'Automatic Split',
-  takesShare: 'This goal takes a share of every deposit',
-  skippedInSplit: 'This goal is skipped when a deposit is split',
-  newGoalsStartAtZero: 'New goals start at a 0% split. Set their share of each deposit on the Strategy tab.',
-  confirmGoal: 'Confirm Goal',
 
   // StrategyEditor
   less: 'Less',

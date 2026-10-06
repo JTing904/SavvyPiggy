@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { PiggyBank, SavingsSettings } from '../../types';
 import { isArchived, isInSplit, planDeposit } from '../../services/ledger';
 import { cleanFeeInput } from '../../services/fees';
+import { loadLastChoices, saveLastChoices, usableChoices, withChoice } from '../../services/lastChoices';
 import { formatMoney, fromCents, toCents } from '../../services/money';
 import { useBackHandler } from '../../hooks/useBackHandler';
 import { useT } from '../../contexts/LanguageContext';
@@ -19,8 +20,9 @@ const Line: React.FC<{ label: string; value: string; tone: string }> = ({ label,
  *
  * "In" takes it from one savings goal, never more than the goal holds. "Out"
  * puts it into one goal or splits it by the strategy — not new income, so it
- * does not clear spent ahead. Nothing is picked for the person, and the pot can
- * never be emptied below zero.
+ * does not clear spent ahead. With one goal it is picked, since there is no other
+ * answer; with several, only what the person used last time (if that goal is still
+ * there) is picked, and otherwise nothing is. The pot can never be emptied below zero.
  */
 const PotTransferSheet: React.FC<{
   direction: 'in' | 'out';
@@ -28,17 +30,35 @@ const PotTransferSheet: React.FC<{
   potBalance: number;
   savings: SavingsSettings;
   /** `target` is a goal id, or null for auto split (only for "out"). */
-  onConfirm: (target: string | null, cents: number) => void;
+  onConfirm: (target: string | null, cents: number) => void | Promise<void>;
   onClose: () => void;
-}> = ({ direction, banks, potBalance, savings, onConfirm, onClose }) => {
+  /** For remembering the last goal used; without it nothing is remembered. */
+  uid?: string;
+}> = ({ direction, banks, potBalance, savings, onConfirm, onClose, uid }) => {
   const t = useT();
   const w = t.invest.potCard;
   useBackHandler(true, onClose);
 
   const goals = banks.filter((b) => !isArchived(b));
   const canSplit = direction === 'out' && goals.some(isInSplit);
-  /** undefined until picked; null is auto split. */
-  const [target, setTarget] = useState<string | null | undefined>(undefined);
+  /**
+   * undefined until picked; null is auto split. Starts from the only goal, or
+   * from the last one used if it still exists and is active — read once, so a
+   * later change to the goals never moves a pick the person already made.
+   */
+  const [target, setTarget] = useState<string | null | undefined>(() => {
+    if (goals.length === 1) return goals[0].id;
+    if (!uid) return undefined;
+    const last = usableChoices(loadLastChoices(uid), banks);
+    if (direction === 'in') return last.potInGoal;
+    if (last.potOutTarget === 'split') return canSplit ? null : undefined;
+    return last.potOutTarget;
+  });
+  const amountRef = useRef<HTMLInputElement>(null);
+  // Once there is somewhere for the money to go, the amount is the next thing to type.
+  useEffect(() => {
+    if (target !== undefined) amountRef.current?.focus();
+  }, [target]);
   const [text, setText] = useState('');
 
   const cents = toCents(Number(text) || 0);
@@ -62,6 +82,25 @@ const PotTransferSheet: React.FC<{
       : [];
 
   const quick = direction === 'in' ? (source ? toCents(source.currentAmount) : null) : potCents;
+
+  /** Only a move that went through is remembered, so a refused one never becomes the habit. */
+  const remember = (pick: string | null) => {
+    if (!uid) return;
+    const patch = direction === 'in' ? { potInGoal: pick ?? undefined } : { potOutTarget: pick === null ? 'split' : pick };
+    saveLastChoices(uid, withChoice(loadLastChoices(uid), patch));
+  };
+
+  const confirm = () => {
+    if (!ready) return;
+    const pick = target ?? null;
+    const done = onConfirm(pick, cents);
+    if (done && typeof (done as Promise<void>).then === 'function') {
+      // The caller still owns a failure; a refused move just is not remembered.
+      void (done as Promise<void>).then(() => remember(pick), () => undefined);
+    } else {
+      remember(pick);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/85 veil-in" onClick={onClose}>
@@ -99,6 +138,8 @@ const PotTransferSheet: React.FC<{
           <span className="text-slate-500 font-black shrink-0">RM</span>
           <input
             id="pot-amount"
+            ref={amountRef}
+            autoFocus={target !== undefined}
             type="text"
             inputMode="decimal"
             value={text}
@@ -171,7 +212,7 @@ const PotTransferSheet: React.FC<{
 
         <button
           type="button"
-          onClick={() => ready && onConfirm(target ?? null, cents)}
+          onClick={confirm}
           disabled={!ready}
           className={`w-full h-14 mt-6 rounded-full font-black disabled:opacity-30 active:scale-95 transition-all ${
             direction === 'in' ? 'bg-accent text-black' : 'bg-primary text-black'

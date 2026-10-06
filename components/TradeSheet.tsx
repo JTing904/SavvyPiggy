@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
 import {
   averageCostCents,
@@ -9,8 +9,10 @@ import {
   replay,
   tradeCents,
   tradeTotalCents,
+  type Quote,
+  type Quotes,
 } from '../services/holdings';
-import { searchSymbols, type SymbolHit } from '../services/quotes';
+import { loadQuotes, searchSymbols, type SymbolHit } from '../services/quotes';
 import { saveInvest, saveTrade, TradeMoneyError, type TradeWrite } from '../services/firestore';
 import { formatMoney, fromCents, toCents } from '../services/money';
 import {
@@ -29,6 +31,9 @@ import {
 } from '../services/fees';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from '../services/tradeMoney';
 import { dividendsAfterChange, type CreditedDividend } from '../services/dividends';
+import { planDividendCorrection, planDividendRemoval } from '../services/dividendCorrection';
+import { dividendProblemText } from '../services/problemText';
+import { applyHint, needsQuoteFetch, priceText, showHint, typePrice, type AgoUnit } from '../services/quoteHint';
 import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt';
 import { isInSplit, type GoneShareChoice } from '../services/ledger';
 import { newShortSale, type ShortSale } from '../services/tradeCheck';
@@ -88,13 +93,20 @@ interface TradeSheetProps {
   onCreateGoal?: () => void;
   /** A save that was already shown as done but the server later refused. */
   onSyncError?: (e: unknown) => void;
+  /** The investing cash in sen, for the dividend correction. Falls back to the settings' balance. */
+  potCents?: number;
+  /** The paid-in marker of the dividend being viewed; without it the dividend stays a read-only receipt. */
+  dividendMarker?: CreditedDividend | null;
+  /** Corrects what a dividend really paid. Resolves once the change is applied; throws to refuse. */
+  onCorrectDividend?: (tradeId: string, newCents: number) => Promise<void>;
+  /** Takes a dividend back out of the investing cash for good. */
+  onRemoveDividend?: (tradeId: string) => Promise<void>;
+  /** Last prices, for the hint under the price of a new trade. */
+  quotes?: Quotes;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
   formatMoney(fromCents(cents), opts);
-
-/** 10.60 stays 10.60 and 0.345 stays 0.345: two places at least, four at most. */
-const priceText = (points: number) => (points / 10_000).toFixed(4).replace(/(\.\d{2}\d*?)0+$/, '$1');
 
 const feeText = (cents: number) => (cents / 100).toFixed(2);
 
@@ -114,7 +126,9 @@ const Field: React.FC<{
   type?: string;
   prefix?: string;
   autoFocus?: boolean;
-}> = ({ label, value, onChange, type = 'number', prefix, autoFocus }) => (
+  /** Whole numbers want the digit pad; the default for a number is the one with a point. */
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+}> = ({ label, value, onChange, type = 'number', prefix, autoFocus, inputMode }) => (
   <div className="flex-1 min-w-0">
     <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 truncate">{label}</p>
     <div className="flex items-center gap-2 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
@@ -122,7 +136,7 @@ const Field: React.FC<{
       <input
         autoFocus={autoFocus}
         type={type}
-        inputMode={type === 'number' ? 'decimal' : undefined}
+        inputMode={inputMode ?? (type === 'number' ? 'decimal' : undefined)}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={type === 'number' ? '0' : undefined}
@@ -156,6 +170,11 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   onEditBroker,
   onCreateGoal,
   onSyncError,
+  potCents: potCentsIn,
+  dividendMarker,
+  onCorrectDividend,
+  onRemoveDividend,
+  quotes,
 }) => {
   // Saved before the paid-in dividends arrive, a correction would leave them uncorrected.
   const creditedLoaded = creditedIn !== null;
@@ -190,6 +209,22 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** The price came from the last-price hint rather than from the person; any typing clears it. */
+  const [priceFromHint, setPriceFromHint] = useState(false);
+  const typePriceText = (text: string) => {
+    const next = typePrice(text);
+    setPrice(next.text);
+    setPriceFromHint(next.fromHint);
+  };
+  /** Prices fetched here for a counter picked from search, which the app had no price for. */
+  const [fetchedQuotes, setFetchedQuotes] = useState<Quotes>({});
+  const askedQuotes = useRef(new Set<string>());
+  const mounted = useRef(true);
+  /** A dividend's receipt, its correction form, or the question before taking it back. */
+  const [dividendMode, setDividendMode] = useState<'view' | 'correct' | 'remove'>('view');
+  const [amountText, setAmountText] = useState(() =>
+    editing && editing.kind === 'dividend' ? fromCents(tradeCents(editing)).toFixed(2) : ''
+  );
   // Orders a new trade after everything already entered today, in the preview.
   const [openedAt] = useState(() => Date.now());
 
@@ -271,7 +306,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
    * went; everything else offers only the pot.
    */
   const legacyGoalMoney = !!editing && (editing.money?.mode === 'goal' || editing.money?.mode === 'split');
-  const potCents = toCents(invest.potBalance ?? 0);
+  const potCents = potCentsIn ?? toCents(invest.potBalance ?? 0);
 
   /** Asked when a buy's paying goal is gone; `removing` says what to retry. */
   const [refundAsk, setRefundAsk] = useState<{ cents: number; removing: boolean } | null>(null);
@@ -301,6 +336,33 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     return () => clearTimeout(timer);
   }, [term, needsCounter, kind]);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const isNewTrade = draft.mode === 'new';
+  /** The freshest price known for this counter, from the app or from the fetch below. */
+  const knownQuote: Quote | undefined = [quotes?.[symbol], fetchedQuotes[symbol]]
+    .filter((q): q is Quote => !!q)
+    .sort((a, b) => b.at - a.at)[0];
+
+  // A counter picked from search has no price yet: ask once, never hold the form up for it.
+  useEffect(() => {
+    if (!needsQuoteFetch({ isNew: isNewTrade, symbol, priceField: price, have: knownQuote, asked: askedQuotes.current, now: Date.now() })) return;
+    askedQuotes.current.add(symbol);
+    const wanted = symbol;
+    void loadQuotes([wanted], true)
+      .then((found) => {
+        if (mounted.current && found[wanted]) setFetchedQuotes((prev) => ({ ...prev, [wanted]: found[wanted] }));
+      })
+      .catch(() => undefined);
+    // Asked once per counter; the price field and the quotes are read as they stand then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewTrade, symbol]);
+
   const unitsIn = Math.max(0, Math.floor(Number(units) || 0));
   // Half-sen prices are real (RM0.345), so the price is kept in points; the
   // sen figure is only there for older readers of the trade.
@@ -309,6 +371,15 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const priceCents = Math.round(priceNumber * 100);
   const tradedAt = fromInputDate(date);
   const tradeValue = valueCents(unitsIn, pricePointsIn);
+  const priceHint = showHint({ isNew: isNewTrade, priceField: price, quote: knownQuote, now: Date.now() });
+  const agoText = (ago: { unit: AgoUnit; n: number }) =>
+    ago.unit === 'now'
+      ? t.invest.priceAgo.justNow
+      : ago.unit === 'minutes'
+        ? t.invest.priceAgo.minutes(ago.n)
+        : ago.unit === 'hours'
+          ? t.invest.priceAgo.hours(ago.n)
+          : t.invest.priceAgo.days(ago.n);
 
   const securityType: SecurityType = !symbol
     ? 'EQUITY'
@@ -612,8 +683,10 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       return;
     }
     const moved = !!editing.money && editing.money.mode !== 'none';
+    // A trade from before the investing cash moved money in goals; a newer one moved the investing cash.
+    const movedBack = editing.money?.mode === 'pot' ? t.invest.deleteMoneyBackPot : t.invest.deleteMoneyBack;
     const adjusted = dividendsAfterChange({ trades, credited, dividends, previousId: editing.id, next: null }).deltaCents;
-    const body = moved ? `${t.invest.deleteBody} ${t.invest.deleteMoneyBack}` : t.invest.deleteBody;
+    const body = moved ? `${t.invest.deleteBody} ${movedBack}` : t.invest.deleteBody;
     const ok = await confirm({
       title: t.invest.deleteTitle,
       body: adjusted !== 0 ? `${body} ${t.invest.dividendsAdjustedBody(money(adjusted, { signed: true }))}` : body,
@@ -629,6 +702,52 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     });
     if (!ok) return;
     await removeWith();
+  };
+
+  /** What correcting or taking back this dividend would do, worked out as the save works it out. */
+  const dividendRow = editing && editing.kind === 'dividend' && editing.money?.mode === 'pot' ? editing : null;
+  const canCorrect = !!dividendRow && !!dividendMarker && !!onCorrectDividend;
+  const canRemove = !!dividendRow && !!dividendMarker && !!onRemoveDividend;
+  const dividendCorrected = !!editing && (dividendMarker?.corrected === true || editing.amountCents !== undefined);
+  const newDividendCents = toCents(Number(amountText) || 0);
+  const correction =
+    dividendMode === 'correct' && dividendRow && dividendMarker
+      ? planDividendCorrection({ trade: dividendRow, marker: dividendMarker, newCents: newDividendCents, potCents })
+      : null;
+  const removal =
+    dividendMode === 'remove' && dividendRow && dividendMarker ? planDividendRemoval({ trade: dividendRow, marker: dividendMarker, potCents }) : null;
+  const correctionPlan = correction && 'plan' in correction ? correction.plan : null;
+  const dividendName = editing ? editing.name || editing.symbol : '';
+
+  const dividendFail = (e: unknown) => {
+    setBusy(false);
+    setProblem(e instanceof Error ? e.message : t.invest.couldNotSave);
+  };
+
+  const saveCorrection = async () => {
+    if (!editing || !correctionPlan || correctionPlan.deltaCents === 0 || !onCorrectDividend || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      await onCorrectDividend(editing.id, newDividendCents);
+      onDone(t.invest.dividendCorrectedDone(dividendName));
+      onClose();
+    } catch (e) {
+      dividendFail(e);
+    }
+  };
+
+  const confirmRemoval = async () => {
+    if (!editing || !removal || 'problem' in removal || !onRemoveDividend || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      await onRemoveDividend(editing.id);
+      onDone(t.invest.dividendRemovedDone(dividendName));
+      onClose();
+    } catch (e) {
+      dividendFail(e);
+    }
   };
 
   const answerMismatch = (update: boolean) => {
@@ -772,21 +891,141 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               </div>
               <div className="h-px bg-white/10" />
               <div className="flex items-center">
-                <span className="flex-1 text-accent font-black text-sm">{editing?.money?.mode === 'pot' ? t.invest.paidIntoPot : t.invest.paidIntoGoals}</span>
+                <span className="flex-1 text-accent font-black text-sm">
+                  {editing?.money?.mode === 'pot' ? t.invest.paidIntoPot : t.invest.paidIntoGoals}
+                  {dividendCorrected && (
+                    <span className="ml-2 align-middle text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-400/40 bg-amber-400/10 text-amber-300 tracking-wider">
+                      {t.invest.dividendCorrected}
+                    </span>
+                  )}
+                </span>
                 <span className="text-accent font-black text-lg">
                   {money(editing ? tradeCents(editing) : 0)}
                 </span>
               </div>
             </div>
-            <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
-              {editing?.money?.mode === 'pot' ? t.invest.dividendReceiptNote : t.invest.dividendReceiptNoteLegacy}
-            </p>
-            <button
-              onClick={onClose}
-              className="w-full h-14 mt-5 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
-            >
-              {t.common.close}
-            </button>
+            {dividendMode === 'view' && (
+              <>
+                <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
+                  {editing?.money?.mode !== 'pot'
+                    ? t.invest.dividendReceiptNoteLegacy
+                    : dividendCorrected
+                      ? t.invest.dividendCorrectedNote
+                      : t.invest.dividendReceiptNote}
+                </p>
+                {(canCorrect || canRemove) && (
+                  <div className="mt-5 space-y-3">
+                    {canCorrect && (
+                      <button
+                        onClick={() => {
+                          setProblem(null);
+                          setDividendMode('correct');
+                        }}
+                        className="w-full h-12 rounded-full bg-primary text-black font-black active:scale-95 transition-all"
+                      >
+                        {t.invest.correctAmount}
+                      </button>
+                    )}
+                    {canRemove && (
+                      <button
+                        onClick={() => {
+                          setProblem(null);
+                          setDividendMode('remove');
+                        }}
+                        className="w-full h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black active:scale-95 transition-transform"
+                      >
+                        {t.invest.removeDividend}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={onClose}
+                  className="w-full h-14 mt-5 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
+                >
+                  {t.common.close}
+                </button>
+              </>
+            )}
+
+            {dividendMode === 'correct' && (
+              <div className="mt-5">
+                <p className="text-slate-500 text-[11px] font-bold leading-relaxed">{t.invest.correctAmountHint}</p>
+                <div className="flex mt-4">
+                  <Field
+                    label={t.invest.amountReceived}
+                    value={amountText}
+                    onChange={(v) => setAmountText(cleanFeeInput(v))}
+                    prefix="RM"
+                    autoFocus
+                  />
+                </div>
+                {correctionPlan && correctionPlan.deltaCents !== 0 && (
+                  <div className="mt-4 rounded-2xl bg-white/5 p-4">
+                    <Line
+                      label={t.invest.potMoves(
+                        money(potCents),
+                        money(potCents + correctionPlan.potDelta),
+                        money(correctionPlan.deltaCents, { signed: true })
+                      )}
+                      value=""
+                      tone="text-accent"
+                    />
+                  </div>
+                )}
+                {correction && 'problem' in correction && amountText.trim() !== '' && (
+                  <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{dividendProblemText(correction, t)}</p>
+                )}
+                {problem && <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>}
+                <button
+                  onClick={() => void saveCorrection()}
+                  disabled={!correctionPlan || correctionPlan.deltaCents === 0 || busy}
+                  className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
+                >
+                  {t.invest.saveCorrection}
+                </button>
+                <button
+                  onClick={() => {
+                    setProblem(null);
+                    setAmountText(editing ? fromCents(tradeCents(editing)).toFixed(2) : '');
+                    setDividendMode('view');
+                  }}
+                  disabled={busy}
+                  className="w-full h-12 mt-3 rounded-full glass border border-white/10 text-white font-black disabled:opacity-30 active:scale-95 transition-transform"
+                >
+                  {t.common.back}
+                </button>
+              </div>
+            )}
+
+            {dividendMode === 'remove' && (
+              <div className="mt-5">
+                <p className="text-slate-300 text-[12px] font-bold leading-relaxed">
+                  {t.invest.removeDividendBody(money(editing ? tradeCents(editing) : 0))}
+                </p>
+                {removal && 'problem' in removal && (
+                  <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{dividendProblemText(removal, t)}</p>
+                )}
+                {problem && <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>}
+                <button
+                  onClick={() => void confirmRemoval()}
+                  disabled={!removal || 'problem' in removal || busy}
+                  className="w-full h-14 mt-5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black disabled:opacity-30 active:scale-95 transition-transform"
+                >
+                  {t.invest.removeDividendConfirm}
+                </button>
+                <button
+                  onClick={() => {
+                    setProblem(null);
+                    setDividendMode('view');
+                  }}
+                  disabled={busy}
+                  className="w-full h-12 mt-3 rounded-full glass border border-white/10 text-white font-black disabled:opacity-30 active:scale-95 transition-transform"
+                >
+                  {t.common.back}
+                </button>
+              </div>
+            )}
           </div>
         ) : needsCounter && kind === 'sell' ? (
           <div className="mt-5">
@@ -871,9 +1110,31 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               />
             </div>
             <div className="flex gap-3 mt-4">
-              <Field label={t.invest.units} value={units} onChange={setUnits} autoFocus={!editing && !prefilled} />
-              <Field label={t.invest.pricePerUnit} value={price} onChange={setPrice} prefix="RM" />
+              <Field label={t.invest.units} value={units} onChange={setUnits} autoFocus={!editing && !prefilled} inputMode="numeric" />
+              <Field label={t.invest.pricePerUnit} value={price} onChange={typePriceText} prefix="RM" />
             </div>
+            {/* A suggestion to tap, never a silent fill: a last price is not what the order filled at. */}
+            {priceHint && (
+              <div className="mt-2.5 flex items-center gap-3 rounded-2xl bg-white/5 border border-white/10 px-3.5 py-2.5">
+                <p className="flex-1 min-w-0 text-slate-400 text-[11px] font-bold leading-relaxed">
+                  {t.invest.lastPrice(`RM${priceHint.text}`, agoText(priceHint.ago))}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = applyHint(priceHint);
+                    setPrice(next.text);
+                    setPriceFromHint(next.fromHint);
+                  }}
+                  className="shrink-0 h-9 px-3 rounded-xl bg-accent/15 border border-accent/40 text-accent text-[11px] font-black active:scale-95 transition-transform"
+                >
+                  {t.invest.useLastPrice(`RM${priceHint.text}`)}
+                </button>
+              </div>
+            )}
+            {priceFromHint && price.trim() !== '' && (
+              <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.priceFromLast}</p>
+            )}
 
             {/* Fees, filled in from the broker's rates until someone types over one. */}
             <div className="mt-5">

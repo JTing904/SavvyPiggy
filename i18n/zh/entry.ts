@@ -1,0 +1,50 @@
+import type { entry as English } from '../en/entry';
+
+export const entry: typeof English = {
+  editTitle: '修改这笔记录',
+  editPotTitle: '修改这笔转账',
+
+  amount: '金额',
+  amountDone: '完成',
+  date: '日期',
+  time: '时间',
+  takenFrom: '从哪里扣',
+  severalGoals: '多个钱罐',
+  goesTo: '存进哪里',
+  asItWas: '保持原样',
+  byYourSplit: '按分配比例',
+  category: '分类',
+  note: '备注',
+  notePlaceholder: '选填',
+
+  previewTitle: '会有什么变化',
+  debtOwed: '还欠的预支',
+  beforeAfter: (before, after) => `${before} 变成 ${after}`,
+  investingCash: '投资资金',
+  noMoneyMoves: '只改详情，钱不会动。',
+  nothingChanged: '改了内容才能保存。',
+  offline: '修改需要联网，你现在似乎没有网络。',
+  saveFailed: '保存失败。请检查网络后再试。',
+  save: '保存',
+  saved: '记录已更新',
+
+  delete: '删除',
+  potGoesBack: (amount, goal) => `${amount} 会回到「${goal}」。`,
+  potTakenFrom: (amount, goal) => `${amount} 会从「${goal}」扣回。`,
+  potLeaves: (amount) => `${amount} 会从投资资金里转走。`,
+  potReturns: (amount) => `${amount} 会回到投资资金。`,
+
+  chooseBackTitle: '钱要回到哪个钱罐？',
+  chooseBackBody: (amount) => `这笔 ${amount} 原来所在的钱罐已经被删除了，请选择钱回到哪里。`,
+  chooseTakeTitle: '要从哪个钱罐扣回？',
+  chooseTakeBody: (amount) => `这笔 ${amount} 有一部分进了已经被删除的钱罐，请选择从哪个钱罐扣回。`,
+  splitOption: '按分配比例分',
+  splitOptionSub: '像一笔新的存入那样分给各个钱罐',
+  takeSplitSub: '按各钱罐目前的金额比例扣回',
+  chooseFirst: '请先选一个钱罐。',
+
+  transferTitle: '转入',
+  transferBody: (goal) => `这笔钱是在钱罐「${goal}」被删除时转进来的。它记录的是钱罐之间的转移，所以不能修改或删除。`,
+  transferBodyNoName: '这笔钱是在某个钱罐被删除时转进来的。它记录的是钱罐之间的转移，所以不能修改或删除。',
+  tradeBody: '这笔记录属于一笔交易。请打开那笔交易来修改或删除。',
+};

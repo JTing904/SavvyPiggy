@@ -36,7 +36,7 @@ export const invest = {
   tradeDeleted: 'Trade deleted.',
   editTitle: (kind: string) => `Edit · ${kind}`,
   dividendIntro:
-    'This is the record of a dividend the app paid into your investment pot. It is worked out from your trades, so there is nothing here to type over.',
+    'This is the record of a dividend the app paid into your investing cash. It is worked out from your trades; if less reached your account, you can correct the amount here.',
   /** A dividend paid before the investment pot existed, when it went into the goals. */
   dividendIntroLegacy:
     'This is the record of a payment the app made into your goals. The money itself lives in your history — if the amount that reached your account was different, correct it there.',
@@ -47,13 +47,38 @@ export const invest = {
   sellIntro:
     'Selling after an ex-date still leaves that dividend yours, which is why the date matters here too.',
   paidOn: 'Paid on',
-  paidIntoPot: 'Paid into the investment pot',
+  paidIntoPot: 'Paid into your investing cash',
   dividendReceiptNote:
-    'Recorded at the amount the company announced. If less reached your account, move the difference out of the investment pot.',
+    'Recorded at the amount the company announced. If less reached your account, correct the amount here and your investing cash follows.',
   /** Legacy: a dividend paid before the investment pot existed. */
   paidIntoGoals: 'Paid into your goals',
   dividendReceiptNoteLegacy:
     'This was paid before the investment pot existed, so the money is an ordinary deposit in your history — correct the amount there and every figure follows.',
+  /** Correcting or taking back a dividend already paid into the investing cash. */
+  dividendCorrected: 'Corrected',
+  dividendCorrectedNote:
+    'You corrected this amount by hand. Changing the buy later will not undo the correction.',
+  correctAmount: 'Correct the amount',
+  correctAmountHint: 'Type what actually reached your account. The difference moves out of, or into, your investing cash.',
+  amountReceived: 'Amount received',
+  potMoves: (from: string, to: string, delta: string) => `Investing cash ${from} → ${to} (${delta})`,
+  saveCorrection: 'Save the correction',
+  dividendCorrectedDone: (name: string) => `${name} dividend corrected.`,
+  removeDividend: 'Remove this dividend',
+  removeDividendBody: (amount: string) =>
+    `This takes ${amount} back out of your investing cash. The dividend stays on file as removed and is never credited again, even if you change the buy later.`,
+  removeDividendConfirm: 'Yes, remove it',
+  dividendRemovedDone: (name: string) => `${name} dividend removed.`,
+  /** The "last price" hint under the price field. */
+  lastPrice: (price: string, ago: string) => `Last price ${price} · ${ago} — not your fill. Check your contract note.`,
+  useLastPrice: (price: string) => `Use ${price}`,
+  priceFromLast: 'Filled from the last price, not from your contract note. Change it to what you actually paid.',
+  priceAgo: {
+    justNow: 'just now',
+    minutes: (n: number) => `${n} min ago`,
+    hours: (n: number) => `${n} h ago`,
+    days: (n: number) => `${n} d ago`,
+  },
   whichCounter: 'Which counter',
   nothingToSell: 'Nothing is held right now, so there is nothing to sell.',
   counter: 'Counter',
@@ -80,7 +105,9 @@ export const invest = {
   },
   deleteTrade: 'Delete this trade',
   dividendsLoading: 'Checking the dividends already paid in…',
+  /** Legacy trades, recorded before the investing cash existed, moved money in goals. */
   deleteMoneyBack: 'Any money it moved in your goals is put back as well.',
+  deleteMoneyBackPot: 'The money it moved in your investing cash is put back as well.',
   prefilledIntro: 'Filled in for you. Change anything to match your contract note.',
 
   /** The small tag beside a trade's title, by security type. Tapping it corrects the type. */
@@ -144,15 +171,15 @@ export const invest = {
   aGoal: 'That goal',
   rowGone: 'This sale’s entry has been cleared from History, so where its money went can no longer be undone exactly.',
   saleBelowFees: (amount: string) => `The fees are bigger than this sale, so it costs you ${amount}. Choose the goal it comes out of.`,
-  pot: 'Investment pot',
+  pot: 'Investing cash',
   potCard: {
     hint: 'Buys come out of here; sales and dividends come back here.',
     moveIn: 'Move in from savings',
     moveOut: 'Move back to savings',
     inTitle: 'Move in from savings',
-    inHint: 'Not spending: the money only moves from a savings goal to the investment pot.',
+    inHint: 'Not spending: the money only moves from a savings goal to your investing cash.',
     outTitle: 'Move back to savings',
-    outHint: 'Not a new deposit: the money only moves from the investment pot back to savings.',
+    outHint: 'Not a new deposit: the money only moves from your investing cash back to savings.',
     fromGoal: 'From which goal',
     intoWhere: 'Into which goal',
     amount: 'Amount',
@@ -164,10 +191,10 @@ export const invest = {
   },
   potBuySub: 'Buys only ever come out of here',
   potSellSub: 'Sale proceeds come back here',
-  potAfter: 'Investment pot after this',
+  potAfter: 'Investing cash after this',
   dividendsAdjusted: 'Dividends adjusted',
-  dividendsAdjustedBody: (amount: string) => `Dividends already paid into the investment pot change by ${amount}.`,
-  potShort: (available: string, needed: string) => `The investment pot holds ${available}; this needs ${needed}. Move money in from savings first.`,
+  dividendsAdjustedBody: (amount: string) => `Dividends already paid into your investing cash change by ${amount}.`,
+  potShort: (available: string, needed: string) => `Your investing cash holds ${available}; this needs ${needed}. Move money in from savings first.`,
   notFromPotSub: 'For filling in an old trade: only the shares are recorded',
   nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
   refundLater: 'The goal this buy was paid from has been deleted. When you save, you’ll be asked where its money goes back.',
@@ -209,7 +236,7 @@ export const invest = {
     'Only what has actually been announced. A counter that has declared nothing for a quarter adds nothing here — this is not a forecast.',
   comingUp: 'COMING UP',
   nothingAnnounced:
-    'Nothing announced for the counters you hold. A dividend appears here as soon as the company declares it, and is paid into your investment pot on its pay date.',
+    'Nothing announced for the counters you hold. A dividend appears here as soon as the company declares it, and is paid into your investing cash on its pay date.',
   couldNotFetch:
     'Announcements could not be fetched, so this is not a list of nothing — it is no answer at all. Pull the refresh above once you are back online.',
   exDate: 'Ex-date',
@@ -221,7 +248,7 @@ export const invest = {
     'Nothing was held before this ex-date, so this one is not yours. Buying now does not qualify — the shares had to be held the day before.',
   paidIn: 'PAID IN',
   dividendsFooter:
-    'A dividend belongs to whoever held the shares the day before the ex-date, so these are worked out from your trade log rather than from what you hold today. Each is paid into the investment pot at the amount announced — if less reaches your account, move the difference out of the pot.',
+    'A dividend belongs to whoever held the shares the day before the ex-date, so these are worked out from your trade log rather than from what you hold today. Each is paid into your investing cash at the amount announced — if less reaches your account, open the payment below and correct the amount.',
 
   // Growth
   growthTitle: 'Growth',
