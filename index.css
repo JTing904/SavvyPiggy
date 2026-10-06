@@ -260,6 +260,12 @@ html[data-look="new"] body {
     color: rgb(var(--ink));
     font-family: 'Figtree', system-ui, 'Noto Sans SC', sans-serif;
 }
+/* The app shell paints its own dark ground (bg-bg-dark) over the body; on a
+   redesigned screen that ground has to be the page token, or a light screen
+   sits on dark and its dark text vanishes. */
+html[data-look="new"] .bg-bg-dark {
+    background-color: rgb(var(--page));
+}
 /* Toast: opacity and transform only, like the sheet. */
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .toast-in { animation: toast-in 200ms ease-out; }
