@@ -38,3 +38,5 @@ android/.gradle/
 android/app/release/
 *.apk
 *.aab
+
+__pycache__/
