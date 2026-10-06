@@ -11,7 +11,7 @@ export const money = {
   goesTo: 'Goes to',
   splitByPercent: 'Split by %',
   splitGoals: (n: number) => `${n} goal${n === 1 ? '' : 's'}`,
-  noSplit: 'No goal has a split yet. Pick a goal above, or set percentages on Strategy.',
+  noSplit: 'No goal has a split yet. Pick a goal above, or set percentages on the Split tab.',
   coversEarlier: (amount: string) => `${amount} covers earlier spending first`,
   partlyAllocated: (percent: number) => `Only ${percent}% is allocated, so the rest stays unassigned.`,
   landsHeading: 'Where it lands',

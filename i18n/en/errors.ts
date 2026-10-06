@@ -14,7 +14,7 @@ export const errors = {
   googleCancelled: 'Google sign-in was cancelled.',
 
   nothingToDepositInto: 'Nothing to deposit into.',
-  enterWithdrawAmount: 'Enter an amount to withdraw.',
+  enterWithdrawAmount: 'Enter an amount to spend.',
   enterSpendAmount: 'Enter an amount to spend.',
   editRepaidDebt: 'This one repaid a debt. Delete it and record it again instead.',
   editDeletedGoal: 'One of the goals this went into has been deleted, so it cannot be corrected.',
@@ -23,14 +23,14 @@ export const errors = {
     `${count} auto deposit${count === 1 ? '' : 's'} still point${count === 1 ? 's' : ''} at a deleted or archived goal and ${count === 1 ? 'was' : 'were'} not posted. Choose another goal for ${count === 1 ? 'it' : 'them'} in Auto deposits.`,
   coveredNowhere: 'This spent ahead was already covered by a deposit, and undoing it would put that money back — but no goal takes a full share of deposits right now. Set your split to 100% first.',
   enterAmount: 'Enter an amount.',
-  potShort: 'The investment pot doesn’t hold that much.',
+  potShort: 'Your investing cash doesn’t hold that much.',
   potFromShort: (goal: string) => `${goal} doesn’t hold that much.`,
   goneShare: 'Part of this went through a goal that has since been deleted. Choose where that part is settled.',
   recordGone: 'This record was already changed or removed on another device. Reopen the page.',
   coveringUnavailable:
     'The deposits that covered this spent ahead couldn’t be loaded — you may be offline. Nothing was deleted. Try again when you are online.',
 
-  potRowUseOwnUndo: 'Money moved to or from the investment pot is taken back from the Investing screen, not by deleting the entry here.',
+  potRowUseOwnUndo: 'Money moved to or from your investing cash is taken back from the Investing screen, not by deleting the entry here.',
   transferLocked: 'This entry records money moved when a goal was deleted, so it can’t be changed or deleted.',
 
   /** Why a correction, a move or a date was refused. Every screen shows these through services/problemText.ts. */
@@ -67,13 +67,13 @@ export const errors = {
       goalShort: (goal: string, available: string, needed: string) => `${goal} holds ${available}; this needs ${needed}. Move money into it first.`,
       needsChoice: 'A goal this move involved has been deleted. Choose where the money goes.',
       noDestination: 'There is no goal to put this money into.',
-      notPotRow: 'This entry isn’t a move to or from the investment pot.',
+      notPotRow: 'This entry isn’t a move to or from your investing cash.',
       goalGone: 'A goal this move involved has been deleted, so it can’t be corrected. Delete the entry and choose where the money goes.',
       amountPositive: 'The amount has to be more than RM0.00. To take the move back, delete it instead.',
     },
     dividend: {
       notDividend: 'This entry isn’t a dividend.',
-      notPot: 'This dividend wasn’t paid into the investment pot, so it can’t be corrected here.',
+      notPot: 'This dividend wasn’t paid into your investing cash, so it can’t be corrected here.',
       outOfSync: 'This dividend no longer matches what was paid into the pot, so nothing was changed. Close it and open it again.',
       amountPositive: 'The amount received has to be more than RM0.00. To take the dividend back, remove it instead.',
     },
@@ -99,6 +99,6 @@ export const errors = {
     insufficient: 'That goal doesn’t hold enough for this trade.',
     nothingToSplit: 'No goal is taking a share of deposits, so there is nowhere to split this.',
     saleBelowFees: 'The fees are bigger than this sale. Choose the goal the difference comes out of.',
-    potShort: 'The investment pot doesn’t hold enough for this.',
+    potShort: 'Your investing cash doesn’t hold enough for this.',
   },
 };

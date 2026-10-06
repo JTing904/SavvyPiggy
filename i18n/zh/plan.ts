@@ -3,7 +3,7 @@ import type { plan as English } from '../en/plan';
 export const plan: typeof English = {
   title: '推荐',
   buyThis: (name) => `买入 ${name}`,
-  buyThisHint: '打开买入页，股数和价格照你的成交单填，钱从投资钱罐出',
+  buyThisHint: '打开买入页，股数和价格照你的成交单填，钱从投资资金出',
 
   styles: {
     income: '股息派',

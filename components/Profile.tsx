@@ -398,11 +398,6 @@ const Profile: React.FC<ProfileProps> = ({
               onClick={() => setShowLanguage(true)}
               trailing={<span className="text-primary text-xs font-black shrink-0">{t.language.current}</span>}
             />
-            <Row
-              icon="payments"
-              title={t.profile.amountsInRM}
-              subtitle={t.profile.amountsHint}
-            />
             <Row icon="cloud_done" title={t.profile.synced} subtitle={t.profile.syncedHint} />
           </Card>
         </Section>

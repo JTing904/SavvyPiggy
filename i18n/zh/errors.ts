@@ -23,7 +23,7 @@ export const errors: typeof English = {
   scheduleGoalGone: (count) => `有 ${count} 条自动存入还指向已删除或封存的钱罐，没有存入。请到「自动存入」里给它换一个钱罐。`,
   coveredNowhere: '这笔预支已经被存入补回了。删掉它，那笔钱要放回钱罐——但现在分配比例加起来不到 100%，钱会没地方放。请先把分配比例设好。',
   enterAmount: '请输入金额。',
-  potShort: '投资钱罐没有那么多钱。',
+  potShort: '投资资金没有那么多钱。',
   potFromShort: (goal) => `「${goal}」没有那么多钱。`,
   goneShare: '这笔记录有一部分经过了一个已删除的钱罐。请选择这部分从哪里扣回或放回。',
   recordGone: '这笔记录已在另一台设备上被改动或删除，请重新打开页面。',
@@ -94,6 +94,6 @@ export const errors: typeof English = {
     insufficient: '这个钱罐的钱不够付这笔交易。',
     nothingToSplit: '目前没有钱罐参与分配，没办法自动分配这笔钱。',
     saleBelowFees: '手续费比卖出的钱还多，请选差价从哪个钱罐扣。',
-    potShort: '投资钱罐的钱不够。',
+    potShort: '投资资金的钱不够。',
   },
 };

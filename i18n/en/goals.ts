@@ -1,4 +1,4 @@
-/** A goal's own page, creating one, and the Strategy tab. */
+/** A goal's own page, creating one, and the Split tab. */
 export const goals = {
   // Shared by more than one of the three screens.
   saving: 'Saving...',
@@ -28,7 +28,7 @@ export const goals = {
   depositsShowHere: 'Deposits reaching this goal show up here',
   archiveTitle: (name: string) => `Archive ${name}?`,
   archiveBody: (amount: string) =>
-    `Its ${amount} stays in your total savings and every record stays in your history. The goal just leaves the Home and Strategy lists.`,
+    `Its ${amount} stays in your total savings and every record stays in your history. The goal just leaves the Home and Split lists.`,
   shareGoesTo: (share: number) => `Its ${share}% goes to`,
   noOtherGoal: (share: number) =>
     `No other goal is taking a share yet, so ${share}% of each deposit will be left unassigned until you set the split.`,
@@ -80,7 +80,7 @@ export const goals = {
     giveNoneSub: 'Only this record is removed',
   },
   percentOfEachDeposit: (percent: number) => `${percent}% of each deposit`,
-  strategyTitle: 'Distribution Strategy',
+  strategyTitle: 'Deposit split',
   strategySubtitle: 'Every untargeted deposit is split by these shares.',
   everyGoalExcluded: 'Every goal is excluded from deposits.',
   unassigned: 'Unassigned',
@@ -107,6 +107,6 @@ export const goals = {
   percentLeft: (percent: number) => `${percent}% left`,
   addAGoal: 'Add a Goal',
   allocationMismatch: 'Allocation Mismatch',
-  saveStrategy: 'Save Strategy',
-  strategySaved: 'Strategy Saved',
+  saveStrategy: 'Save split',
+  strategySaved: 'Split saved',
 };

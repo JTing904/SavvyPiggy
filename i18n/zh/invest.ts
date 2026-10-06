@@ -42,7 +42,7 @@ export const invest: typeof English = {
   dividendReceiptNote: '按公司公布的金额记录。如果实际到账的少了，在这里修改金额，投资资金会跟着调整。',
   paidIntoGoals: '已存进储蓄钱罐',
   dividendReceiptNoteLegacy:
-    '这笔是投资钱罐推出之前派发的，所以在你的记录里是一笔普通存入——在那里修改金额，所有数字都会跟着更新。',
+    '这笔是投资资金推出之前派发的，所以在你的记录里是一笔普通存入——在那里修改金额，所有数字都会跟着更新。',
   dividendCorrected: '已更正',
   dividendCorrectedNote: '这个金额是你亲手更正的。之后再改这笔买入，也不会撤销这次更正。',
   correctAmount: '更正金额',
@@ -231,7 +231,7 @@ export const invest: typeof English = {
   onSold: '已卖出的部分',
   onSoldNote: '已实现盈亏，不会再变',
   dividendsPaidIn: '已派发的股息',
-  dividendsPaidInNote: '存进投资钱罐（较早的在储蓄钱罐）',
+  dividendsPaidInNote: '存进投资资金（较早的在储蓄钱罐）',
   heldNow: '当前市值',
   cost: (amount) => `成本 ${amount}`,
   income: '股息收入',
@@ -249,5 +249,5 @@ export const invest: typeof English = {
   byCounter: '各股票',
   shareOfPortfolio: (percent, units) => `占投资组合 ${percent}% · ${units}`,
   growthFooter:
-    '股息在这里算作收入。股息存进投资钱罐，投资钱罐和总储蓄分开算，这个页面上的数字也不会加进任何地方的总储蓄。投资钱罐推出之前派发的股息分到了储蓄钱罐，所以那些也在你的储蓄里。',
+    '股息在这里算作收入。股息存进投资资金，投资资金和总储蓄分开算，这个页面上的数字也不会加进任何地方的总储蓄。投资资金推出之前派发的股息分到了储蓄钱罐，所以那些也在你的储蓄里。',
 };

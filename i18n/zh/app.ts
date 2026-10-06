@@ -6,7 +6,7 @@ export const app: typeof English = {
     startingUp: '正在启动',
     checkingInvite: '正在核对你的邀请',
   },
-  couldNotReach: '无法连接 Firestore',
+  couldNotReach: '连接不上服务器',
   tryAgain: '重试',
   comingSoon: '功能即将推出',
   offline: '离线——显示的是上次同步到这部手机的内容',

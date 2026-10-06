@@ -5,7 +5,7 @@ export const app = {
     startingUp: 'Starting up',
     checkingInvite: 'Checking your invite',
   },
-  couldNotReach: 'Could not reach Firestore',
+  couldNotReach: 'Could not reach the server',
   tryAgain: 'Try again',
   comingSoon: 'Feature coming soon',
   offline: 'Offline — showing what was last synced to this phone',

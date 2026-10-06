@@ -52,7 +52,7 @@ export const profile = {
   setAside: 'Set money aside on a schedule',
   nextOn: (date: string) => `Next on ${date} · posts when you open the app`,
   postsOnOpen: 'Posts when you open the app',
-  overflowTitle: 'Smart goal overflow',
+  overflowTitle: 'Move a full goal’s share on',
   overflowHint: 'A goal that hits its target stops taking a cut; its share goes to the goals still short of theirs.',
   distributionSplit: 'Distribution split',
   fullyAllocated: 'Fully allocated',
@@ -61,13 +61,13 @@ export const profile = {
   manageAll: (n: number) => `Manage all (${n})`,
   activeDistribution: 'Active distribution',
   activeAmount: (amount: string) => `${amount} active`,
-  noSplit: 'No goal is taking a share of deposits yet. Set the split on the Strategy tab.',
+  noSplit: 'No goal is taking a share of deposits yet. Set the split on the Split tab.',
   archivedGoals: (n: number) => `Archived goals (${n})`,
   putAway: (amount: string) => `${amount} put away`,
   archivedOn: (date: string) => ` · archived ${date}`,
   restore: 'Restore',
   archiveNote:
-    'Archived goals keep their money and their history. Restoring one brings it back at 0% — give it a share on the Strategy tab.',
+    'Archived goals keep their money and their history. Restoring one brings it back at 0% — give it a share on the Split tab.',
 
   app: 'App',
   notificationCenter: 'Notification center',
@@ -79,8 +79,8 @@ export const profile = {
   statementsHint: 'A statement every month, as a PDF or a spreadsheet',
   amountsInRM: 'Amounts shown in RM',
   amountsHint: 'Ringgit formatting and 12-hour times, everywhere in the app',
-  synced: 'Synced with Firebase',
-  syncedHint: 'Changes save instantly across your devices',
+  synced: 'Synced across your devices',
+  syncedHint: 'Changes show up on every device you sign in on',
   adding: 'Adding…',
   addSamples: 'Add three sample goals',
   signOut: 'Sign Out',
@@ -88,7 +88,7 @@ export const profile = {
   /* ---------------------------------------------------------- Auto deposits */
 
   deletedGoal: 'Deleted goal',
-  splitByStrategy: 'Split by strategy',
+  splitByStrategy: 'Split by shares',
   autoDeposits: 'Auto Deposits',
   recurring: 'Recurring',
   recurringIntro: 'Money is added on the days you pick. Missed days are filled in the next time you open the app.',
@@ -124,7 +124,7 @@ export const profile = {
   excelRecords: 'Excel records',
   keepingQuick: 'Keeping the app quick',
   keepingQuickHint:
-    'Every time the app opens it reads the whole ledger, and a free Firebase project allows 50,000 reads a day. Space is not the problem — a few thousand records is. Old months are cleared automatically so that day never arrives, which is why there is no “keep everything” here.',
+    'Every time the app opens it reads the whole ledger, and the free plan this app runs on allows 50,000 reads a day. Space is not the problem — a few thousand records is. Old months are cleared automatically so that day never arrives, which is why there is no “keep everything” here.',
   nextToClear: 'Next to be cleared',
   /** Follows the month's name. */
   nextToClearDetail: (records: number, date: string) =>

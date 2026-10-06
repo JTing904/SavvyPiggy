@@ -21,7 +21,7 @@ const TABS: Record<Mode, { tab: Tab; icon: string; label: keyof Messages['nav'] 
   save: [
     { tab: Tab.HOME, icon: 'home', label: 'home' },
     { tab: Tab.LOG, icon: 'history', label: 'history' },
-    { tab: Tab.BANKS, icon: 'account_balance_wallet', label: 'strategy' },
+    { tab: Tab.BANKS, icon: 'pie_chart', label: 'strategy' },
     { tab: Tab.STATS, icon: 'monitoring', label: 'report' },
   ],
   invest: [

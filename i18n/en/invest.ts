@@ -37,7 +37,7 @@ export const invest = {
   editTitle: (kind: string) => `Edit · ${kind}`,
   dividendIntro:
     'This is the record of a dividend the app paid into your investing cash. It is worked out from your trades; if less reached your account, you can correct the amount here.',
-  /** A dividend paid before the investment pot existed, when it went into the goals. */
+  /** A dividend paid before your investing cash existed, when it went into the goals. */
   dividendIntroLegacy:
     'This is the record of a payment the app made into your goals. The money itself lives in your history — if the amount that reached your account was different, correct it there.',
   editIntro:
@@ -50,10 +50,10 @@ export const invest = {
   paidIntoPot: 'Paid into your investing cash',
   dividendReceiptNote:
     'Recorded at the amount the company announced. If less reached your account, correct the amount here and your investing cash follows.',
-  /** Legacy: a dividend paid before the investment pot existed. */
+  /** Legacy: a dividend paid before your investing cash existed. */
   paidIntoGoals: 'Paid into your goals',
   dividendReceiptNoteLegacy:
-    'This was paid before the investment pot existed, so the money is an ordinary deposit in your history — correct the amount there and every figure follows.',
+    'This was paid before investing cash was introduced, so the money is an ordinary deposit in your history — correct the amount there and every figure follows.',
   /** Correcting or taking back a dividend already paid into the investing cash. */
   dividendCorrected: 'Corrected',
   dividendCorrectedNote:
@@ -261,7 +261,7 @@ export const invest = {
   onSold: 'On what you have sold',
   onSoldNote: 'Banked, cannot change',
   dividendsPaidIn: 'Dividends paid in',
-  dividendsPaidInNote: 'Into the investment pot (older ones, your goals)',
+  dividendsPaidInNote: 'Into your investing cash (older ones, your goals)',
   heldNow: 'Held now',
   cost: (amount: string) => `cost ${amount}`,
   income: 'Income',
@@ -279,5 +279,5 @@ export const invest = {
   byCounter: 'BY COUNTER',
   shareOfPortfolio: (percent: number, units: string) => `${percent}% of the portfolio · ${units}`,
   growthFooter:
-    'Dividends are counted here as income. They are paid into the investment pot, which is kept apart from your total savings, and nothing on this screen is added to your savings anywhere. Dividends paid before the pot existed went into your goals, so those are in your savings too.',
+    'Dividends are counted here as income. They are paid into your investing cash, which is kept apart from your total savings, and nothing on this screen is added to your savings anywhere. Dividends paid before the pot existed went into your goals, so those are in your savings too.',
 };

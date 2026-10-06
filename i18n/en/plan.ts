@@ -2,7 +2,7 @@
 export const plan = {
   title: 'Recommendation',
   buyThis: (name: string) => `Buy ${name}`,
-  buyThisHint: 'Opens the Buy sheet: fill in units and price from your contract note. The money comes out of the investment pot.',
+  buyThisHint: 'Opens the Buy sheet: fill in units and price from your contract note. The money comes out of your investing cash.',
 
   /** The three styles, by their key in services/advisor/model.ts. */
   styles: {

@@ -9,7 +9,7 @@ export const goals: typeof English = {
   scheduledDeposit: '自动存入',
   couldNotUseImage: '这张图片用不了。',
   paidIn: '存入',
-  takenOut: '取出',
+  takenOut: '开销',
   entries: '笔数',
   change: '更换',
   addPhoto: '添加照片',
