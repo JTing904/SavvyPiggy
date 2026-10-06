@@ -47,7 +47,7 @@ export const entry = {
   chooseFirst: 'Choose a goal to continue.',
 
   /** Rows that cannot be changed. */
-  transferTitle: 'Moved in',
+  transferTitle: 'Between goals',
   transferBody: (goal: string) =>
     `This money moved in when the goal “${goal}” was deleted. It records a move between goals, so it can’t be edited or deleted.`,
   transferBodyNoName: 'This money moved in when a goal was deleted. It records a move between goals, so it can’t be edited or deleted.',

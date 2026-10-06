@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
 import {
@@ -1215,7 +1216,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 {legacyGoalMoney && goalOptions.map((b) => (
                   <ChoiceRow
                     key={b.id}
-                    icon={b.icon}
+                    icon={safeGoalIcon(b.icon)}
                     label={b.name}
                     sub={b.archivedAt ? t.invest.archived : undefined}
                     value={money(toCents(b.currentAmount))}

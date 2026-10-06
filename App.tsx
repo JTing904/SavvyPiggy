@@ -467,6 +467,7 @@ const App: React.FC = () => {
     if (!uid) return;
     try {
       await api.createSchedule(uid, schedule);
+      toast.show({ message: t.app.toast.autoDepositSaved, tone: 'success' });
     } catch (e) {
       // The sheet closes on success, so it cannot report this itself.
       fail(e);
@@ -516,7 +517,23 @@ const App: React.FC = () => {
   const handleArchiveBank = (id: string) => {
     if (!uid) return;
     if (schedules.some((s) => s.targetBankId === id)) setArchiving(id);
-    else run(() => api.archiveBank(uid, banks, id));
+    else archiveNow(id, () => api.archiveBank(uid, banks, id));
+  };
+
+  /** Archiving keeps everything, so taking it back is just restoring the goal. */
+  const archiveNow = (id: string, job: () => Promise<unknown>) => {
+    if (!uid) return;
+    const name = banks.find((b) => b.id === id)?.name ?? '';
+    settleOrQueue(job()).then(
+      () => {
+        toast.show({
+          message: t.app.toast.goalArchived(name),
+          tone: 'success',
+          action: { label: t.ui.undo, run: () => run(() => api.unarchiveBank(uid, id)) },
+        });
+      },
+      fail
+    );
   };
 
   const handleSavePrefs = (patch: Partial<NotificationPrefs>) => {
@@ -528,7 +545,13 @@ const App: React.FC = () => {
   };
 
   const handleSaveStrategy = (updated: PiggyBank[]) => {
-    if (uid) run(() => api.saveStrategy(uid, updated));
+    if (!uid) return;
+    settleOrQueue(api.saveStrategy(uid, updated)).then(
+      () => {
+        toast.show({ message: t.goals.strategySaved, tone: 'success' });
+      },
+      fail
+    );
   };
 
   const handleDeleteBank = (id: string, choice: GoalMoneyChoice | null, scheduleTarget?: string | null) => {
@@ -589,6 +612,40 @@ const App: React.FC = () => {
       flush();
     };
   }, []);
+
+  type PendingRule = { id: string; rule: Schedule };
+  const scheduleQueue = useRef<ReturnType<typeof createUndoQueue<PendingRule>> | null>(null);
+  if (!scheduleQueue.current) {
+    scheduleQueue.current = createUndoQueue<PendingRule>({
+      commit: async ({ id }) => {
+        if (latest.current.uid) await api.deleteSchedule(latest.current.uid, id);
+      },
+      onRestore: (_item, error) => {
+        fail(error);
+        toast.show({ message: t.app.toast.deleteFailed, tone: 'error' });
+      },
+      onChange: () => bumpHidden((n) => n + 1),
+    });
+  }
+  useEffect(() => {
+    const queue = scheduleQueue.current!;
+    const flush = () => void queue.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+  const hiddenRules = scheduleQueue.current.hiddenIds();
+  const visibleSchedules = useMemo(
+    () => (hiddenRules.size === 0 ? schedules : schedules.filter((x) => !hiddenRules.has(x.id))),
+    [schedules, hiddenRules.size] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const deleteNow = (activity: Activity, takeBack?: GoneShareChoice) => {
     undoQueue.current!.push({ id: activity.id, activity, takeBack }, t.app.toast.entryDeleted);
@@ -796,13 +853,38 @@ const App: React.FC = () => {
     if (showAutoDeposits) {
       return (
         <AutoDeposits
-          schedules={schedules}
+          schedules={visibleSchedules}
           banks={banks}
           onCancel={() => setShowAutoDeposits(false)}
           onCreate={handleCreateSchedule}
-          onUpdate={(id, patch) => uid && run(() => api.updateSchedule(uid, id, patch))}
-          onToggle={(id, enabled) => uid && run(() => api.updateSchedule(uid, id, { enabled }))}
-          onDelete={(id) => uid && run(() => api.deleteSchedule(uid, id))}
+          onUpdate={(id, patch) =>
+            uid &&
+            settleOrQueue(api.updateSchedule(uid, id, patch)).then(
+              () => {
+                toast.show({ message: t.app.toast.autoDepositSaved, tone: 'success' });
+              },
+              fail
+            )
+          }
+          onToggle={(id, enabled) =>
+            uid &&
+            settleOrQueue(api.updateSchedule(uid, id, { enabled })).then(
+              () => {
+                toast.show({ message: enabled ? t.app.toast.autoDepositOn : t.app.toast.autoDepositOff, tone: 'success' });
+              },
+              fail
+            )
+          }
+          onDelete={(id) => {
+            const rule = schedules.find((x) => x.id === id);
+            if (!rule) return;
+            scheduleQueue.current!.push({ id, rule }, t.app.toast.autoDepositDeleted);
+            toast.show({
+              message: t.app.toast.autoDepositDeleted,
+              action: { label: t.ui.undo, run: () => scheduleQueue.current!.undo() },
+              durationMs: 5000,
+            });
+          }}
         />
       );
     }
@@ -856,6 +938,11 @@ const App: React.FC = () => {
             onOpenStrategy={() => setActiveTab(Tab.BANKS)}
             onOpenProfile={() => setShowProfile(true)}
             onOpenStatements={() => setShowStatements(true)}
+            onDeposit={() => {
+              if (banks.length === 0) return openCreateGoal();
+              setActiveTab(Tab.HOME);
+              setQuickAction('deposit');
+            }}
           />
         );
       case Tab.BANKS:
@@ -902,6 +989,8 @@ const App: React.FC = () => {
             alertIds={alertIds}
             onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
             onCreateGoal={() => openCreateGoal()}
+            onRecordBuy={() => openTrade({ mode: 'new', kind: 'buy' })}
+            quotes={quotes}
             onBack={() => setActiveTab(Tab.HOME)}
           />
         );
@@ -1019,7 +1108,9 @@ const App: React.FC = () => {
           onCorrectDividend={(tradeId, cents) => api.correctDividend(uid, tradeId, cents)}
           onRemoveDividend={(tradeId) => api.removeDividend(uid, tradeId)}
           onClose={() => setTradeDraft(null)}
-          onDone={() => undefined}
+          onDone={(message) => {
+            toast.show({ message, tone: 'success' });
+          }}
           onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
           onSyncError={fail}
           onCreateGoal={() => {
@@ -1052,7 +1143,10 @@ const App: React.FC = () => {
           onSave={(edit) => handleSaveEntry(entryActivity, edit)}
           onSavePot={(edit) => api.editPotTransfer(uid, entryActivity, edit, { banks, savings, notBefore })}
           onDelete={(takeBack) => handleDeleteActivity(entryActivity.id, takeBack)}
-          onDeletePot={(returnTo?: PotReturn) => api.deletePotTransfer(uid, entryActivity, { banks, savings, returnTo })}
+          onDeletePot={async (returnTo?: PotReturn) => {
+            await api.deletePotTransfer(uid, entryActivity, { banks, savings, returnTo });
+            toast.show({ message: t.app.toast.potMoveDeleted, tone: 'success' });
+          }}
           onClose={() => setEntryId(null)}
         />
       )}
@@ -1110,7 +1204,7 @@ const App: React.FC = () => {
             const id = archiving;
             const scheduleIds = schedules.filter((s) => s.targetBankId === id).map((s) => s.id);
             setArchiving(null);
-            run(() => api.archiveBank(uid, banks, id, { scheduleIds, target }));
+            archiveNow(id, () => api.archiveBank(uid, banks, id, { scheduleIds, target }));
           }}
           onClose={() => setArchiving(null)}
         />

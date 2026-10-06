@@ -92,7 +92,7 @@ export const errors: typeof English = {
     saleGoalGone: '这笔卖出有一部分存进了已删除的钱罐。请选择从哪个钱罐扣回。',
     rowGone: '这笔卖出的记录已经被清理，没办法准确撤回当时的分配。',
     insufficient: '这个钱罐的钱不够付这笔交易。',
-    nothingToSplit: '目前没有钱罐参与分配，没办法自动分配这笔钱。',
+    nothingToSplit: '目前没有钱罐参与分配，没办法按比例分配这笔钱。',
     saleBelowFees: '手续费比卖出的钱还多，请选差价从哪个钱罐扣。',
     potShort: '投资资金的钱不够。',
   },

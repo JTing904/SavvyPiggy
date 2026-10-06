@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { useState } from 'react';
 import type { PiggyBank } from '../types';
 import { archiveStrategy, isArchived, isInSplit } from '../services/ledger';
@@ -41,7 +42,7 @@ const ArchiveSchedulesSheet: React.FC<{
 
         <div className="mt-5 space-y-2">
           {others.map((b) => (
-            <ChoiceRow key={b.id} icon={b.icon} label={b.name} on={target === b.id} onClick={() => setTarget(b.id)} />
+            <ChoiceRow key={b.id} icon={safeGoalIcon(b.icon)} label={b.name} on={target === b.id} onClick={() => setTarget(b.id)} />
           ))}
           <ChoiceRow
             icon="call_split"

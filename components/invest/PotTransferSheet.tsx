@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../../services/goalIcons';
 import React, { useEffect, useRef, useState } from 'react';
 import type { PiggyBank, SavingsSettings } from '../../types';
 import { isArchived, isInSplit, planDeposit } from '../../services/ledger';
@@ -119,7 +120,7 @@ const PotTransferSheet: React.FC<{
               {goals.map((b) => (
                 <ChoiceRow
                   key={b.id}
-                  icon={b.icon}
+                  icon={safeGoalIcon(b.icon)}
                   label={b.name}
                   value={money(toCents(b.currentAmount))}
                   on={target === b.id}
@@ -170,7 +171,7 @@ const PotTransferSheet: React.FC<{
               {goals.map((b) => (
                 <ChoiceRow
                   key={b.id}
-                  icon={b.icon}
+                  icon={safeGoalIcon(b.icon)}
                   label={b.name}
                   value={money(toCents(b.currentAmount))}
                   on={target === b.id}

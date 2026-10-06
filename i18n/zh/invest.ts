@@ -20,6 +20,7 @@ export const invest: typeof English = {
 
   tradesTitle: '交易',
   noTrades: '还没有交易',
+  noTradesAction: '记录一笔买入',
   noTradesBody: '用下方的按钮记录一笔买入。每笔交易都会记下交易日期，股息归谁就看这一天。',
   tradesFooter: '点任意一笔交易，可以修改日期、股数或价格，也可以删除。持股和成本会根据整份记录重新计算。',
 

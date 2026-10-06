@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { useState } from 'react';
 import type { PiggyBank } from '../types';
 import { archiveStrategy, isArchived, isInSplit, type GoalMoneyChoice } from '../services/ledger';
@@ -71,7 +72,7 @@ const MoveGoalMoneySheet: React.FC<{
               {others.map((b) => (
                 <ChoiceRow
                   key={`money-${b.id}`}
-                  icon={b.icon}
+                  icon={safeGoalIcon(b.icon)}
                   label={b.name}
                   value={money(toCents(b.currentAmount))}
                   on={choice?.mode === 'goal' && choice.goalId === b.id}
@@ -99,7 +100,7 @@ const MoveGoalMoneySheet: React.FC<{
               {others.map((b) => (
                 <ChoiceRow
                   key={`schedule-${b.id}`}
-                  icon={b.icon}
+                  icon={safeGoalIcon(b.icon)}
                   label={b.name}
                   on={scheduleTarget === b.id}
                   onClick={() => setScheduleTarget(b.id)}

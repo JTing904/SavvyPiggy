@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { useEffect, useRef, useState } from 'react';
 import { PiggyBank, Schedule } from '../types';
 import { evenSplit, sortBanks } from '../services/sorting';
@@ -191,7 +192,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
       tone: 'danger',
       confirmLabel: t.common.delete,
       detail: bank && {
-        icon: bank.icon,
+        icon: safeGoalIcon(bank.icon),
         label: bank.name,
         meta: t.goals.percentOfEachDeposit(bank.splitPercentage),
         amount: formatMoney(bank.currentAmount),
@@ -326,7 +327,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                       className="size-12 shrink-0 rounded-2xl flex items-center justify-center"
                       style={{ background: `${color}1A`, color }}
                     >
-                      <span className="material-symbols-rounded text-2xl">{bank.icon}</span>
+                      <span className="material-symbols-rounded text-2xl">{safeGoalIcon(bank.icon)}</span>
                     </div>
                     <div className="min-w-0">
                       <h4 className="text-white font-bold truncate">{bank.name}</h4>

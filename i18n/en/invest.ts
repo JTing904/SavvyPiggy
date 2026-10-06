@@ -20,6 +20,7 @@ export const invest = {
   // Trades
   tradesTitle: 'Trades',
   noTrades: 'No trades yet',
+  noTradesAction: 'Record a buy',
   noTradesBody:
     'Record a buy with the button below. Every trade keeps the day it was done, which is what decides who a dividend belongs to.',
   tradesFooter:

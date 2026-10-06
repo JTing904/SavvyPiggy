@@ -29,7 +29,7 @@ export const common: typeof English = {
     borrow: '预支',
     invest: '买股',
     divest: '卖股所得',
-    transfer: '转入',
+    transfer: '钱罐间转移',
     toInvest: '转去投资',
     fromInvest: '从投资转回',
   },
@@ -54,7 +54,7 @@ export const common: typeof English = {
   units: (n) => `${n} 股`,
   goal: '钱罐',
   goals: '钱罐',
-  autoSplit: '自动分配',
+  autoSplit: '按比例分配',
   notFromGoal: '不从钱罐出',
   spentAhead: '预支',
 

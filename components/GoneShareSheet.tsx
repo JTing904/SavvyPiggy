@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { useState } from 'react';
 import type { Activity, PiggyBank } from '../types';
 import { goneGoalIds, goneShareCents, isArchived, type GoneShareChoice } from '../services/ledger';
@@ -65,7 +66,7 @@ const GoneShareSheet: React.FC<{
           {goals.map((b) => (
             <ChoiceRow
               key={b.id}
-              icon={b.icon}
+              icon={safeGoalIcon(b.icon)}
               label={b.name}
               value={formatMoney(fromCents(toCents(b.currentAmount)))}
               on={on({ mode: 'goal', goalId: b.id })}

@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../../services/goalIcons';
 import React, { useState } from 'react';
 import type { Activity, PiggyBank } from '../../types';
 import type { MoneyChoice } from '../../services/tradeMoney';
@@ -105,7 +106,7 @@ const RefundSheet: React.FC<RefundSheetProps> = ({ amountCents, banks, confirmLa
           {goals.map((b) => (
             <ChoiceRow
               key={b.id}
-              icon={b.icon}
+              icon={safeGoalIcon(b.icon)}
               label={b.name}
               value={formatMoney(fromCents(toCents(b.currentAmount)))}
               on={key(choice) === b.id}

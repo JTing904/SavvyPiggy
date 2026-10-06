@@ -1,4 +1,5 @@
 
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings, InvestSettings } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -282,6 +283,26 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
+      {/* Which half of the app this is: tap a title or swipe the cards below. */}
+      <div role="tablist" aria-label={t.home.modeSwitch} className="flex items-baseline gap-5 px-6 pt-1">
+        {(['save', 'invest'] as const).map((m) => {
+          const on = navMode === m;
+          return (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={on}
+              onClick={() => onModeChange(m)}
+              className={`min-h-11 text-left font-extrabold tracking-tight transition-colors ${
+                on ? 'text-white text-3xl' : 'text-slate-600 text-xl active:text-slate-400'
+              }`}
+            >
+              {m === 'save' ? t.home.modeSavings : t.home.modeInvesting}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Savings and investments sit side by side: swipe, do not add up. */}
       <div
         ref={rail}
@@ -458,7 +479,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <div className="w-full aspect-[4/3] rounded-2xl relative overflow-hidden bg-gradient-to-br from-primary/25 to-accent/10">
                       {/* Drawn locally so a goal always has artwork, even offline. */}
                       <div className="absolute inset-0 flex items-center justify-center text-primary/25">
-                        <span className="material-symbols-rounded text-7xl">{bank.icon}</span>
+                        <span className="material-symbols-rounded text-7xl">{safeGoalIcon(bank.icon)}</span>
                       </div>
                       {bank.imageUrl && (
                         <img
@@ -478,7 +499,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <div className="size-8 shrink-0 rounded-lg glass flex items-center justify-center text-primary">
-                            <span className="material-symbols-rounded text-lg">{bank.icon}</span>
+                            <span className="material-symbols-rounded text-lg">{safeGoalIcon(bank.icon)}</span>
                           </div>
                           <span className="text-white font-bold text-sm truncate">{bank.name}</span>
                         </div>

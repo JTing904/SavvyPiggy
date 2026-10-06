@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
 import type { CreditedDividend } from '../services/dividends';
-import { ordered, pricePointsOf, tradeTotalCents } from '../services/holdings';
-import { formatMoney, fromCents } from '../services/money';
+import { ordered, pricePointsOf, tradeTotalCents, type Quotes } from '../services/holdings';
+import { formatMoney, fromCents, toCents } from '../services/money';
+import * as api from '../services/firestore';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
 import { OlderRecordsSheet } from './OlderRecordsNotice';
 import { useTradeRow } from '../hooks/useTradeRow';
@@ -27,6 +28,10 @@ interface TradesProps {
   alertIds: string[];
   onEditBroker: () => void;
   onCreateGoal?: () => void;
+  /** Last prices, for the buy form's price hint. */
+  quotes?: Quotes;
+  /** The empty list's one action. */
+  onRecordBuy?: () => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
@@ -95,6 +100,8 @@ const Trades: React.FC<TradesProps> = ({
   alertIds,
   onEditBroker,
   onCreateGoal,
+  quotes,
+  onRecordBuy,
 }) => {
   const t = useT();
   const [draft, setDraft] = useState<TradeDraft | null>(null);
@@ -144,6 +151,14 @@ const Trades: React.FC<TradesProps> = ({
             <p className="text-slate-500 text-xs font-bold mt-2 leading-relaxed px-6">
               {t.invest.noTradesBody}
             </p>
+            {onRecordBuy && (
+              <button
+                onClick={onRecordBuy}
+                className="mt-5 min-h-11 px-6 rounded-full bg-primary text-black text-sm font-black active:scale-95 transition-transform"
+              >
+                {t.invest.noTradesAction}
+              </button>
+            )}
           </div>
         ) : (
           days.map((day) => (
@@ -206,6 +221,11 @@ const Trades: React.FC<TradesProps> = ({
           dividends={dividends}
           alertIds={alertIds}
           draft={draft}
+          quotes={quotes}
+          potCents={toCents(invest.potBalance ?? 0)}
+          dividendMarker={draft.mode === 'edit' ? credited?.find((c) => c.id === draft.trade.id) ?? null : null}
+          onCorrectDividend={(tradeId, cents) => api.correctDividend(uid, tradeId, cents)}
+          onRemoveDividend={(tradeId) => api.removeDividend(uid, tradeId)}
           onClose={() => setDraft(null)}
           onDone={say}
           onEditBroker={onEditBroker}

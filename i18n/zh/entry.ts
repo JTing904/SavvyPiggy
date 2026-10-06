@@ -43,7 +43,7 @@ export const entry: typeof English = {
   takeSplitSub: '按各钱罐目前的金额比例扣回',
   chooseFirst: '请先选一个钱罐。',
 
-  transferTitle: '转入',
+  transferTitle: '钱罐间转移',
   transferBody: (goal) => `这笔钱是在钱罐「${goal}」被删除时转进来的。它记录的是钱罐之间的转移，所以不能修改或删除。`,
   transferBodyNoName: '这笔钱是在某个钱罐被删除时转进来的。它记录的是钱罐之间的转移，所以不能修改或删除。',
   tradeBody: '这笔记录属于一笔交易。请打开那笔交易来修改或删除。',

@@ -1,3 +1,5 @@
+import { safeGoalIcon } from '../services/goalIcons';
+import { EmptyState } from './ui/EmptyState';
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank } from '../types';
 import { PERIODS, spendingByCategory, summarize, type Period, type StreakRun } from '../services/analytics';
@@ -19,6 +21,8 @@ interface ReportProps {
   /** The saving streak, counted by the app rather than from the loaded window. */
   streak: StreakRun;
   onOpenStrategy: () => void;
+  /** The empty report's one action. */
+  onDeposit?: () => void;
   onOpenProfile: () => void;
   onOpenStatements: () => void;
 }
@@ -74,7 +78,7 @@ const Line: React.FC<{
   </div>
 );
 
-const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOpenStrategy, onOpenProfile, onOpenStatements }) => {
+const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOpenStrategy, onOpenProfile, onOpenStatements, onDeposit }) => {
   const [period, setPeriod] = useState<Period>('month');
   const [message, setMessage] = useState<string | null>(null);
   // Which cadence bar the user tapped, so it can show what it is worth.
@@ -159,6 +163,22 @@ const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOp
         <div className="px-6 mt-5">
           <OlderRecordsNotice status={older} onRetry={ledger.retry} />
         </div>
+      </div>
+    );
+  }
+
+  // Nothing to sum yet: say so and offer the one thing that fills it.
+  if (activities.length === 0) {
+    return (
+      <div className="flex flex-col min-h-full pb-40 safe-pt">
+        {head}
+        <EmptyState
+          icon="monitoring"
+          title={t.report.emptyTitle}
+          body={t.report.emptyBody}
+          action={onDeposit ? { label: t.report.emptyAction, onClick: onDeposit } : undefined}
+          className="mt-10"
+        />
       </div>
     );
   }
@@ -332,7 +352,7 @@ const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOp
                       className="size-9 rounded-xl flex items-center justify-center shrink-0"
                       style={{ backgroundColor: `${color}1f`, color }}
                     >
-                      <span className="material-symbols-rounded text-xl">{b.icon}</span>
+                      <span className="material-symbols-rounded text-xl">{safeGoalIcon(b.icon)}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">

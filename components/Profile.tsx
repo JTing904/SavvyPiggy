@@ -1,3 +1,4 @@
+import { safeGoalIcon } from '../services/goalIcons';
 import React, { useMemo, useState } from 'react';
 import type { Activity, PiggyBank, SavingsSettings, Schedule } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -338,7 +339,7 @@ const Profile: React.FC<ProfileProps> = ({
                     {archived.map((b) => (
                       <div key={b.id} className="flex items-center gap-3 bg-white/5 rounded-2xl p-3 min-w-0">
                         <div className="size-10 shrink-0 rounded-xl bg-white/5 text-slate-400 flex items-center justify-center">
-                          <span className="material-symbols-rounded text-lg">{b.icon}</span>
+                          <span className="material-symbols-rounded text-lg">{safeGoalIcon(b.icon)}</span>
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-slate-300 text-sm font-bold truncate">{b.name}</p>
