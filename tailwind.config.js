@@ -29,9 +29,18 @@ export default {
         "bg-dark": "#0A0F0D",
         "surface": "#141C19",
         "surface-light": "#1E2924",
+        // New look: CSS-variable tokens (index.css) so one class follows the theme.
+        // `line` is the hairline colour (ink in light, white in dark) at full
+        // strength: always use it with an opacity, `border-line/10`, `divide-line/10`.
+        ...Object.fromEntries(
+          ['page', 'card', 'sheet', 'ink', 'mute', 'cta', 'cta-fg', 'pos', 'neg', 'info',
+            'line', 'peach', 'mint', 'lav', 'sun', 'hero', 'field', 'dot1', 'dot2', 'dot3',
+          ].map((name) => [name, `rgb(var(--${name}) / <alpha-value>)`]),
+        ),
       },
       fontFamily: {
-        "sans": ["Plus Jakarta Sans", "sans-serif"]
+        "sans": ["Plus Jakarta Sans", "sans-serif"],
+        "figtree": ["Figtree", "system-ui", "Noto Sans SC", "sans-serif"]
       }
     },
   },

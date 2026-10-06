@@ -15,5 +15,6 @@ import { files } from './files';
 import { errors } from './errors';
 import { setup } from './setup';
 import { plan } from './plan';
+import { ui } from './ui';
 
-export const en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup };
+export const en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui };

@@ -75,6 +75,18 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Figtree — the new look's face, latin subset only, variable wght 500..800
+   (Google Fonts v9). Chinese falls back to the system CJK face (Noto Sans SC
+   on Android); it is deliberately not bundled. */
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+  src: url(./assets/fonts/figtree-var.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ---- Moved unchanged from the <style> block in index.html ---- */
 body {
     font-family: 'Plus Jakarta Sans', sans-serif;
@@ -152,6 +164,107 @@ input::-webkit-inner-spin-button {
 }
 input[type=number] {
     -moz-appearance: textfield;
+}
+
+/* ---- New look: design tokens ----
+   Stored as `R G B` triplets so Tailwind's alpha modifiers work
+   (`bg-ink/10` -> rgb(var(--ink) / .1)). They coexist with the old
+   hard-coded dark classes, which never read them. Light is the default;
+   with no data-theme the phone's setting decides; data-theme="light|dark"
+   (set from the saved preference, or forced dark on screens that have not
+   been redesigned yet) overrides both. tests/contrast.test.ts reads this
+   block, so keep the triplets in this exact form. */
+:root,
+[data-theme="light"] {
+    --page: 243 245 241;
+    --card: 255 255 255;
+    --sheet: 243 245 241;
+    --ink: 15 29 24;
+    --mute: 85 102 93;
+    --line: 15 29 24;
+    --cta: 15 29 24;
+    --cta-fg: 255 255 255;
+    --pos: 11 110 68;
+    --neg: 181 49 31;
+    --info: 39 85 192;
+    --peach: 255 225 209;
+    --mint: 212 236 223;
+    --lav: 227 225 250;
+    --sun: 255 240 189;
+    --hero: 217 238 225;
+    --field: 255 255 255;
+    --dot1: 232 162 122;
+    --dot2: 111 181 159;
+    --dot3: 157 164 232;
+    --tog: 214 221 216;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+        --page: 14 19 17;
+        --card: 24 32 29;
+        --sheet: 19 26 23;
+        --ink: 241 245 242;
+        --mute: 148 163 155;
+        --line: 255 255 255;
+        --cta: 241 245 242;
+        --cta-fg: 14 19 17;
+        --pos: 111 217 166;
+        --neg: 255 143 124;
+        --info: 141 174 242;
+        --peach: 58 43 35;
+        --mint: 31 51 41;
+        --lav: 43 42 68;
+        --sun: 58 53 25;
+        --hero: 29 51 41;
+        --field: 24 32 29;
+        --dot1: 232 162 122;
+        --dot2: 111 181 159;
+        --dot3: 157 164 232;
+        --tog: 52 65 59;
+    }
+}
+[data-theme="dark"] {
+    --page: 14 19 17;
+    --card: 24 32 29;
+    --sheet: 19 26 23;
+    --ink: 241 245 242;
+    --mute: 148 163 155;
+    --line: 255 255 255;
+    --cta: 241 245 242;
+    --cta-fg: 14 19 17;
+    --pos: 111 217 166;
+    --neg: 255 143 124;
+    --info: 141 174 242;
+    --peach: 58 43 35;
+    --mint: 31 51 41;
+    --lav: 43 42 68;
+    --sun: 58 53 25;
+    --hero: 29 51 41;
+    --field: 24 32 29;
+    --dot1: 232 162 122;
+    --dot2: 111 181 159;
+    --dot3: 157 164 232;
+    --tog: 52 65 59;
+}
+/* index.html asks for `color-scheme: light dark`; screens that are not
+   redesigned yet were always rendered with the default (light) form
+   controls and scrollbars, so keep exactly that for them. useScreenLook
+   sets data-look. */
+html:not([data-look="new"]) { color-scheme: light; }
+html[data-look="new"] { color-scheme: light dark; }
+html[data-look="new"][data-theme="light"] { color-scheme: light; }
+html[data-look="new"][data-theme="dark"] { color-scheme: dark; }
+/* The page behind a redesigned screen. Old screens keep the body rule above. */
+html[data-look="new"] body {
+    background-color: rgb(var(--page));
+    color: rgb(var(--ink));
+    font-family: 'Figtree', system-ui, 'Noto Sans SC', sans-serif;
+}
+/* Toast: opacity and transform only, like the sheet. */
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.toast-in { animation: toast-in 200ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+    .toast-in { animation: none; }
 }
 
 @tailwind base;

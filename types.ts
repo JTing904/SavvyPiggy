@@ -158,6 +158,12 @@ export interface Trade {
    */
   perUnitPoints?: number;
   /**
+   * Dividends only: what was actually received, in whole sen, once a person has
+   * corrected it (tax withheld, a rounded payout). Absent means units times
+   * `perUnitPoints`, as always; present it wins.
+   */
+  amountCents?: number;
+  /**
    * Dividends only: the ex-date this was owed on. It is what makes crediting
    * idempotent — one dividend per counter per ex-date, however many times the
    * app checks.

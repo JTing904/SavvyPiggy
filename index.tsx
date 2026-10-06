@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 
 const rootElement = document.getElementById('root');
@@ -17,7 +18,9 @@ root.render(
     <LanguageProvider>
       <AuthProvider>
         <ConfirmProvider>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </ConfirmProvider>
       </AuthProvider>
     </LanguageProvider>

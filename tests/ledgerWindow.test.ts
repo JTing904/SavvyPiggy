@@ -11,6 +11,7 @@ import {
   parseStreakMemory,
   reportNeedsFrom,
 } from '../services/ledgerWindow';
+import { shouldClearStreak } from '../services/ledgerEvents';
 import { OlderLedger } from '../services/olderLedger';
 import { eq, report } from './harness';
 
@@ -182,4 +183,15 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
   eq('nothing covered needs nothing', coveringRows('L', { ...loan, outstanding: 30 }, []).complete, true);
 }
 
+{
+  const liveFrom = new Date(2026, 7, 1);
+  const before = new Date(2026, 6, 20, 12).toISOString();
+  const inside = new Date(2026, 8, 10, 12).toISOString();
+  const insideToo = new Date(2026, 8, 12, 12).toISOString();
+  eq('a row that did not move leaves a streak alone', shouldClearStreak({ id: 'a' }, liveFrom), false);
+  eq('a move out of the older ledger clears the streak', shouldClearStreak({ id: 'a', moved: true, dates: { from: before, to: inside } }, liveFrom), true);
+  eq('a move into the older ledger clears it', shouldClearStreak({ id: 'a', moved: true, dates: { from: inside, to: before } }, liveFrom), true);
+  eq('a move inside the live window does not', shouldClearStreak({ id: 'a', moved: true, dates: { from: inside, to: insideToo } }, liveFrom), false);
+  eq('a move with unknown dates clears it to be safe', shouldClearStreak({ id: 'a', moved: true }, liveFrom), true);
+}
 report();

@@ -332,6 +332,12 @@ export interface CreditedDividend {
   amountCents?: number;
   /** Paid into the investment pot, rather than split into goals as before it. */
   pot?: boolean;
+  /** The amount was corrected by hand (tax withheld, say). Reconcile leaves it be; it still counts as paid. */
+  corrected?: true;
+  /** The dividend was taken back out of the pot. It stays on file, so it is never credited again. */
+  removed?: true;
+  /** ISO time of the correction or removal. */
+  correctedAt?: string;
 }
 
 export interface DividendChange {
@@ -381,6 +387,9 @@ export const reconcileDividends = ({
   const changes: DividendChange[] = [];
 
   for (const marker of credited) {
+    // A hand-corrected or removed amount is the person's word: a later change
+    // to the units must not restore withheld tax or money taken back out.
+    if (marker.corrected || marker.removed) continue;
     const row = rows.get(marker.id);
     const pot = marker.pot === true || row?.money?.mode === 'pot';
     if (!pot || typeof marker.units !== 'number' || typeof marker.amountCents !== 'number') continue;
