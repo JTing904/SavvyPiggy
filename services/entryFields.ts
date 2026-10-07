@@ -4,7 +4,7 @@ import type { ActivityEdit } from './activityEdit';
 import { dayKey } from './analytics';
 import { categoryOf } from './categories';
 import { fromCents, toCents } from './money';
-import { amountToCents } from './keypad';
+import { amountToCents, typedFromCents } from './keypad';
 
 /**
  * The edit sheet's form, and how it becomes the smallest possible edit.
@@ -47,8 +47,8 @@ export const timeOf = (iso: string) => {
 /** "YYYY-MM-DD" of an ISO instant, in the phone's time zone. */
 export const dayOf = (iso: string) => dayKey(new Date(iso));
 
-/** An amount as the keypad would show it typed: no trailing zeros, at most two decimals. */
-export const amountText = (amount: number) => String(fromCents(toCents(amount)));
+/** An amount as the keypad would have typed it: the cents, so RM12.50 is "1250". */
+export const amountText = (amount: number) => typedFromCents(toCents(amount));
 
 /** The one goal a row drew on, or null when it drew on none or several. */
 export const sourceOf = (a: Activity): string | null => (a.distributions.length === 1 ? a.distributions[0].bankId : null);

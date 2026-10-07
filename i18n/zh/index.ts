@@ -21,7 +21,8 @@ import { calendar } from './calendar';
 import { money } from './money';
 import { goalEdit } from './goalEdit';
 import { firstRun } from './firstRun';
+import { wallet } from './wallet';
 
 import type { en } from '../en';
 
-export const zh: typeof en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun };
+export const zh: typeof en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet };

@@ -8,6 +8,7 @@ export const ui = {
   keypad: 'Amount keypad',
   keyDelete: 'Delete last digit',
   keyPoint: 'Decimal point',
+  keyDoubleZero: 'Two zeros',
   keyZero: '0',
   keyOne: '1',
   keyTwo: '2',

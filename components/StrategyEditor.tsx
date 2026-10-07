@@ -1,6 +1,7 @@
 import { safeGoalIcon } from '../services/goalIcons';
 import React, { useEffect, useRef, useState } from 'react';
-import { PiggyBank, Schedule } from '../types';
+import { PiggyBank, Schedule, type WalletSettings } from '../types';
+import WalletRuleCard from './WalletRuleCard';
 import { evenSplit, sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
@@ -25,6 +26,8 @@ interface StrategyEditorProps {
   scheduleCount: number;
   schedules: Schedule[];
   onOpenAutoDeposits: () => void;
+  wallet: WalletSettings;
+  onSaveWalletRule: (goalsPercent: number) => void | Promise<void>;
 }
 
 type Draft = Record<string, { splitPercentage: number; isLocked: boolean; autoSplit: boolean }>;
@@ -129,6 +132,8 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   scheduleCount,
   schedules,
   onOpenAutoDeposits,
+  wallet,
+  onSaveWalletRule,
 }) => {
   // Unsaved edits only. Everything else reads straight from Firestore, so
   // live updates can never be shadowed by stale local copies.
@@ -231,6 +236,10 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
         <p className="text-slate-500 text-sm font-medium mt-1">
           {t.goals.strategySubtitle}
         </p>
+      </div>
+
+      <div className="mt-2 px-6">
+        <WalletRuleCard wallet={wallet} onSave={onSaveWalletRule} />
       </div>
 
       {/* The whole picture at a glance. */}

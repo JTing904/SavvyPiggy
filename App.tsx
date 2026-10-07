@@ -49,6 +49,8 @@ import { createUndoQueue } from './services/undoQueue';
 import type { GoalMoneyChoice, GoneShareChoice } from './services/ledger';
 import type { ActivityEdit } from './services/activityEdit';
 import type { PotReturn } from './services/potTransfers';
+import type { IncomeChoice } from './services/moneySheet';
+import type { WalletMove } from './services/wallet';
 import { staleAlerts, staleAlertsCutoff, streakAlertFor } from './services/alerts';
 import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
@@ -112,7 +114,7 @@ const App: React.FC = () => {
     else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
   }, [activeTab]);
 
-  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -165,7 +167,7 @@ const App: React.FC = () => {
       if (catchingUp.current || document.visibilityState !== 'visible' || !navigator.onLine) return;
       catchingUp.current = true;
       try {
-        await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings });
+        await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings, wallet });
       } catch (e) {
         // The connection dropped under it. Each day posts in its own
         // transaction, so nothing is half-done, and it runs again once online.
@@ -187,7 +189,7 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', catchUp);
       window.removeEventListener('online', catchUp);
     };
-  }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings]);
+  }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings, wallet]);
 
   /*
     The saving streak, shared by the alert, Profile and the Report.
@@ -445,22 +447,41 @@ const App: React.FC = () => {
     throw e;
   };
 
-  const handleDeposit = async (amount: number, targetBankId: string | null, at?: Date) => {
+  /** `choice` is `rule`, `split`, `wallet` or the id of one goal. */
+  const handleDeposit = async (amount: number, choice: IncomeChoice, at?: Date) => {
     if (!uid) return;
-    await settleOrQueue(api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings, at, notBefore })).catch(refuse);
+    const byMode = choice === 'rule' || choice === 'split' || choice === 'wallet';
+    await settleOrQueue(
+      api.deposit(uid, amount, banks, loans, byMode ? null : choice, {
+        alerts: prefs,
+        savings,
+        at,
+        notBefore,
+        wallet,
+        incomeMode: byMode ? choice : undefined,
+      })
+    ).catch(refuse);
     toast.show({ message: t.app.toast.deposited(formatMoney(amount)), tone: 'success' });
   };
 
-  const handleWithdraw = async (amount: number, sourceBankId: string, note: string, category: string, at?: Date) => {
+  /** `source` is `wallet` or the id of one goal. Spending past the wallet makes it overdrawn, which the sheet has said. */
+  const handleWithdraw = async (amount: number, source: string, note: string, category: string, at?: Date) => {
     if (!uid) return;
-    await settleOrQueue(api.withdraw(uid, amount, sourceBankId, note, category, { at, notBefore })).catch(refuse);
+    const job = source === 'wallet' ? api.spendFromWallet(uid, amount, note, category, { at, notBefore }) : api.withdraw(uid, amount, source, note, category, { at, notBefore });
+    await settleOrQueue(job).catch(refuse);
     toast.show({ message: t.app.toast.spent(formatMoney(amount)), tone: 'success' });
   };
 
-  const handleBorrow = async (amount: number, note: string, at?: Date) => {
+  const handleMoveWallet = async (amount: number, move: WalletMove) => {
     if (!uid) return;
-    await settleOrQueue(api.borrow(uid, amount, note, { at, notBefore })).catch(refuse);
-    toast.show({ message: t.app.toast.spentAhead(formatMoney(amount)), tone: 'success' });
+    await settleOrQueue(api.moveWallet(uid, amount, move, banks, wallet, { savings })).catch(refuse);
+    toast.show({ message: t.wallet.moved(formatMoney(amount)), tone: 'success' });
+  };
+
+  const handleSaveWalletRule = async (percent: number) => {
+    if (!uid) return;
+    await settleOrQueue(api.saveWalletRule(uid, percent)).catch(refuse);
+    toast.show({ message: t.wallet.ruleSaved, tone: 'success' });
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
@@ -709,7 +730,8 @@ const App: React.FC = () => {
             : showAutoDeposits
               ? 'autoDeposits'
               : null;
-  useScreenLook({ tab: activeTab, overlays: topOverlay ? [topOverlay] : [] });
+  // Home's savings half is a redesigned screen; its investing half is not yet.
+  useScreenLook({ tab: activeTab === Tab.HOME && mode === 'save' ? 'homeSave' : activeTab, overlays: topOverlay ? [topOverlay] : [] });
 
   const entryActivity = entryId ? visibleActivities.find((a) => a.id === entryId) : undefined;
 
@@ -904,9 +926,11 @@ const App: React.FC = () => {
             banks={activeBanks}
             activities={visibleActivities}
             loans={loans}
+            wallet={wallet}
             onDeposit={handleDeposit}
             onWithdraw={handleWithdraw}
-            onBorrow={handleBorrow}
+            onMoveWallet={handleMoveWallet}
+            onAddGoal={() => openCreateGoal()}
             onViewAll={() => setActiveTab(Tab.BANKS)}
             onSelectGoal={setSelectedGoalId}
             onOpenProfile={() => setShowProfile(true)}
@@ -948,6 +972,8 @@ const App: React.FC = () => {
       case Tab.BANKS:
         return (
           <StrategyEditor
+            wallet={wallet}
+            onSaveWalletRule={handleSaveWalletRule}
             banks={activeBanks}
             onUpdateBanks={handleSaveStrategy}
             onDeleteBank={handleDeleteBank}
@@ -1139,6 +1165,7 @@ const App: React.FC = () => {
           savings={savings}
           notBefore={notBefore}
           potCents={toCents(invest.potBalance ?? 0)}
+          walletCents={toCents(wallet.balance)}
           activities={activities}
           onSave={(edit) => handleSaveEntry(entryActivity, edit)}
           onSavePot={(edit) => api.editPotTransfer(uid, entryActivity, edit, { banks, savings, notBefore })}

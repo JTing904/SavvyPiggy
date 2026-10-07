@@ -3,9 +3,10 @@ import { useT } from '../../contexts/LanguageContext';
 import { formatTyped, pressKey } from '../../services/keypad';
 
 /**
- * The app's own number pad plus the amount it is typing. `value` is the text
- * typed so far ("", "12", "12.5"); every key goes through pressKey, which owns
- * the rules (two decimals, no stray zeros). The missing decimals show as ghosts.
+ * The app's own number pad plus the amount it is typing. `value` is the digits
+ * typed so far, which are cents ("", "6", "600" is RM6.00); every key goes
+ * through pressKey, which owns the rules. There is no decimal point: digits
+ * push in from the right, and 00 is there for round amounts.
  */
 interface KeypadProps {
   value: string;
@@ -25,9 +26,8 @@ const KEY =
 
 export const Keypad: React.FC<KeypadProps> = ({ value, onChange, className }) => {
   const t = useT();
-  const { whole, cents, hasDot } = formatTyped(value);
-  const ghost = '00'.slice(cents.length);
-  const spoken = `${t.ui.amountEntered} RM ${whole}${hasDot ? `.${cents}` : ''}`;
+  const { whole, cents, typed } = formatTyped(value);
+  const spoken = `${t.ui.amountEntered} RM ${whole}.${cents}`;
 
   const digits: [string, string][] = [
     ['1', t.ui.keyOne],
@@ -47,11 +47,9 @@ export const Keypad: React.FC<KeypadProps> = ({ value, onChange, className }) =>
         <span className="sr-only">{spoken}</span>
         <span aria-hidden="true" className="inline-flex items-baseline whitespace-nowrap">
           <span className="mr-1 self-start pt-2 text-[18px] font-bold text-mute">RM</span>
-          <span className="text-[54px] leading-none tracking-[-0.04em]">{whole}</span>
-          <span className="text-[54px] leading-none tracking-[-0.04em] text-mute">
-            <span className={hasDot ? '' : 'opacity-40'}>.</span>
-            {cents}
-            <span className="opacity-40">{ghost}</span>
+          <span className={`text-[54px] leading-none tracking-[-0.04em] ${typed ? '' : 'opacity-40'}`}>{whole}</span>
+          <span className={`text-[54px] leading-none tracking-[-0.04em] text-mute ${typed ? '' : 'opacity-40'}`}>
+            .{cents}
           </span>
         </span>
       </div>
@@ -62,8 +60,8 @@ export const Keypad: React.FC<KeypadProps> = ({ value, onChange, className }) =>
             {k}
           </button>
         ))}
-        <button type="button" aria-label={t.ui.keyPoint} onClick={() => onChange(pressKey(value, '.'))} className={KEY}>
-          .
+        <button type="button" aria-label={t.ui.keyDoubleZero} onClick={() => onChange(pressKey(value, '00'))} className={`${KEY} text-mute`}>
+          00
         </button>
         <button type="button" aria-label={t.ui.keyZero} onClick={() => onChange(pressKey(value, '0'))} className={KEY}>
           0

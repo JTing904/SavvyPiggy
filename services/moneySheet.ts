@@ -1,36 +1,45 @@
 import type { PiggyBank } from '../types';
-import { isArchived, isInSplit } from './ledger';
+import { isArchived } from './ledger';
 
 /**
- * Starting points for the deposit / spend sheet. Pure, so what a person finds
+ * Starting points for the income / spend sheet. Pure, so what a person finds
  * preselected is tested rather than guessed.
  */
 
 const activeGoals = (banks: PiggyBank[]) => banks.filter((b) => !isArchived(b));
 
+/** The wallet as a source of spending, in the same field as a goal's id. */
+export const WALLET = 'wallet';
+
 /**
- * The goal a spend starts from: the one used last time if it still exists,
- * else the only goal there is. With several goals and no history nothing is
- * chosen (undefined) and the sheet makes the person pick, so money is never
- * taken from a goal, or recorded as spent ahead, by default.
+ * Where an income goes: `rule` is the wallet's share to the goals and the rest
+ * kept, `split` is all of it to the goals by their shares, `wallet` is all of
+ * it kept; anything else is a goal's id.
  */
-export const defaultSpendSource = (banks: PiggyBank[], last?: string): string | undefined => {
-  const goals = activeGoals(banks);
-  if (last && goals.some((b) => b.id === last)) return last;
-  return goals.length === 1 ? goals[0].id : undefined;
+export type IncomeChoice = 'rule' | 'split' | 'wallet' | string;
+
+/**
+ * Where an income starts: the wallet or the goal used last time if it still
+ * exists, otherwise the rule, which is also what an account that never touched
+ * the wallet gets (at 100% the rule is a plain split).
+ */
+export const defaultIncomeChoice = (banks: PiggyBank[], last?: string): IncomeChoice => {
+  if (last === WALLET) return WALLET;
+  if (last && last !== 'split' && last !== 'rule' && activeGoals(banks).some((b) => b.id === last)) return last;
+  return 'rule';
 };
 
 /**
- * Where a deposit starts: null is "split by %". A goal remembered from last
- * time that still exists wins; otherwise the split whenever any goal takes a
- * share; otherwise the only goal; otherwise null, and the sheet explains there
- * is no split to use.
+ * Where a spend starts: the wallet or goal used last time if it still exists.
+ * With no goal at all the wallet is the only source there is. Otherwise
+ * nothing is chosen (undefined) and the sheet makes the person pick, so money
+ * is never taken from somewhere, or an overdraft made, by default.
  */
-export const defaultDepositTarget = (banks: PiggyBank[], last?: string): string | null => {
+export const defaultSpendSource = (banks: PiggyBank[], last?: string): string | undefined => {
+  if (last === WALLET) return WALLET;
   const goals = activeGoals(banks);
-  if (last && last !== 'split' && goals.some((b) => b.id === last)) return last;
-  if (goals.some(isInSplit)) return null;
-  return goals.length === 1 ? goals[0].id : null;
+  if (last && goals.some((b) => b.id === last)) return last;
+  return goals.length === 0 ? WALLET : undefined;
 };
 
 const sameDay = (a: Date, b: Date) =>

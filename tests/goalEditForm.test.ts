@@ -53,12 +53,12 @@ eq('nothing recognised falls back to the piggy', iconForNewGoal('Zzz', null), DE
 eq('an empty name falls back too', iconForNewGoal('', null), DEFAULT_GOAL_ICON);
 
 // --- the target as typed
-eq('3500 reads back as 3500', targetTextOf(3500), '3500');
-eq('12.5 reads back as 12.5', targetTextOf(12.5), '12.5');
-eq('12.05 keeps its zero', targetTextOf(12.05), '12.05');
+eq('3500 reads back as its cents', targetTextOf(3500), '350000');
+eq('12.5 reads back as its cents', targetTextOf(12.5), '1250');
+eq('12.05 keeps its zero', targetTextOf(12.05), '1205');
 eq('open-ended reads back as nothing', targetTextOf(0), '');
-eq('the typed text is ringgit', formTarget({ targetText: '12.5', noLimit: false }), 12.5);
-eq('No limit is 0 whatever is typed', formTarget({ targetText: '12.5', noLimit: true }), 0);
+eq('the typed digits are cents', formTarget({ targetText: '1250', noLimit: false }), 12.5);
+eq('No limit is 0 whatever is typed', formTarget({ targetText: '1250', noLimit: true }), 0);
 eq('a lone dot is nothing', formTarget({ targetText: '.', noLimit: false }), 0);
 eq('a limit with nothing typed is missing', targetMissing({ targetText: '', noLimit: false }), true);
 eq('0 typed is missing too', targetMissing({ targetText: '0', noLimit: false }), true);
@@ -67,7 +67,7 @@ eq('a typed amount is not missing', targetMissing({ targetText: '1', noLimit: fa
 
 // --- the edit form
 const open = formOfBank(bank);
-eq('the form opens on the goal', open, { name: 'Car', targetText: '5000', noLimit: false, icon: 'directions_car' });
+eq('the form opens on the goal', open, { name: 'Car', targetText: '500000', noLimit: false, icon: 'directions_car' });
 eq('an open-ended goal opens on No limit', formOfBank({ ...bank, targetAmount: 0 }).noLimit, true);
 eq('a miscased icon opens as the known one', formOfBank({ ...bank, icon: 'Celebration' }).icon, 'celebration');
 eq('an unknown icon opens as the piggy', formOfBank({ ...bank, icon: 'zzz' }).icon, 'savings');
@@ -75,10 +75,10 @@ eq('nothing changed is an empty edit', buildBankEdit(bank, open), {});
 eq('and says so', isEmptyEdit(buildBankEdit(bank, open)), true);
 eq('only the name when only the name changed', buildBankEdit(bank, { ...open, name: 'Holiday' }), { name: 'Holiday' });
 eq('a name that only gained spaces is unchanged', buildBankEdit(bank, { ...open, name: '  Car ' }), {});
-eq('only the target when only the target changed', buildBankEdit(bank, { ...open, targetText: '6000' }), { targetAmount: 6000 });
+eq('only the target when only the target changed', buildBankEdit(bank, { ...open, targetText: '600000' }), { targetAmount: 6000 });
 eq('No limit sends 0', buildBankEdit(bank, { ...open, noLimit: true }), { targetAmount: 0 });
 eq('only the icon when only the icon changed', buildBankEdit(bank, { ...open, icon: 'flight' }), { icon: 'flight' });
-eq('all three together', buildBankEdit(bank, { name: 'Trip', targetText: '300.5', noLimit: false, icon: 'flight' }), {
+eq('all three together', buildBankEdit(bank, { name: 'Trip', targetText: '30050', noLimit: false, icon: 'flight' }), {
   name: 'Trip',
   targetAmount: 300.5,
   icon: 'flight',
@@ -88,7 +88,7 @@ eq('a legacy icon left alone is not rewritten', buildBankEdit({ ...bank, icon: '
 eq(
   'a target at the balance gets the gentle flag',
   (() => {
-    const p = planBankEdit(bank, buildBankEdit(bank, { ...open, targetText: '1200' }));
+    const p = planBankEdit(bank, buildBankEdit(bank, { ...open, targetText: '120000' }));
     return 'patch' in p && p.belowBalance;
   })(),
   true
@@ -111,7 +111,7 @@ eq('clipName does not split an emoji', Array.from(clipName('😀'.repeat(50))).l
 
 eq(
   'the new goal is trimmed and has a numeric target',
-  newGoalOf({ name: '  Trip ', targetText: '2500.5', noLimit: false, icon: 'flight' }, true),
+  newGoalOf({ name: '  Trip ', targetText: '250050', noLimit: false, icon: 'flight' }, true),
   { name: 'Trip', targetAmount: 2500.5, icon: 'flight', autoSplit: true }
 );
 eq(

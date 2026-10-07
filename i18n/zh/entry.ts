@@ -46,5 +46,6 @@ export const entry: typeof English = {
   transferTitle: '钱罐间转移',
   transferBody: (goal) => `这笔钱是在钱罐「${goal}」被删除时转进来的。它记录的是钱罐之间的转移，所以不能修改或删除。`,
   transferBodyNoName: '这笔钱是在某个钱罐被删除时转进来的。它记录的是钱罐之间的转移，所以不能修改或删除。',
+  walletMoveBody: '这笔是钱包和钱罐之间的转移，不算存钱，也不算开销。删除它，钱会回到原来的地方。',
   tradeBody: '这笔记录属于一笔交易。请打开那笔交易来修改或删除。',
 };

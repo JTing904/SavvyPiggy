@@ -51,5 +51,6 @@ export const entry = {
   transferBody: (goal: string) =>
     `This money moved in when the goal “${goal}” was deleted. It records a move between goals, so it can’t be edited or deleted.`,
   transferBodyNoName: 'This money moved in when a goal was deleted. It records a move between goals, so it can’t be edited or deleted.',
+  walletMoveBody: 'This moved money between your wallet and your goals. It is not saving and not spending. Deleting it puts the money back where it was.',
   tradeBody: 'This entry belongs to a trade. Open the trade to change or delete it.',
 };

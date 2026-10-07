@@ -10,7 +10,8 @@ import { localKey, readLocal, writeLocal } from './localFlags';
  */
 export interface LastChoices {
   v: 1;
-  depositTarget?: 'split' | string;
+  /** `rule`, `split`, `wallet` or a goal's id. */
+  depositTarget?: string;
   spendGoal?: string;
   spendCategory?: string;
   potInGoal?: string;
@@ -62,11 +63,14 @@ export const withChoice = (c: LastChoices, patch: ChoicePatch): LastChoices => {
 export const usableChoices = (c: LastChoices, banks: PiggyBank[]): LastChoices => {
   const live = (id: string | undefined) => (id && banks.some((b) => b.id === id && !isArchived(b)) ? id : undefined);
   const goalOrSplit = (id: string | undefined) => (id === 'split' ? id : live(id));
+  // An income can also have gone by the rule or to the wallet, and a spend can have come from the wallet.
+  const incomeChoice = (id: string | undefined) => (id === 'rule' || id === 'wallet' || id === 'split' ? id : live(id));
+  const spendSource = (id: string | undefined) => (id === 'wallet' ? id : live(id));
   const quick = strip({ deposit: cents(c.quick?.deposit), spend: cents(c.quick?.spend), pot: cents(c.quick?.pot) });
   return strip({
     v: 1 as const,
-    depositTarget: goalOrSplit(c.depositTarget),
-    spendGoal: live(c.spendGoal),
+    depositTarget: incomeChoice(c.depositTarget),
+    spendGoal: spendSource(c.spendGoal),
     spendCategory: CATEGORIES.some((k) => k.key === c.spendCategory) ? c.spendCategory : undefined,
     potInGoal: live(c.potInGoal),
     potOutTarget: goalOrSplit(c.potOutTarget),

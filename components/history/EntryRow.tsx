@@ -75,9 +75,16 @@ export const EntryRow: React.FC<EntryRowProps> = ({ activity, banks, onOpen }) =
       if (goals.length === 1) parts.push(nameOf(goals[0].bankId));
       else if (goals.length > 1) parts.push(t.history.splitAcross(goals.length));
       if ((activity.repaid ?? 0) > 0) parts.push(t.history.toDebt(money(activity.repaid ?? 0)));
+      if ((activity.wallet ?? 0) > 0) parts.push(t.history.toWalletPart(money(activity.wallet ?? 0)));
       break;
     case 'withdraw':
       parts.push(categoryOf(activity.category).label);
+      if ((activity.wallet ?? 0) < 0) parts.push(t.history.fromWallet);
+      break;
+    case 'walletMove':
+      if (goals.length === 1) parts.push((activity.wallet ?? 0) < 0 ? t.history.walletToGoals(nameOf(goals[0].bankId)) : t.history.goalToWallet(nameOf(goals[0].bankId)));
+      else if (goals.length > 1) parts.push(t.history.walletToGoals(t.history.splitAcross(goals.length)));
+      parts.push(t.history.justMoved);
       break;
     case 'toInvest':
       if (goals.length > 0) parts.push(t.history.fromGoal(nameOf(goals[0].bankId)));
@@ -113,7 +120,7 @@ export const EntryRow: React.FC<EntryRowProps> = ({ activity, banks, onOpen }) =
       tint={look.tint}
       title={title}
       sub={parts.join(' · ')}
-      trailing={<Amount cents={cents} size="sm" signed tone={look.tone} />}
+      trailing={<Amount cents={cents} size="sm" signed={activity.type !== 'walletMove'} tone={look.tone} />}
       onClick={onOpen}
     />
   );

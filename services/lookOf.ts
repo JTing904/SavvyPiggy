@@ -9,7 +9,7 @@
 export type Look = 'new' | 'legacy';
 
 /** Tabs that have been redesigned. */
-export const NEW_LOOK_TABS: readonly string[] = ['log'];
+export const NEW_LOOK_TABS: readonly string[] = ['log', 'homeSave'];
 
 /** Full-screen views and sheets that have been redesigned. */
 export const NEW_LOOK_OVERLAYS: readonly string[] = ['goalDetail', 'createGoal'];

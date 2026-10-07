@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import type { Loan, PiggyBank, SavingsSettings } from '../types';
-import { isArchived, isInSplit, planDeposit, totalDebtCents } from '../services/ledger';
+import type { Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
+import { isArchived } from '../services/ledger';
 import { formatMoney, fromCents, toCents } from '../services/money';
-import { amountToCents } from '../services/keypad';
+import { amountToCents, typedFromCents } from '../services/keypad';
 import { CATEGORIES, UNCATEGORISED } from '../services/categories';
 import { loadLastChoices, saveLastChoices, usableChoices, withChoice, type ChoicePatch } from '../services/lastChoices';
-import { atFromPicked, defaultDepositTarget, defaultSpendSource } from '../services/moneySheet';
+import { atFromPicked, defaultIncomeChoice, defaultSpendSource, WALLET, type IncomeChoice } from '../services/moneySheet';
+import { planIncome, walletCents, type IncomeTarget } from '../services/wallet';
+import { walletProblemText } from '../services/problemText';
 import { fromInputDate, readableDate, toInputDate } from '../services/calendar';
 import { useT } from '../contexts/LanguageContext';
 import { Sheet } from './ui/Sheet';
@@ -29,19 +31,17 @@ interface MoneySheetProps {
   banks: PiggyBank[];
   loans: Loan[];
   savings: SavingsSettings;
+  wallet: WalletSettings;
   /** Whose remembered choices to use. */
   uid: string;
   /** The earliest day an entry can be dated: the start of the history the app keeps. */
   liveFrom: Date;
-  /** `target` null means split by %. `at` is only given for a day other than today. */
-  onDeposit: (amount: number, target: string | null, at?: Date) => void | Promise<void>;
+  /** `choice` is `rule`, `split`, `wallet` or a goal's id. `at` is only given for a day other than today. */
+  onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
+  /** `source` is `wallet` or a goal's id. */
   onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date) => void | Promise<void>;
-  onBorrow: (amount: number, note: string, at?: Date) => void | Promise<void>;
   onClose: () => void;
 }
-
-/** Cents back to the text the keypad would have typed ("12.5", "100"). */
-const typedFromCents = (cents: number) => String(cents / 100);
 
 const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p className="mb-2 mt-5 px-0.5 text-[12.5px] font-bold text-mute">{children}</p>
@@ -56,35 +56,38 @@ const Choice: React.FC<{
   title: string;
   small: string;
 }> = ({ tint, selected, onClick, icon, title, small }) => (
-  <div className="w-36 shrink-0">
+  <div className="w-40 shrink-0">
     <Tile tint={tint} selected={selected} onClick={onClick}>
       <span className="flex items-center gap-1.5 pr-6 text-[14px] font-extrabold">
         {icon && <Icon name={icon} size={16} />}
         <span className="min-w-0 truncate">{title}</span>
       </span>
-      <span className="mt-0.5 block truncate text-[12px] font-semibold opacity-70">{small}</span>
+      <span className="mt-0.5 block text-[12px] font-semibold leading-snug opacity-70">{small}</span>
     </Tile>
   </div>
 );
 
+const targetOf = (choice: IncomeChoice): IncomeTarget =>
+  choice === 'rule' || choice === 'split' || choice === 'wallet' ? { mode: choice } : { mode: 'goal', goalId: choice };
+
 /**
- * Money in and money out, in one sheet: Deposit or Spend.
+ * Income and spending, in one sheet.
  *
- * Nothing is chosen for the person where a wrong guess moves money. Spending
- * starts from the goal used last time, or the only goal there is; with several
- * goals and no history the button stays off until a goal (or "Spend ahead") is
- * picked. What was chosen is remembered only after the save succeeds.
+ * Nothing is chosen for the person where a wrong guess moves money: an income
+ * starts from the wallet's rule (or where it went last time), but a spend
+ * starts from nothing unless it is the same as last time or the wallet is the
+ * only place there is. What was chosen is remembered only after the save succeeds.
  */
 const MoneySheet: React.FC<MoneySheetProps> = ({
   mode,
   banks,
   loans,
   savings,
+  wallet,
   uid,
   liveFrom,
   onDeposit,
   onWithdraw,
-  onBorrow,
   onClose,
 }) => {
   const t = useT();
@@ -96,10 +99,9 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   const [tab, setTab] = useState<Tab>(mode);
   const [text, setText] = useState('');
-  /** Deposit: null is split by %. */
-  const [target, setTarget] = useState<string | null>(() => defaultDepositTarget(banks, choices.depositTarget));
-  /** Spend: undefined is "not chosen yet", null is spend ahead. */
-  const [source, setSource] = useState<string | null | undefined>(() => defaultSpendSource(banks, choices.spendGoal));
+  const [choice, setChoice] = useState<IncomeChoice>(() => defaultIncomeChoice(banks, choices.depositTarget));
+  /** Spend: undefined is "not chosen yet". */
+  const [source, setSource] = useState<string | undefined>(() => defaultSpendSource(banks, choices.spendGoal));
   const [category, setCategory] = useState<string>(UNCATEGORISED);
   const [note, setNote] = useState('');
   const [day, setDay] = useState(() => toInputDate(Date.now()));
@@ -107,27 +109,41 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   const [failed, setFailed] = useState(false);
 
   const cents = amountToCents(text);
-  const openLoans = loans.filter((l) => l.outstanding > 0);
-  const debtCents = totalDebtCents(openLoans);
-  // Goals switched out of the split take no share and do not count here.
-  const allocated = banks.reduce((sum, b) => (isInSplit(b) ? sum + b.splitPercentage : sum), 0);
-  const inSplitCount = goals.filter(isInSplit).length;
+  const held = walletCents(wallet);
+  const percent = wallet.goalsPercent;
 
   const deposit = tab === 'deposit';
-  const spendingAhead = !deposit && source === null;
-  const noSplit = deposit && target === null && allocated === 0 && debtCents === 0;
   const needsSource = !deposit && source === undefined;
-  const ready = cents > 0 && !noSplit && !needsSource;
 
-  // The same overflow rule the save uses, so the preview is the split that happens.
-  const preview = deposit && cents > 0 && !noSplit ? planDeposit(cents, banks, openLoans, target, savings.overflow) : null;
+  // The same planner the save uses, so the preview is what happens.
+  const income = useMemo(
+    () =>
+      deposit && cents > 0
+        ? planIncome({
+            amountCents: cents,
+            banks,
+            loans: loans.filter((l) => l.outstanding > 0),
+            wallet: held,
+            goalsPercent: percent,
+            target: targetOf(choice),
+            overflow: savings.overflow,
+          })
+        : null,
+    [deposit, cents, banks, loans, held, percent, choice, savings.overflow]
+  );
+  const incomeProblem = income && 'problem' in income ? income.problem : null;
+  const plan = income && 'plan' in income ? income.plan : null;
+  const ready = cents > 0 && !needsSource && !incomeProblem;
 
   const todayKey = toInputDate(Date.now());
   const pickedDay = day === todayKey ? null : new Date(fromInputDate(day));
   const pastDay = pickedDay !== null;
 
-  const sourceGoal = typeof source === 'string' ? goals.find((b) => b.id === source) : undefined;
-  const overBalance = !deposit && sourceGoal && cents > toCents(sourceGoal.currentAmount);
+  const sourceGoal = !deposit && source && source !== WALLET ? goals.find((b) => b.id === source) : undefined;
+  const overBalance = sourceGoal && cents > toCents(sourceGoal.currentAmount);
+  // Spending past the wallet is allowed: it goes below zero and the next income clears it.
+  const walletAfter = !deposit && source === WALLET ? held - cents : null;
+  const overdrawn = walletAfter !== null && cents > 0 && walletAfter < 0;
 
   // The category used last time leads the list; nothing is preselected, so a
   // spend is never filed under a category by accident.
@@ -144,11 +160,11 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   const remember = () => {
     const patch: ChoicePatch = deposit
-      ? { depositTarget: target === null ? 'split' : target, quick: { deposit: cents } }
+      ? { depositTarget: choice, quick: { deposit: cents } }
       : {
           quick: { spend: cents },
           ...(typeof source === 'string' ? { spendGoal: source } : {}),
-          ...(!spendingAhead && category !== UNCATEGORISED ? { spendCategory: category } : {}),
+          ...(category !== UNCATEGORISED ? { spendCategory: category } : {}),
         };
     saveLastChoices(uid, withChoice(loadLastChoices(uid), patch));
   };
@@ -160,8 +176,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     const value = fromCents(cents);
     const at = atFromPicked(pickedDay, new Date());
     try {
-      if (deposit) await onDeposit(value, target, at);
-      else if (source === null) await onBorrow(value, note.trim(), at);
+      if (deposit) await onDeposit(value, choice, at);
       else await onWithdraw(value, source as string, note.trim(), category, at);
     } catch {
       // Nothing is remembered and the sheet stays, so the amount is not lost.
@@ -203,17 +218,21 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
           <>
             <Choice
               tint="mint"
-              selected={target === null}
-              onClick={() => setTarget(null)}
-              title={w.splitByPercent}
-              small={w.splitGoals(inSplitCount)}
+              selected={choice === 'rule'}
+              onClick={() => setChoice('rule')}
+              title={w.byRule}
+              small={w.ruleSmall(percent)}
             />
+            <Choice tint="sun" selected={choice === 'wallet'} onClick={() => setChoice('wallet')} icon="wallet" title={w.keepInWallet} small={w.keepInWalletSmall} />
+            {percent < 100 && (
+              <Choice tint="lav" selected={choice === 'split'} onClick={() => setChoice('split')} title={w.allToGoals} small={w.allToGoalsSmall} />
+            )}
             {goals.map((b, i) => (
               <Choice
                 key={b.id}
                 tint={TINTS[i % TINTS.length]}
-                selected={target === b.id}
-                onClick={() => setTarget(b.id)}
+                selected={choice === b.id}
+                onClick={() => setChoice(b.id)}
                 title={b.name}
                 small={money(toCents(b.currentAmount))}
               />
@@ -221,6 +240,14 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
           </>
         ) : (
           <>
+            <Choice
+              tint="mint"
+              selected={source === WALLET}
+              onClick={() => setSource(WALLET)}
+              icon="wallet"
+              title={w.wallet}
+              small={money(held)}
+            />
             {goals.map((b, i) => (
               <Choice
                 key={b.id}
@@ -231,21 +258,17 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
                 small={money(toCents(b.currentAmount))}
               />
             ))}
-            <Choice
-              tint="sun"
-              selected={source === null}
-              onClick={() => setSource(null)}
-              icon="spark"
-              title={w.spendAhead}
-              small={w.spendAheadSmall}
-            />
           </>
         )}
       </div>
       {needsSource && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{w.pickSource}</p>}
-      {spendingAhead && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{w.spendAheadHint}</p>}
       {overBalance && sourceGoal && (
         <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-neg">{w.overBalance(formatMoney(sourceGoal.currentAmount))}</p>
+      )}
+      {overdrawn && walletAfter !== null && (
+        <p className="mt-3 rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold leading-snug text-ink">
+          {held > 0 ? w.overdrawnFrom(money(held), money(-walletAfter)) : w.overdrawnMore(money(-walletAfter))}
+        </p>
       )}
 
       <div
@@ -262,27 +285,31 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
       <Keypad value={text} onChange={setText} className="mt-1" />
 
-      {deposit && cents > 0 && preview && (
+      {deposit && cents > 0 && plan && (
         <div className="mt-4 rounded-3xl bg-card px-4 py-3">
           <p className="mb-1.5 text-[12.5px] font-bold text-mute">{w.landsHeading}</p>
-          {preview.repaidCents > 0 && (
-            <p className="mb-1.5 text-[13px] font-bold text-info">{w.coversEarlier(money(preview.repaidCents))}</p>
-          )}
-          {preview.splitMovements.map((m) => (
+          {plan.repaidCents > 0 && <p className="mb-1.5 text-[13px] font-bold text-info">{w.coversEarlier(money(plan.repaidCents))}</p>}
+          {plan.coveredCents > 0 && <p className="mb-1.5 text-[13px] font-bold text-info">{w.clearsOverdraft(money(plan.coveredCents))}</p>}
+          {plan.movements.map((m) => (
             <div key={m.bankId} className="flex items-center justify-between gap-3 py-0.5">
-              <span className="min-w-0 truncate text-[13.5px] font-semibold">
-                {banks.find((b) => b.id === m.bankId)?.name}
-              </span>
+              <span className="min-w-0 truncate text-[13.5px] font-semibold">{banks.find((b) => b.id === m.bankId)?.name}</span>
               <Amount cents={m.cents} size="sm" tone="pos" signed />
             </div>
           ))}
-          {target === null && allocated > 0 && allocated < 100 && preview.repaidCents < cents && (
-            <p className="mt-1.5 text-[12px] font-semibold text-mute">{w.partlyAllocated(allocated)}</p>
+          {plan.walletCents > 0 && (
+            <div className="flex items-center justify-between gap-3 py-0.5">
+              <span className="min-w-0 truncate text-[13.5px] font-semibold">{w.wallet}</span>
+              <Amount cents={plan.walletCents} size="sm" tone="pos" signed />
+            </div>
           )}
         </div>
       )}
 
-      {noSplit && <p className="mt-4 rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{w.noSplit}</p>}
+      {incomeProblem && cents > 0 && (
+        <p className="mt-4 rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">
+          {walletProblemText({ kind: incomeProblem, goalId: choice }, t, banks)}
+        </p>
+      )}
 
       {!deposit && (
         <>
@@ -294,14 +321,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
               </Chip>
             ))}
           </div>
-          <Field
-            className="mt-3"
-            label={w.note}
-            value={note}
-            onChange={setNote}
-            placeholder={spendingAhead ? w.spendAheadPlaceholder : w.spendPlaceholder}
-            autoComplete="off"
-          />
+          <Field className="mt-3" label={w.note} value={note} onChange={setNote} placeholder={w.spendPlaceholder} autoComplete="off" />
         </>
       )}
 
@@ -323,14 +343,10 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
               <Icon name="cal" size={20} className="text-mute" />
               <span className="min-w-0 flex-1">
                 <span className="block text-[11.5px] font-bold text-mute">{w.date}</span>
-                <span className="block truncate text-base font-semibold">
-                  {pastDay ? readableDate(day) : w.dateToday}
-                </span>
+                <span className="block truncate text-base font-semibold">{pastDay ? readableDate(day) : w.dateToday}</span>
               </span>
               {pastDay && (
-                <span className="shrink-0 rounded-full bg-sun px-2.5 py-1 text-[11.5px] font-extrabold text-ink">
-                  {w.backDated}
-                </span>
+                <span className="shrink-0 rounded-full bg-sun px-2.5 py-1 text-[11.5px] font-extrabold text-ink">{w.backDated}</span>
               )}
               <Icon name="chev" size={18} className="text-mute" />
             </button>

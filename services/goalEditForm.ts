@@ -1,7 +1,7 @@
 import type { PiggyBank } from '../types';
 import { GOAL_ICON_SET, iconGroupOf, safeGoalIcon, suggestIconFromName } from './goalIcons';
 import { GOAL_NAME_MAX, type BankEdit } from './bankEdit';
-import { amountToCents } from './keypad';
+import { amountToCents, typedFromCents } from './keypad';
 import { fromCents, toCents } from './money';
 
 /**
@@ -47,13 +47,8 @@ export const quickIconsFor = (selected: string): string[] =>
 export const iconForNewGoal = (name: string, picked: string | null): string =>
   picked ?? suggestIconFromName(name) ?? DEFAULT_GOAL_ICON;
 
-/** The target as the keypad would have typed it: '3500', '12.5', '' for none. */
-export const targetTextOf = (targetAmount: number): string => {
-  const cents = toCents(targetAmount);
-  if (!Number.isFinite(cents) || cents <= 0) return '';
-  const text = fromCents(cents).toFixed(2);
-  return text.replace(/\.?0+$/, '');
-};
+/** The target as the keypad would have typed it: the cents, so RM3,500 is '350000' and none is ''. */
+export const targetTextOf = (targetAmount: number): string => typedFromCents(toCents(targetAmount));
 
 /** The form a goal's edit sheet opens with. */
 export const formOfBank = (bank: PiggyBank): GoalForm => ({

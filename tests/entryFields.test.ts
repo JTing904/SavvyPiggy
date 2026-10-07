@@ -64,7 +64,7 @@ const toPot: Activity = {
 {
   const form = formFromActivity(spend);
   eq('form starts from the row', form, {
-    amount: '12',
+    amount: '1200',
     day: '2026-09-13',
     time: '12:40',
     source: 'wallet',
@@ -75,14 +75,14 @@ const toPot: Activity = {
   eq('an untouched form edits nothing', buildActivityEdit(spend, form), {});
   eq('an untouched form has no changes', hasChanges(buildActivityEdit(spend, form)), false);
 }
-eq('amount text drops trailing zeros', [amountText(12), amountText(12.5), amountText(0.07), amountText(1234.56)], ['12', '12.5', '0.07', '1234.56']);
+eq('amount text is the cents, as the keypad types them', [amountText(12), amountText(12.5), amountText(0.07), amountText(1234.56)], ['1200', '1250', '7', '123456']);
 eq('time and day of an instant', [timeOf(spend.date), dayOf(spend.date)], ['12:40', '2026-09-13']);
 eq('compose drops seconds', composeDate('2026-09-13', '08:05').getTime(), at(2026, 9, 13, 8, 5).getTime());
 
 /* ---------------------------------------------- only what changed is sent */
 
 {
-  const form = { ...formFromActivity(spend), amount: '12.5' };
+  const form = { ...formFromActivity(spend), amount: '1250' };
   eq('only the amount', buildActivityEdit(spend, form), { amount: 12.5 });
 }
 {
@@ -114,8 +114,8 @@ eq('compose drops seconds', composeDate('2026-09-13', '08:05').getTime(), at(202
   eq('an emptied amount is sent as zero for the planner to refuse', buildActivityEdit(spend, form), { amount: 0 });
 }
 {
-  const form = { ...formFromActivity(spend), amount: '12.' };
-  eq('12. is still 12', buildActivityEdit(spend, form), {});
+  const form = { ...formFromActivity(spend), amount: '1200' };
+  eq('1200 cents is still RM12', buildActivityEdit(spend, form), {});
 }
 
 /* ------------------------------------------------------------- deposits */
@@ -126,7 +126,7 @@ eq('compose drops seconds', composeDate('2026-09-13', '08:05').getTime(), at(202
   eq('splitting', buildActivityEdit(deposit, { ...form, target: { mode: 'split' } }), { target: { mode: 'split' } });
   eq(
     'one goal',
-    buildActivityEdit(deposit, { ...form, amount: '800', target: { mode: 'goal', goalId: 'b' } }),
+    buildActivityEdit(deposit, { ...form, amount: '80000', target: { mode: 'goal', goalId: 'b' } }),
     { amount: 800, target: { mode: 'goal', goalId: 'b' } }
   );
   const auto: Activity = { ...deposit, type: 'auto-save' };
@@ -147,7 +147,7 @@ eq('a deposit over two goals has no single source', sourceOf(deposit), null);
   const form = formFromActivity(toPot);
   eq('pot form source is the goal', form.source, 'travel');
   eq('nothing changed', buildPotEdit(toPot, form), {});
-  eq('amount and goal', buildPotEdit(toPot, { ...form, amount: '350', source: 'car' }), { amount: 350, goalId: 'car' });
+  eq('amount and goal', buildPotEdit(toPot, { ...form, amount: '35000', source: 'car' }), { amount: 350, goalId: 'car' });
   eq('date', buildPotEdit(toPot, { ...form, day: '2026-09-10' }), { date: at(2026, 9, 10, 18, 56).toISOString() });
   const back: Activity = { ...toPot, type: 'fromInvest', distributions: [{ bankId: 'travel', amount: 400, percentage: 100 }] };
   eq('a pot return keeps its goals', buildPotEdit(back, { ...formFromActivity(back), source: 'car' }), {});

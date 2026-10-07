@@ -41,6 +41,8 @@ export interface EntrySheetProps {
   notBefore: Date;
   /** What the investment pot holds, in cents. */
   potCents: number;
+  /** What the wallet holds, in cents; below zero is an overdraft. */
+  walletCents: number;
   /** Loaded History, so a deleted goal's hint can say where its money went. */
   activities?: Activity[];
   onSave: (edit: ActivityEdit) => Promise<void>;
@@ -123,6 +125,7 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
   loans,
   savings,
   notBefore,
+  walletCents,
   activities = [],
   onSave,
   onDelete,
@@ -163,6 +166,9 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
           beforeCents: l.beforeCents,
           afterCents: l.afterCents,
         })),
+        ...(plan.walletDelta !== 0
+          ? [{ id: 'wallet', name: t.wallet.name, beforeCents: walletCents, afterCents: walletCents + plan.walletDelta }]
+          : []),
       ]
     : [];
 
@@ -220,8 +226,16 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
       {isWithdraw && (
         <>
           <SectionLabel>{t.entry.takenFrom}</SectionLabel>
-          {form.source === null && <p className="mb-2 text-[12.5px] font-semibold text-mute">{t.entry.severalGoals}</p>}
-          <GoalChips goals={sources} value={form.source} onChange={(source) => set({ source })} ariaLabel={t.entry.takenFrom} />
+          {(activity.wallet ?? 0) < 0 ? (
+            <Chip selected onClick={() => undefined}>
+              {t.wallet.name}
+            </Chip>
+          ) : (
+            <>
+              {form.source === null && <p className="mb-2 text-[12.5px] font-semibold text-mute">{t.entry.severalGoals}</p>}
+              <GoalChips goals={sources} value={form.source} onChange={(source) => set({ source })} ariaLabel={t.entry.takenFrom} />
+            </>
+          )}
 
           <SectionLabel>{t.entry.category}</SectionLabel>
           <div role="group" aria-label={t.entry.category} className="flex flex-wrap gap-2">
@@ -510,6 +524,39 @@ const LockedEntry: React.FC<EntrySheetProps> = ({ activity, banks, onClose }) =>
   );
 };
 
+/** A move between the wallet and the goals: it can be read, or deleted, which puts the money back where it was. */
+const WalletMoveEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete, onClose }) => {
+  const t = useT();
+  return (
+    <Sheet
+      title={t.common.activity.walletMove}
+      onClose={onClose}
+      footer={
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              onDelete();
+              onClose();
+            }}
+            className={DELETE_BUTTON}
+          >
+            {t.entry.delete}
+          </button>
+          <Button full={false} onClick={onClose} className="flex-[2]">
+            {t.ui.close}
+          </Button>
+        </div>
+      }
+    >
+      <Group>
+        <EntryRow activity={activity} banks={banks} />
+      </Group>
+      <p className="mb-2 mt-4 px-1 text-[13.5px] font-medium leading-relaxed text-mute">{t.entry.walletMoveBody}</p>
+    </Sheet>
+  );
+};
+
 /**
  * Opens from a History row (and later from Home and a goal's own list): change
  * an entry, see exactly what the change would do before saving it, or delete it.
@@ -520,6 +567,7 @@ const LockedEntry: React.FC<EntrySheetProps> = ({ activity, banks, onClose }) =>
 const EntrySheet: React.FC<EntrySheetProps> = (props) => {
   const { type } = props.activity;
   if (type === 'toInvest' || type === 'fromInvest') return <PotEntry {...props} />;
+  if (type === 'walletMove') return <WalletMoveEntry {...props} />;
   if (type === 'manual' || type === 'auto-save' || type === 'withdraw' || type === 'borrow') return <MoneyEntry {...props} />;
   return <LockedEntry {...props} />;
 };

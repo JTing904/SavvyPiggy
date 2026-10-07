@@ -1,4 +1,8 @@
 
+import SavingsHome from './SavingsHome';
+import type { WalletSettings } from '../types';
+import type { IncomeChoice } from '../services/moneySheet';
+import type { WalletMove } from '../services/wallet';
 import { safeGoalIcon } from '../services/goalIcons';
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PiggyBank, Activity, ActivityType, Loan, Holding, Trade, SavingsSettings, InvestSettings } from '../types';
@@ -55,10 +59,14 @@ interface DashboardProps {
   banks: PiggyBank[];
   activities: Activity[];
   loans: Loan[];
-  /** `at` is only given for a day other than today (local midnight of that day). */
-  onDeposit: (amount: number, targetBankId: string | null, at?: Date) => void | Promise<void>;
-  onWithdraw: (amount: number, sourceBankId: string, note: string, category: string, at?: Date) => void | Promise<void>;
-  onBorrow: (amount: number, note: string, at?: Date) => void | Promise<void>;
+  /** The wallet: money that has arrived and is not in a goal yet. */
+  wallet: WalletSettings;
+  /** `choice` is `rule`, `split`, `wallet` or a goal's id; `at` is only given for a day other than today. */
+  onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
+  /** `source` is `wallet` or a goal's id. */
+  onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date) => void | Promise<void>;
+  onMoveWallet: (amount: number, move: WalletMove) => void | Promise<void>;
+  onAddGoal: () => void;
   onViewAll: () => void;
   onSelectGoal: (id: string) => void;
   onOpenProfile: () => void;
@@ -111,15 +119,15 @@ const greeting = (t: Messages) => {
 };
 
 
-const Dashboard: React.FC<DashboardProps> = ({
+const LegacyHome: React.FC<DashboardProps> = ({
   totalBalance,
   savingsToday,
   banks,
   activities,
   loans,
+  wallet,
   onDeposit,
   onWithdraw,
-  onBorrow,
   onViewAll,
   onSelectGoal,
   onOpenProfile,
@@ -675,16 +683,52 @@ const Dashboard: React.FC<DashboardProps> = ({
           banks={banks}
           loans={loans}
           savings={savings}
+          wallet={wallet}
           uid={uid}
           liveFrom={liveFrom}
           onDeposit={onDeposit}
           onWithdraw={onWithdraw}
-          onBorrow={onBorrow}
           onClose={() => setMode(null)}
         />
       )}
     </div>
   );
 };
+
+/**
+ * Home. The savings half is the newer screen (the wallet first); the investing
+ * half is still the older one, which also carries the card rail you can swipe
+ * back to savings from.
+ */
+const Dashboard: React.FC<DashboardProps> = (props) =>
+  props.mode === 'save' ? (
+    <SavingsHome
+      banks={props.banks}
+      activities={props.activities}
+      loans={props.loans}
+      wallet={props.wallet}
+      savings={props.savings}
+      totalBalance={props.totalBalance}
+      unreadAlerts={props.unreadAlerts}
+      uid={props.uid}
+      liveFrom={props.liveFrom}
+      mode={props.mode}
+      onModeChange={props.onModeChange}
+      onDeposit={props.onDeposit}
+      onWithdraw={props.onWithdraw}
+      onMoveWallet={props.onMoveWallet}
+      onViewAll={props.onViewAll}
+      onSelectGoal={props.onSelectGoal}
+      onAddGoal={props.onAddGoal}
+      onOpenProfile={props.onOpenProfile}
+      onOpenAlerts={props.onOpenAlerts}
+      onOpenEntry={props.onOpenEntry}
+      onOpenTrade={props.onOpenTrade}
+      quickAction={props.quickAction}
+      onQuickActionHandled={props.onQuickActionHandled}
+    />
+  ) : (
+    <LegacyHome {...props} />
+  );
 
 export default Dashboard;

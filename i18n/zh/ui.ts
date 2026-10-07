@@ -8,6 +8,7 @@ export const ui: typeof English = {
   grabHandle: '向下拖动以关闭',
   keypad: '金额键盘',
   keyDelete: '删除上一位',
+  keyDoubleZero: '两个零',
   keyPoint: '小数点',
   keyZero: '0',
   keyOne: '1',

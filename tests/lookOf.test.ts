@@ -6,6 +6,8 @@ eq('allowlist starts with goal detail and create goal', ['goalDetail', 'createGo
 
 eq('log tab, nothing open -> new', lookOf({ tab: 'log', overlays: [] }), 'new');
 eq('home tab, nothing open -> legacy', lookOf({ tab: 'home', overlays: [] }), 'legacy');
+eq('the savings half of Home is the new look', lookOf({ tab: 'homeSave', overlays: [] }), 'new');
+eq('a legacy overlay over the new Home is legacy', lookOf({ tab: 'homeSave', overlays: ['profile'] }), 'legacy');
 eq('unknown tab -> legacy', lookOf({ tab: 'somethingNew', overlays: [] }), 'legacy');
 eq('new overlay on a legacy tab -> new', lookOf({ tab: 'home', overlays: ['goalDetail'] }), 'new');
 eq('legacy overlay on a new tab -> legacy', lookOf({ tab: 'log', overlays: ['settings'] }), 'legacy');

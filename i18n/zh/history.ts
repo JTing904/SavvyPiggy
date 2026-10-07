@@ -10,6 +10,11 @@ export const history: typeof English = {
   toDebt: (amount) => `还预支 ${amount}`,
 
   notSpending: '不算开销',
+  toWalletPart: (amount) => `钱包 ${amount}`,
+  fromWallet: '从钱包出',
+  walletToGoals: (goal) => `钱包 → ${goal}`,
+  goalToWallet: (goal) => `${goal} → 钱包`,
+  justMoved: '不算存钱，也不算开销',
   notSaving: '不算存入',
 
   tradeTitle: (label, counter) => `${label} · ${counter}`,

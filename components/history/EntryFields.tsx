@@ -78,7 +78,8 @@ export const AmountField: React.FC<{
   }
 
   const press = (next: string) => {
-    if (fresh.current && next.length > value.length) onChange(pressKey('', next[next.length - 1]));
+    // The first key of a correction starts a new amount; backspace afterwards edits one digit.
+    if (fresh.current && next.length > value.length) onChange([...next.slice(value.length)].reduce(pressKey, ''));
     else onChange(next);
     fresh.current = false;
   };

@@ -11,6 +11,11 @@ export const history = {
 
   /** Money moving to or from investing is not spending, and not saving. */
   notSpending: 'not spending',
+  toWalletPart: (amount: string) => `Wallet ${amount}`,
+  fromWallet: 'From wallet',
+  walletToGoals: (goal: string) => `Wallet → ${goal}`,
+  goalToWallet: (goal: string) => `${goal} → wallet`,
+  justMoved: 'not saving or spending',
   notSaving: 'not saving',
 
   /**

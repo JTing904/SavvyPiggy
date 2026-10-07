@@ -1730,10 +1730,12 @@ export const runDueSchedules = async (
   schedules: Schedule[],
   banks: PiggyBank[],
   loans: Loan[],
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, wallet }: DepositOptions = {}
 ) => {
   // Scheduled income clears debt too, so the balance is tracked across the run.
   let openLoans = loans.map((l) => ({ ...l }));
+  // Scheduled income follows the wallet's rule like any other income, so the wallet is tracked across the run too.
+  let liveWallet = wallet ? walletCents(wallet) : 0;
   // Likewise goal balances, so milestones are judged against the running total.
   let liveBanks = banks.map((b) => ({ ...b }));
   let posted = 0;
@@ -1754,9 +1756,24 @@ export const runDueSchedules = async (
     let seen = scheduleDay(schedule.lastRunAt);
     for (const day of due) {
       const when = localDate(day);
-      const plan = planDeposit(toCents(schedule.amount), liveBanks, openLoans, schedule.targetBankId, savings.overflow);
+      let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
+      if (wallet) {
+        // A rule aimed at one goal saves into that goal; any other follows the wallet's share.
+        const income = planIncome({
+          amountCents: toCents(schedule.amount),
+          banks: liveBanks,
+          loans: openLoans,
+          wallet: liveWallet,
+          goalsPercent: wallet.goalsPercent,
+          target: schedule.targetBankId ? { mode: 'goal', goalId: schedule.targetBankId } : { mode: 'rule' },
+          overflow: savings.overflow,
+        });
+        plan = 'plan' in income ? income.plan : { repayments: [], repaidCents: 0, movements: [], walletCents: 0 };
+      } else {
+        plan = { ...planDeposit(toCents(schedule.amount), liveBanks, openLoans, schedule.targetBankId, savings.overflow), walletCents: 0 };
+      }
       // Nothing allocated and no debt to clear: the rule waits for a strategy.
-      if (plan.movements.length === 0 && plan.repayments.length === 0) {
+      if (plan.movements.length === 0 && plan.repayments.length === 0 && plan.walletCents === 0) {
         await skipWaitingRuns(uid, schedule, seen, due[due.length - 1], openLoans, savings);
         break;
       }
@@ -1778,10 +1795,12 @@ export const runDueSchedules = async (
           distributions: toDistributions(plan.movements),
           repaid: fromCents(plan.repaidCents),
           repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
+          ...(plan.walletCents !== 0 ? { wallet: fromCents(plan.walletCents) } : {}),
         });
         plan.movements.forEach((m) =>
           tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
         );
+        if (plan.walletCents !== 0) tx.set(walletRef(uid), { balance: increment(fromCents(plan.walletCents)) }, { merge: true });
         plan.repayments.forEach((r) => {
           const left = outstandingCents(r.loan) - r.cents;
           tx.update(loanRef(uid, r.loan.id), {
@@ -1801,6 +1820,7 @@ export const runDueSchedules = async (
       if (!done) break;
       posted += 1;
       seen = day;
+      liveWallet += plan.walletCents;
       // Back-dated, so it can land inside older rows already read; a transaction
       // leaves the phone's cache alone, so the row is read back from the server.
       activityRowsChanged([{ id: entry.id, server: true }]);

@@ -1,50 +1,43 @@
-import { toCents } from './money';
-
 /**
- * The app's own number pad for money amounts. The text being typed lives in
- * the caller; every key press is a pure step from one text to the next, so the
- * rules (two decimals, no stray zeros, a sane size) hold however it is drawn.
+ * The app's own number pad for money amounts, typed the way a till or TNG does
+ * it: the digits are cents and push in from the right, so there is no decimal
+ * point to find. Typing 6, 0, 0 gives RM6.00; 1, 2, 5, 0 gives RM12.50.
+ *
+ * The text being typed lives in the caller and is only the digits ("" is zero,
+ * "600" is RM6.00). Every key press is a pure step from one text to the next,
+ * so the rules (no stray zeros, a sane size) hold however it is drawn.
  */
 
-const MAX_INTEGER_DIGITS = 7;
-const MAX_DECIMALS = 2;
+/** RM99,999,999.99 at the most. */
+const MAX_DIGITS = 10;
 
-/** One key press: '0'-'9', '.', or 'b' for backspace. Anything refused returns the text unchanged. */
+/** One key press: '0'-'9', '00', or 'b' for backspace. Anything refused returns the text unchanged. */
 export const pressKey = (current: string, key: string): string => {
   if (key === 'b') return current.slice(0, -1);
-
-  if (key === '.') {
-    if (current.includes('.')) return current;
-    return current === '' || current === '0' ? '0.' : `${current}.`;
-  }
-
+  if (key === '00') return pressKey(pressKey(current, '0'), '0');
   if (!/^[0-9]$/.test(key)) return current;
 
-  const dot = current.indexOf('.');
-  if (dot >= 0) return current.length - dot - 1 >= MAX_DECIMALS ? current : current + key;
-
-  // A leading zero never stays: '0' then '5' is '5', and '00' cannot be typed.
-  if (current === '0') return key;
-  return current.length >= MAX_INTEGER_DIGITS ? current : current + key;
+  // A leading zero never stays: nothing is typed until the first real digit.
+  if (current === '') return key === '0' ? '' : key;
+  return current.length >= MAX_DIGITS ? current : current + key;
 };
 
-/** The typed text in cents, rounded down; nothing typed (or only a dot) is 0. */
-export const amountToCents = (text: string): number => {
-  const n = Number(text);
-  return text === '' || text === '.' || !Number.isFinite(n) ? 0 : toCents(n);
-};
+/** The typed text in cents; nothing typed is 0. */
+export const amountToCents = (text: string): number => (/^[0-9]+$/.test(text) ? Number(text) : 0);
+
+/** Cents back to the text the keypad would have typed: 600 is "600", nothing is "". */
+export const typedFromCents = (cents: number): string => (Number.isFinite(cents) && cents > 0 ? String(Math.floor(cents)) : '');
 
 /**
  * The typed text split for display. `whole` carries thousands separators and is
- * '0' while nothing is typed; `cents` is exactly the decimals typed so far, so
- * the screen can show the missing ones as ghost digits.
+ * '0' while nothing is typed; `cents` is always two digits, so the sen never
+ * jump about as the first digits go in.
  */
-export const formatTyped = (text: string): { whole: string; cents: string; hasDot: boolean } => {
-  const dot = text.indexOf('.');
-  const whole = dot >= 0 ? text.slice(0, dot) : text;
+export const formatTyped = (text: string): { whole: string; cents: string; typed: boolean } => {
+  const padded = (/^[0-9]*$/.test(text) ? text : '').padStart(3, '0');
   return {
-    whole: Number(whole || '0').toLocaleString('en-US'),
-    cents: dot >= 0 ? text.slice(dot + 1) : '',
-    hasDot: dot >= 0,
+    whole: Number(padded.slice(0, -2)).toLocaleString('en-US'),
+    cents: padded.slice(-2),
+    typed: text !== '',
   };
 };

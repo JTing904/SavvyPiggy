@@ -2,31 +2,34 @@
 export const money = {
   title: 'Record money',
   tabs: 'What happened',
-  deposit: 'Deposit',
+  deposit: 'Income',
   spend: 'Spend',
 
   /** The amount shortcuts. */
   quickAmounts: 'Quick amounts',
 
   goesTo: 'Goes to',
-  splitByPercent: 'Split by %',
-  splitGoals: (n: number) => `${n} goal${n === 1 ? '' : 's'}`,
-  noSplit: 'No goal has a split yet. Pick a goal above, or set percentages on the Split tab.',
+  byRule: 'By your rule',
+  ruleSmall: (percent: number) => (percent >= 100 ? 'All to goals' : `${percent}% to goals · ${100 - percent}% stays`),
+  keepInWallet: 'Keep in wallet',
+  keepInWalletSmall: 'Move it later',
+  allToGoals: 'All to goals',
+  allToGoalsSmall: 'By their shares',
+  wallet: 'Wallet',
   coversEarlier: (amount: string) => `${amount} covers earlier spending first`,
-  partlyAllocated: (percent: number) => `Only ${percent}% is allocated, so the rest stays unassigned.`,
+  clearsOverdraft: (amount: string) => `${amount} clears your overdraft first`,
   landsHeading: 'Where it lands',
 
   comesFrom: 'Spend from',
-  spendAhead: 'Spend ahead',
-  spendAheadSmall: 'no goal',
-  pickSource: 'Pick a goal to spend from, or spend ahead.',
-  spendAheadHint: 'Money you had not set aside yet. No goal is touched; your next deposits cover it first.',
+  pickSource: 'Pick where this comes out of.',
+  overdrawnFrom: (held: string, over: string) =>
+    `Your wallet holds ${held}. This puts it ${over} overdrawn. Your next income clears that first.`,
+  overdrawnMore: (over: string) => `This takes your wallet to ${over} overdrawn. Your next income clears that first.`,
   overBalance: (amount: string) => `Only ${amount} in this goal. Spending more takes it below zero.`,
 
   whatFor: 'What for',
   note: 'Note',
   notePlaceholder: 'Optional',
-  spendAheadPlaceholder: 'e.g. Lunch',
   spendPlaceholder: 'e.g. Groceries',
 
   date: 'Date',
@@ -35,7 +38,7 @@ export const money = {
   pickDayTitle: 'Which day?',
   pickDayHint: 'Record something you forgot. Only days inside your history can be chosen.',
 
-  confirmDeposit: (amount: string) => `Deposit ${amount}`,
+  confirmDeposit: (amount: string) => `Add ${amount}`,
   confirmSpend: (amount: string) => `Record spending ${amount}`,
   recordSpending: 'Record spending',
 };
