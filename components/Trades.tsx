@@ -1,13 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, Dividend, InvestSettings, Loan, PiggyBank, SavingsSettings, Trade } from '../types';
 import type { CreditedDividend } from '../services/dividends';
-import { ordered, pricePointsOf, tradeTotalCents } from '../services/holdings';
-import { formatMoney, fromCents } from '../services/money';
+import { ordered, pricePointsOf, tradeTotalCents, type Quotes } from '../services/holdings';
+import { formatMoney, fromCents, toCents } from '../services/money';
+import * as api from '../services/firestore';
 import TradeSheet, { type TradeDraft } from './TradeSheet';
 import { OlderRecordsSheet } from './OlderRecordsNotice';
 import { useTradeRow } from '../hooks/useTradeRow';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, type Messages } from '../i18n';
+import { totalFees } from '../services/fees';
+import { Chip } from './ui/Chip';
+import { EmptyState } from './ui/EmptyState';
+import { Icon } from './ui/Icon';
 
 interface TradesProps {
   uid: string;
@@ -27,6 +32,10 @@ interface TradesProps {
   alertIds: string[];
   onEditBroker: () => void;
   onCreateGoal?: () => void;
+  /** Last prices, for the buy form's price hint. */
+  quotes?: Quotes;
+  /** The empty list's one action. */
+  onRecordBuy?: () => void;
 }
 
 const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) =>
@@ -55,24 +64,23 @@ const price = (points: number) => {
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-/**
- * TODAY, SEP 8 — matching the savings history, because it reads the same way.
- * Chinese has no capitals, so the same call reads 今天 · 9月8日 there.
- */
+/** "Today · Sep 8", matching the savings history, because it reads the same way. */
 const dayLabel = (d: Date, now: Date, t: Messages) => {
-  const date = d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' }).toUpperCase();
-  if (sameDay(d, now)) return t.invest.dayHeading(t.common.today.toUpperCase(), date);
-  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)))
-    return t.invest.dayHeading(t.common.yesterday.toUpperCase(), date);
-  return t.invest.dayHeading(t.common.weekdaysLong[d.getDay()].toUpperCase(), date);
+  const date = d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' });
+  if (sameDay(d, now)) return t.invest.dayHeading(t.common.today, date);
+  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return t.invest.dayHeading(t.common.yesterday, date);
+  return t.invest.dayHeading(t.common.weekdaysLong[d.getDay()], date);
 };
 
-// The chip's words are looked up by kind at render, so they follow the language.
-const TAG: Record<Trade['kind'], { className: string; amountClass: string }> = {
-  buy: { className: 'bg-primary/15 text-primary', amountClass: 'text-white' },
-  sell: { className: 'bg-red-500/15 text-red-400', amountClass: 'text-red-400' },
-  dividend: { className: 'bg-accent/15 text-accent', amountClass: 'text-accent' },
+/** How each kind of line looks: a tinted square, and whether its amount is money coming in. */
+const KIND: Record<Trade['kind'], { icon: string; square: string; inflow: boolean }> = {
+  buy: { icon: 'plus', square: 'bg-lav', inflow: false },
+  sell: { icon: 'minus', square: 'bg-peach', inflow: true },
+  dividend: { icon: 'coin', square: 'bg-sun', inflow: true },
 };
+
+type Filter = 'all' | Trade['kind'];
+const FILTERS: Filter[] = ['all', 'buy', 'sell', 'dividend'];
 
 /**
  * Every trade, newest first, grouped by the day it was done. This is the only
@@ -95,6 +103,8 @@ const Trades: React.FC<TradesProps> = ({
   alertIds,
   onEditBroker,
   onCreateGoal,
+  quotes,
+  onRecordBuy,
 }) => {
   const t = useT();
   const [draft, setDraft] = useState<TradeDraft | null>(null);
@@ -107,88 +117,91 @@ const Trades: React.FC<TradesProps> = ({
     setTimeout(() => setNote(null), 4000);
   };
 
+  const [filter, setFilter] = useState<Filter>('all');
+  const shown = useMemo(() => (filter === 'all' ? trades : trades.filter((tr) => tr.kind === filter)), [trades, filter]);
+
   const days = useMemo(() => {
     const groups: { key: number; date: Date; rows: Trade[] }[] = [];
     // Newest first on the screen; the replay does its own ordering.
-    for (const trade of ordered(trades).reverse()) {
+    for (const trade of ordered(shown).reverse()) {
       const last = groups[groups.length - 1];
       if (last && last.key === trade.tradedAt) last.rows.push(trade);
       else groups.push({ key: trade.tradedAt, date: new Date(trade.tradedAt), rows: [trade] });
     }
     return groups;
-  }, [trades]);
+  }, [shown]);
 
   return (
-    <div className="flex flex-col h-full bg-bg-dark safe-pt">
-      <div className="flex items-center px-6 py-4 gap-4 sticky top-0 bg-bg-dark/95 z-20">
-        <button
-          onClick={onBack}
-          className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-        >
-          <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
+    <div className="flex min-h-full flex-col px-4 pb-40 pt-3 safe-pt font-figtree text-ink">
+      <div className="mb-1 flex items-center gap-3 px-1">
+        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
+          <Icon name="back" size={20} />
         </button>
-        <h2 className="text-white text-2xl font-black tracking-tight">{t.invest.tradesTitle}</h2>
       </div>
+      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.invest.tradesTitle}</h1>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-40">
-        {note && (
-          <div className="mb-4 rounded-2xl bg-primary/10 border border-primary/25 px-4 py-3">
-            <p className="text-primary text-xs font-black">{note}</p>
-          </div>
-        )}
+      {note && (
+        <div role="status" className="mt-3 rounded-3xl bg-mint px-5 py-3">
+          <p className="text-[13px] font-extrabold">{note}</p>
+        </div>
+      )}
 
-        {trades.length === 0 ? (
-          <div className="text-center py-20">
-            <span className="material-symbols-rounded text-slate-700 text-5xl">receipt_long</span>
-            <p className="text-white font-black mt-4">{t.invest.noTrades}</p>
-            <p className="text-slate-500 text-xs font-bold mt-2 leading-relaxed px-6">
-              {t.invest.noTradesBody}
-            </p>
+      {trades.length === 0 ? (
+        <EmptyState
+          icon="list"
+          title={t.invest.noTrades}
+          body={t.invest.noTradesBody}
+          action={onRecordBuy ? { label: t.invest.noTradesAction, onClick: onRecordBuy } : undefined}
+          className="mt-6"
+        />
+      ) : (
+        <>
+          <div className="no-scrollbar -mx-4 mt-4 flex gap-2 overflow-x-auto px-4">
+            {FILTERS.map((f) => (
+              <Chip key={f} selected={filter === f} onClick={() => setFilter(f)}>
+                {f === 'all' ? t.alerts.filters.all : t.invest.tag[f]}
+              </Chip>
+            ))}
           </div>
-        ) : (
-          days.map((day) => (
-            <div key={day.key}>
-              <p className="text-slate-500 text-[10px] font-black tracking-widest mt-6 mb-3">
-                {dayLabel(day.date, now, t)}
-              </p>
-              <div className="space-y-2.5">
+
+          {days.map((day) => (
+            <section key={day.key} className="mt-5">
+              <h2 className="mb-2 px-1 text-[14px] font-extrabold">{dayLabel(day.date, now, t)}</h2>
+              <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
                 {day.rows.map((trade) => {
-                  const tag = TAG[trade.kind];
+                  const kind = KIND[trade.kind];
+                  const fees = totalFees(trade.fees);
                   return (
-                    <button
-                      key={trade.id}
-                      onClick={() => setDraft({ mode: 'edit', trade })}
-                      className="w-full flex items-center gap-3 p-4 rounded-3xl glass text-left active:scale-[0.98] transition-transform"
-                    >
-                      <span className={`text-[9px] font-black px-2.5 py-1 rounded-full tracking-wider ${tag.className}`}>
-                        {t.invest.tag[trade.kind]}
+                    <button key={trade.id} type="button" onClick={() => setDraft({ mode: 'edit', trade })} className="flex min-h-16 w-full items-center gap-3 py-3 text-left active:opacity-70">
+                      <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${kind.square}`}>
+                        <Icon name={kind.icon} size={18} />
                       </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white font-black text-[13px] truncate">{trade.name}</p>
-                        <p className="text-slate-500 text-[11px] font-bold mt-0.5">
-                          {t.common.units(trade.units.toLocaleString('en-US'))} {trade.kind === 'dividend' ? '×' : '@'}{' '}
-                          {rate(trade)}
-                        </p>
-                      </div>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px] font-bold">{trade.name}</span>
+                        <span className="block truncate text-[12px] font-medium text-mute">
+                          {t.invest.tag[trade.kind]} · {t.common.units(trade.units.toLocaleString('en-US'))} {trade.kind === 'dividend' ? '×' : '@'} {rate(trade)}
+                        </span>
+                        {fees > 0 && (
+                          <span className="block text-[11.5px] font-medium text-mute">
+                            {t.invest.fees} {money(fees)}
+                          </span>
+                        )}
+                      </span>
                       {/* The money that actually moved: a buy with its fees, a sale after them. */}
-                      <p className={`text-[13px] font-black shrink-0 ${tag.amountClass}`}>
+                      <span className={`shrink-0 text-[14.5px] font-extrabold tabular-nums ${kind.inflow ? 'text-pos' : ''}`}>
                         {/* A sale below its fees came to less than nothing: the sign follows the figure. */}
                         {trade.kind === 'buy' ? money(tradeTotalCents(trade)) : money(tradeTotalCents(trade), { signed: true })}
-                      </p>
+                      </span>
                     </button>
                   );
                 })}
               </div>
-            </div>
-          ))
-        )}
+            </section>
+          ))}
 
-        {trades.length > 0 && (
-          <p className="text-slate-600 text-[11px] font-bold text-center mt-8 leading-relaxed px-4">
-            {t.invest.tradesFooter}
-          </p>
-        )}
-      </div>
+          <p className="mt-6 px-3 text-center text-[12px] font-medium leading-relaxed text-mute">{t.invest.tradesFooter}</p>
+        </>
+      )}
 
       {draft && row.status !== 'ready' && (
         <OlderRecordsSheet status={row.status} onRetry={row.retry} onClose={() => setDraft(null)} />
@@ -206,6 +219,11 @@ const Trades: React.FC<TradesProps> = ({
           dividends={dividends}
           alertIds={alertIds}
           draft={draft}
+          quotes={quotes}
+          potCents={toCents(invest.potBalance ?? 0)}
+          dividendMarker={draft.mode === 'edit' ? credited?.find((c) => c.id === draft.trade.id) ?? null : null}
+          onCorrectDividend={(tradeId, cents) => api.correctDividend(uid, tradeId, cents)}
+          onRemoveDividend={(tradeId) => api.removeDividend(uid, tradeId)}
           onClose={() => setDraft(null)}
           onDone={say}
           onEditBroker={onEditBroker}

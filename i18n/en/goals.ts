@@ -1,8 +1,7 @@
-/** A goal's own page, creating one, and the Strategy tab. */
+/** A goal's own page, creating one, and the Split tab. */
 export const goals = {
   // Shared by more than one of the three screens.
   saving: 'Saving...',
-  noLimit: 'No limit',
   targetReached: 'Target reached',
   overspent: 'Overspent',
 
@@ -15,12 +14,10 @@ export const goals = {
   change: 'Change',
   addPhoto: 'Add photo',
   saved: 'Saved',
-  target: 'Target',
   toGo: (amount: string, percent: number) => `${amount} to go · ${percent}% there`,
   noFinishLine: 'Keep saving with no finish line.',
   excludedFromDeposits: 'Excluded from deposits',
   percentOfEveryDeposit: (percent: number) => `${percent}% of every deposit`,
-  changeOnStrategyTab: 'Change on the Strategy tab',
   archived: 'Archived',
   restoreAtZero: 'Restore it to the list at 0% of deposits',
   archiveThisGoal: 'Archive this goal',
@@ -31,7 +28,7 @@ export const goals = {
   depositsShowHere: 'Deposits reaching this goal show up here',
   archiveTitle: (name: string) => `Archive ${name}?`,
   archiveBody: (amount: string) =>
-    `Its ${amount} stays in your total savings and every record stays in your history. The goal just leaves the Home and Strategy lists.`,
+    `Its ${amount} stays in your total savings and every record stays in your history. The goal just leaves the Home and Split lists.`,
   shareGoesTo: (share: number) => `Its ${share}% goes to`,
   noOtherGoal: (share: number) =>
     `No other goal is taking a share yet, so ${share}% of each deposit will be left unassigned until you set the split.`,
@@ -39,38 +36,6 @@ export const goals = {
 
   // CreateGoal
   couldNotCreate: 'Could not create this goal.',
-  newPiggyBank: 'New Piggy Bank',
-  createGoal: 'Create Goal',
-  whatSavingFor: 'What are you saving up for?',
-  coverImage: 'Cover Image',
-  changeImage: 'Change image',
-  optionalUpload: 'Optional — tap to upload',
-  goalName: 'Goal Name',
-  goalNamePlaceholder: 'e.g. Dream Wedding',
-  targetAmount: 'Target Amount',
-  openEndedHint: 'Open-ended — keep saving with no finish line.',
-  selectIcon: 'Select Icon',
-  categoryIs: (category: string) => `Category: ${category}`,
-  /** What each goal icon suggests the goal is for, by icon name. */
-  iconCategories: {
-    directions_car: 'Transport',
-    flight: 'Travel',
-    home: 'Home',
-    shopping_bag: 'Shopping',
-    restaurant: 'Food',
-    devices: 'Tech',
-    pets: 'Pets',
-    fitness_center: 'Health',
-    movie: 'Fun',
-    Celebration: 'Fun',
-    School: 'Education',
-    Medical_Services: 'Health',
-  } as Record<string, string>,
-  automaticSplit: 'Automatic Split',
-  takesShare: 'This goal takes a share of every deposit',
-  skippedInSplit: 'This goal is skipped when a deposit is split',
-  newGoalsStartAtZero: 'New goals start at a 0% split. Set their share of each deposit on the Strategy tab.',
-  confirmGoal: 'Confirm Goal',
 
   // StrategyEditor
   less: 'Less',
@@ -80,7 +45,7 @@ export const goals = {
   deleteBodyLast: 'It holds no money, so nothing moves. It is your only goal, so deposits will have nowhere to go until you create another.',
   moveMoney: {
     title: (name: string, amount: string) => `${name} still holds ${amount}. Where should it go?`,
-    body: 'Deleting a goal no longer deletes its money. Pick a goal to move it into, or split it across your goals like a deposit. History gets one "Moved in" line.',
+    body: 'Deleting a goal no longer deletes its money. Pick a goal to move it into, or split it across your goals like a deposit. History gets one "Between goals" line.',
     bodyOverspent: 'This goal is overspent. Pick the goal that takes on the shortfall.',
     nowhere: 'There is no other goal to move this money into. Create another goal first, or archive this one — archiving keeps the goal and its money.',
     splitSub: 'Across your goals by their share, like a deposit',
@@ -115,7 +80,7 @@ export const goals = {
     giveNoneSub: 'Only this record is removed',
   },
   percentOfEachDeposit: (percent: number) => `${percent}% of each deposit`,
-  strategyTitle: 'Distribution Strategy',
+  strategyTitle: 'Deposit split',
   strategySubtitle: 'Every untargeted deposit is split by these shares.',
   everyGoalExcluded: 'Every goal is excluded from deposits.',
   unassigned: 'Unassigned',
@@ -132,8 +97,8 @@ export const goals = {
   goalFunded: (percent: number) => `Goal funded ${percent}%`,
   openEnded: 'Open-ended',
   remaining: (amount: string) => `${amount} remaining`,
-  autoSplitOn: 'Auto-split on',
-  autoSplitOff: 'Auto-split off',
+  autoSplitOn: 'In the split: on',
+  autoSplitOff: 'In the split: off',
   evenSplit: (label: string | null) => `Even Split${label ? ` (${label})` : ''}`,
   addGoal: 'Add Goal',
   totalAllocation: 'Total Allocation',
@@ -142,6 +107,10 @@ export const goals = {
   percentLeft: (percent: number) => `${percent}% left`,
   addAGoal: 'Add a Goal',
   allocationMismatch: 'Allocation Mismatch',
-  saveStrategy: 'Save Strategy',
-  strategySaved: 'Strategy Saved',
+  saveStrategy: 'Save split',
+  strategySaved: 'Split saved',
+  lock: 'Lock this share',
+  unlock: 'Unlock this share',
+  deleteThisGoal: 'Delete this goal',
+  unsavedChanges: 'Changes not saved yet',
 };

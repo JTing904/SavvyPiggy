@@ -24,7 +24,20 @@ import type { FeeKey, SecurityType, TradeFees } from './services/fees';
  * coming back into them. Neither is spending or saving — the report keeps them
  * on their own lines — and both belong to a trade, which is where they are edited.
  */
-export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest';
+export type ActivityType =
+  | 'auto-save'
+  | 'manual'
+  | 'withdraw'
+  | 'borrow'
+  | 'invest'
+  | 'divest'
+  | 'transfer'
+  | 'toInvest'
+  | 'fromInvest'
+  /** Money moved between the wallet and the goals by hand. Neither income nor spending. */
+  | 'walletMove'
+  /** A payment on a loan or other debt: the principal lowers the debt, the interest is spending. */
+  | 'loanPayment';
 
 export interface Activity {
   id: string;
@@ -34,6 +47,22 @@ export interface Activity {
   amount: number;
   /** Signed per bank: money in is positive, money out is negative. */
   distributions: { bankId: string; amount: number; percentage: number }[];
+  /** Set on an entry a recurring bill made: which bill, so its past amounts can be read back. */
+  billId?: string;
+  /** `loanPayment`: which debt was paid, and how the amount split. `amount` is the whole payment. */
+  liabilityId?: string;
+  principal?: number;
+  interest?: number;
+  /** Ids of the receipt photos kept for this entry (documents in `receipts`). */
+  receipts?: string[];
+  /** The app recorded this by itself (a fixed bill on its day) rather than the person. */
+  auto?: boolean;
+  /**
+   * What this entry did to the wallet, signed ringgit: income kept in it (or
+   * clearing an overdraft) is positive, spending from it negative. Absent on
+   * every entry made before the wallet existed, which read as 0.
+   */
+  wallet?: number;
   /** Portion of a deposit that cleared debt instead of feeding the split. */
   repaid?: number;
   /** Which debts this entry paid down, so deleting it can put them back. */
@@ -78,6 +107,36 @@ export interface Loan {
 }
 
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+/**
+ * Money that goes out on a repeating day, every day, week, month or year.
+ * `fixed` is recorded by the app on its day; `variable` only asks, with the
+ * last amount filled in.
+ */
+export type BillMode = 'fixed' | 'variable';
+
+export interface Bill {
+  id: string;
+  name: string;
+  mode: BillMode;
+  /** Ringgit. What a fixed bill records; for a variable one only a reference, 0 for none. */
+  amount: number;
+  frequency: Frequency;
+  /** 0 = Sunday .. 6 = Saturday. Used by `weekly`. */
+  weekday: number;
+  /** 1..31, clamped to the month's length. Used by `monthly` and `yearly`. */
+  dayOfMonth: number;
+  /** 1..12. Used by `yearly`. */
+  month: number;
+  /** `wallet`, or the id of a goal. */
+  sourceId: string;
+  /** A key from services/categories.ts. */
+  category: string;
+  enabled: boolean;
+  createdAt: number;
+  /** ISO: the latest day already recorded or passed over; only later days are due. */
+  lastRunAt: string;
+}
 
 export interface Schedule {
   id: string;
@@ -157,6 +216,12 @@ export interface Trade {
    * unit in ten-thousandths of a ringgit, so RM0.3300 is 3300.
    */
   perUnitPoints?: number;
+  /**
+   * Dividends only: what was actually received, in whole sen, once a person has
+   * corrected it (tax withheld, a rounded payout). Absent means units times
+   * `perUnitPoints`, as always; present it wins.
+   */
+  amountCents?: number;
   /**
    * Dividends only: the ex-date this was owed on. It is what makes crediting
    * idempotent — one dividend per counter per ex-date, however many times the
@@ -315,6 +380,8 @@ export interface NotificationPrefs {
    * who the payment belongs to, so it is the one worth interrupting for.
    */
   exDates: boolean;
+  /** Variable bills on their day, and a heads-up the day before a bill the wallet cannot cover. */
+  bills: boolean;
 }
 
 export enum Tab {
@@ -358,4 +425,66 @@ export interface InvestSettings {
    * It never goes below zero and is not part of total savings.
    */
   potBalance: number;
+}
+
+/**
+ * Money that has arrived but is not in any goal yet. It can go below zero:
+ * spending past what it holds is an overdraft, which the next income clears
+ * before anything else is placed.
+ */
+export interface WalletSettings {
+  /** Ringgit, like a goal balance. Negative means overdrawn. */
+  balance: number;
+}
+
+/** A monthly limit that holds from `from` ("2026-10") until the next step. 0 means no limit. */
+export interface BudgetStep {
+  from: string;
+  cents: number;
+}
+
+/**
+ * What the person allows themselves to spend each month: one total, and a limit
+ * per spending category. Each is a history of steps, so changing a limit only
+ * affects the months from then on and past months keep the limit they had.
+ */
+export interface Budgets {
+  total: BudgetStep[];
+  categories: Record<string, BudgetStep[]>;
+}
+
+/* ------------------------------------------------------- net worth */
+
+export type LiabilityKind = 'home' | 'car' | 'ptptn' | 'card' | 'other';
+
+/** Money owed, as far as the person says: what is left, changed by each payment recorded. */
+export interface Liability {
+  id: string;
+  name: string;
+  kind: LiabilityKind;
+  /** Ringgit still owed. */
+  balance: number;
+  /** What is paid each month, in ringgit; null when not given. */
+  monthly?: number | null;
+  /** The yearly interest rate in percent (4.2 means 4.2%); null when not given. */
+  rate?: number | null;
+  /**
+   * How the interest is charged: `eir` on what is still owed, so it shrinks as the
+   * debt does; `flat` on the amount first borrowed, so it never changes.
+   */
+  rateType?: 'eir' | 'flat';
+  /** Ringgit first borrowed. Only a flat-rate debt needs it. */
+  original?: number | null;
+  /** The day of the month the payment falls on; null when not given. */
+  payDay?: number | null;
+  /** The last month day that was recorded or skipped, an ISO time; the clock the monthly question runs on. */
+  lastRunAt?: string | null;
+  createdAt: number;
+}
+
+/** The net worth on the last day it was looked at in a month. */
+export interface NetWorthPoint {
+  /** "2026-10" */
+  month: string;
+  cents: number;
 }

@@ -1,7 +1,7 @@
 /** Words inside the files the app writes: the PDF statement and the spreadsheet. */
 export const files = {
   /** Ledger entry types as a statement names them. */
-  withdrawal: 'Withdrawal',
+  withdrawal: 'Spending',
   trade: {
     buy: 'Buy',
     sell: 'Sell',

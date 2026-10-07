@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useBackHandler } from '../hooks/useBackHandler';
+import { Icon } from './ui/Icon';
+import { Sheet } from './ui/Sheet';
 import { useT } from '../contexts/LanguageContext';
 import {
   addDays,
@@ -30,6 +31,13 @@ interface DateFieldProps {
   onChange: (value: string) => void;
   /** Latest selectable day, "YYYY-MM-DD". Days after it cannot be chosen. */
   max?: string;
+  /** Earliest selectable day. Earlier days cannot be chosen, and the month arrows stop at its month. */
+  min?: Date;
+  /**
+   * Draws whatever opens the picker in place of the built-in labelled button,
+   * for a screen whose own look the default does not fit. The picker is unchanged.
+   */
+  renderTrigger?: (open: () => void) => React.ReactNode;
   /** What the sheet asks, and why the answer matters. */
   title?: string;
   hint?: string;
@@ -40,6 +48,8 @@ const DateField: React.FC<DateFieldProps> = ({
   value,
   onChange,
   max,
+  min,
+  renderTrigger,
   title,
   hint,
 }) => {
@@ -59,10 +69,9 @@ const DateField: React.FC<DateFieldProps> = ({
     setView({ year: d.getFullYear(), month: d.getMonth() });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useBackHandler(open, () => setOpen(false));
-
   const today = toInputDate(Date.now());
   const ceiling = max ?? '9999-12-31';
+  const floor = min ? toInputDate(min.getTime()) : '0000-01-01';
 
   const pick = (key: string) => {
     onChange(key);
@@ -77,16 +86,21 @@ const DateField: React.FC<DateFieldProps> = ({
     view.year > ceilingDate.getFullYear() ||
     (view.year === ceilingDate.getFullYear() && view.month >= ceilingDate.getMonth());
 
+  // The month before the floor holds nothing selectable either.
+  const floorDate = new Date(fromInputDate(floor));
+  const atFloorMonth =
+    !!min &&
+    (view.year < floorDate.getFullYear() ||
+      (view.year === floorDate.getFullYear() && view.month <= floorDate.getMonth()));
+
   const quick = (text: string, key: string) => {
-    if (key > ceiling) return null;
+    if (key > ceiling || key < floor) return null;
     const on = key === value;
     return (
       <button
         type="button"
         onClick={() => pick(key)}
-        className={`px-4 py-2.5 rounded-2xl text-[12px] font-black border active:scale-95 transition-transform ${
-          on ? 'bg-primary text-black border-primary' : 'bg-white/5 border-white/10 text-slate-400'
-        }`}
+        className={`min-h-11 rounded-full px-4 text-[13px] font-bold active:opacity-70 ${on ? 'bg-cta text-cta-fg' : 'bg-card text-mute'}`}
       >
         {text}
       </button>
@@ -94,75 +108,70 @@ const DateField: React.FC<DateFieldProps> = ({
   };
 
   return (
-    <div className="flex-1 min-w-0">
-      <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 active:border-primary/50 transition-colors text-left"
-      >
-        <span className="material-symbols-rounded text-slate-500 text-xl shrink-0">calendar_month</span>
-        <span className="flex-1 min-w-0 text-white text-base font-black truncate">
-          {readableDate(value)}
-        </span>
-        <span className="material-symbols-rounded text-slate-600 text-lg shrink-0">expand_more</span>
-      </button>
+    <div className="min-w-0 flex-1">
+      {renderTrigger ? (
+        renderTrigger(() => setOpen(true))
+      ) : (
+        <>
+          <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">{label}</p>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex min-h-14 w-full items-center gap-3 rounded-[18px] bg-field px-4 text-left active:opacity-80"
+          >
+            <Icon name="cal" size={20} className="text-mute" />
+            <span className="min-w-0 flex-1 truncate text-[16px] font-bold text-ink">{readableDate(value)}</span>
+            <Icon name="chev" size={16} className="rotate-90 text-mute" />
+          </button>
+        </>
+      )}
 
       {open && (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
-            <h3 className="text-white text-2xl font-black tracking-tight">{title ?? t.pickers.whenWasThis}</h3>
-            {hint && <p className="text-slate-400 text-sm font-medium mt-2 leading-relaxed">{hint}</p>}
+        <Sheet title={title ?? t.pickers.whenWasThis} z={60} onClose={() => setOpen(false)}>
+          {hint && <p className="-mt-1 px-1 text-[13.5px] font-medium leading-relaxed text-mute">{hint}</p>}
 
-            <div className="flex gap-2 mt-5">
-              {quick(t.common.today, today)}
-              {quick(t.common.yesterday, addDays(today, -1))}
-            </div>
+          <div className="mt-4 flex gap-2">
+            {quick(t.common.today, today)}
+            {quick(t.common.yesterday, addDays(today, -1))}
+          </div>
 
-            <div className="flex items-center justify-between mt-6">
-              <button
-                type="button"
-                onClick={() => step(-1)}
-                aria-label={t.pickers.previousMonth}
-                className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-              >
-                <span className="material-symbols-rounded text-xl">chevron_left</span>
-              </button>
-              <p className="text-white text-base font-black">{monthLabel(view.year, view.month)}</p>
-              <button
-                type="button"
-                onClick={() => step(1)}
-                disabled={atCeilingMonth}
-                aria-label={t.pickers.nextMonth}
-                className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform disabled:opacity-30 disabled:active:scale-100"
-              >
-                <span className="material-symbols-rounded text-xl">chevron_right</span>
-              </button>
-            </div>
+          <div className="mt-5 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => step(-1)}
+              disabled={atFloorMonth}
+              aria-label={t.pickers.previousMonth}
+              className="grid size-11 place-items-center rounded-full bg-card active:opacity-70 disabled:opacity-30"
+            >
+              <Icon name="back" size={18} />
+            </button>
+            <p className="text-[16px] font-extrabold">{monthLabel(view.year, view.month)}</p>
+            <button
+              type="button"
+              onClick={() => step(1)}
+              disabled={atCeilingMonth}
+              aria-label={t.pickers.nextMonth}
+              className="grid size-11 place-items-center rounded-full bg-card active:opacity-70 disabled:opacity-30"
+            >
+              <Icon name="chev" size={18} />
+            </button>
+          </div>
 
-            <div className="grid grid-cols-7 mt-4">
-              {t.common.weekdaysNarrow.map((d, i) => (
-                <span
-                  key={i}
-                  className="text-center text-slate-500 text-[10px] font-black tracking-wider"
-                >
-                  {d}
-                </span>
-              ))}
-            </div>
+          <div className="mt-3 grid grid-cols-7">
+            {t.common.weekdaysNarrow.map((d, i) => (
+              <span key={i} className="text-center text-[11.5px] font-bold text-mute">
+                {d}
+              </span>
+            ))}
+          </div>
 
-            <div className="grid grid-cols-7 gap-0.5 place-items-center mt-2">
-              {monthGrid(view.year, view.month).flat().map((day, i) => {
-                if (day === null) return <span key={i} className="size-10" />;
+          <div className="mt-2 grid grid-cols-7 place-items-center gap-y-0.5">
+            {monthGrid(view.year, view.month)
+              .flat()
+              .map((day, i) => {
+                if (day === null) return <span key={i} className="size-11" />;
                 const key = toInputDate(new Date(view.year, view.month, day).getTime());
-                const blocked = key > ceiling;
+                const blocked = key > ceiling || key < floor;
                 const on = key === value;
                 return (
                   <button
@@ -172,23 +181,16 @@ const DateField: React.FC<DateFieldProps> = ({
                     aria-current={key === today ? 'date' : undefined}
                     aria-selected={on}
                     onClick={() => pick(key)}
-                    className={`size-10 rounded-full text-sm font-bold tabular-nums transition-transform active:scale-90 disabled:active:scale-100 ${
-                      on
-                        ? 'bg-primary text-black font-black'
-                        : blocked
-                          ? 'text-slate-700'
-                          : key === today
-                            ? 'text-slate-300 ring-1 ring-primary/40'
-                            : 'text-slate-300'
+                    className={`size-11 rounded-full text-[14.5px] font-bold tabular-nums active:opacity-70 ${
+                      on ? 'bg-cta text-cta-fg' : blocked ? 'text-mute/40' : key === today ? 'text-ink ring-2 ring-ink/30' : 'text-ink'
                     }`}
                   >
                     {day}
                   </button>
                 );
               })}
-            </div>
           </div>
-        </div>
+        </Sheet>
       )}
     </div>
   );

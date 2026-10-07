@@ -1,6 +1,8 @@
 import React from 'react';
-import { formatMoney, fromCents, toCents } from '../../services/money';
+import { toCents } from '../../services/money';
 import { useT } from '../../contexts/LanguageContext';
+import { Amount } from '../ui/Amount';
+import { Icon } from '../ui/Icon';
 
 /**
  * The investment pot on the investing Home: the cash waiting to buy shares.
@@ -17,43 +19,35 @@ const PotCard: React.FC<{
   const t = useT();
   const w = t.invest.potCard;
   const cents = toCents(balance);
-  const shown = formatMoney(fromCents(cents));
 
   return (
-    <div className="rounded-[2rem] bg-surface border border-accent/25 p-5 shadow-xl">
+    <div className="rounded-3xl bg-card p-5 text-ink">
       <div className="flex items-center gap-3">
-        <div className="size-11 shrink-0 rounded-2xl bg-accent/10 text-accent flex items-center justify-center">
-          <span className="material-symbols-rounded text-2xl">account_balance_wallet</span>
-        </div>
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-mint">
+          <Icon name="wallet" size={22} />
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.invest.pot}</p>
-          {/* Money is never cut off: a long balance gets a smaller size instead. */}
-          <p
-            className={`text-white font-black tracking-tight break-all ${
-              shown.length > 15 ? 'text-lg' : shown.length > 12 ? 'text-xl' : 'text-2xl'
-            }`}
-          >
-            {shown}
-          </p>
+          <p className="text-[12px] font-bold text-mute">{t.invest.pot}</p>
+          <Amount cents={cents} size="md" tone={cents < 0 ? 'neg' : 'ink'} />
         </div>
       </div>
-      <p className="text-slate-500 text-[11px] font-bold mt-2 leading-relaxed">{w.hint}</p>
-      <div className="grid grid-cols-2 gap-2 mt-4">
+      <p className="mt-2 text-[12.5px] font-medium leading-relaxed text-mute">{w.hint}</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={onMoveIn}
-          className="h-11 rounded-2xl bg-accent text-black text-[13px] font-black flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
+          className="flex min-h-12 items-center justify-center gap-1.5 rounded-full bg-info text-[13.5px] font-extrabold text-cta-fg active:opacity-80"
         >
-          <span className="material-symbols-rounded text-lg">south_east</span>
+          <Icon name="dep" size={16} />
           {w.moveIn}
         </button>
         <button
           type="button"
           onClick={onMoveOut}
           disabled={cents <= 0}
-          className="h-11 rounded-2xl bg-white/5 border border-white/10 text-white text-[13px] font-black flex items-center justify-center gap-1.5 active:scale-95 transition-transform disabled:opacity-30"
+          className="flex min-h-12 items-center justify-center gap-1.5 rounded-full bg-line/10 text-[13.5px] font-extrabold active:opacity-80 disabled:opacity-35"
         >
-          <span className="material-symbols-rounded text-lg">north_west</span>
+          <Icon name="out" size={16} />
           {w.moveOut}
         </button>
       </div>

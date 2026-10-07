@@ -4,26 +4,56 @@ import { compressImage } from '../services/image';
 import { uploadGoalImage } from '../services/storage';
 import { isStorageEnabled } from '../lib/firebase';
 import { archiveStrategy, isArchived, isFull, isInSplit } from '../services/ledger';
-import { useBackHandler } from '../hooks/useBackHandler';
+import type { BankEdit } from '../services/bankEdit';
+import { safeGoalIcon } from '../services/goalIcons';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 import OlderRecordsNotice from './OlderRecordsNotice';
+import EditGoalSheet from './EditGoalSheet';
 import { formatMoney, percentReached, toCents } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
-import { dateLocale, deviceDateLocale, noteText, type Messages } from '../i18n';
+import { deviceDateLocale, noteText, type Messages } from '../i18n';
+import { Amount } from './ui/Amount';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Group } from './ui/Group';
+import { Icon } from './ui/Icon';
+import { Row, type RowTone } from './ui/Row';
+import { Sheet } from './ui/Sheet';
+import type { TileTint } from './ui/Tile';
+
+/** Which kind of entry reads as what: its icon, its square's tint, and how its figure is coloured. */
+interface Style {
+  label: (t: Messages) => string;
+  icon: string;
+  tint: TileTint;
+  /** Money in and out go by sign; moves to and from shares are the investing colour. */
+  tone: 'sign' | 'info';
+}
 
 /** Labels are looked up at render, so they follow the language. */
-const STYLES: Record<ActivityType, { label: (t: Messages) => string; icon: string; tint: string }> = {
-  'auto-save': { label: (t) => t.goals.scheduledDeposit, icon: 'magic_button', tint: 'bg-primary/10 text-primary' },
-  manual: { label: (t) => t.common.activity.manual, icon: 'person', tint: 'bg-blue-400/10 text-blue-400' },
-  withdraw: { label: (t) => t.common.activity.withdraw, icon: 'north_east', tint: 'bg-slate-500/10 text-slate-400' },
-  borrow: { label: (t) => t.common.activity.borrow, icon: 'account_balance', tint: 'bg-amber-500/10 text-amber-400' },
-  invest: { label: (t) => t.common.activity.invest, icon: 'candlestick_chart', tint: 'bg-accent/10 text-accent' },
-  divest: { label: (t) => t.common.activity.divest, icon: 'currency_exchange', tint: 'bg-accent/10 text-accent' },
-  transfer: { label: (t) => t.common.activity.transfer, icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300' },
-  toInvest: { label: (t) => t.common.activity.toInvest, icon: 'south_east', tint: 'bg-accent/10 text-accent' },
-  fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'north_west', tint: 'bg-accent/10 text-accent' },
+const STYLES: Record<ActivityType, Style> = {
+  'auto-save': { label: (t) => t.goals.scheduledDeposit, icon: 'repeat', tint: 'mint', tone: 'sign' },
+  manual: { label: (t) => t.common.activity.manual, icon: 'dep', tint: 'mint', tone: 'sign' },
+  withdraw: { label: (t) => t.common.activity.withdraw, icon: 'out', tint: 'peach', tone: 'sign' },
+  borrow: { label: (t) => t.common.activity.borrow, icon: 'out', tint: 'sun', tone: 'sign' },
+  invest: { label: (t) => t.common.activity.invest, icon: 'trend', tint: 'lav', tone: 'info' },
+  divest: { label: (t) => t.common.activity.divest, icon: 'trend', tint: 'lav', tone: 'info' },
+  transfer: { label: (t) => t.common.activity.transfer, icon: 'swap', tint: 'mint', tone: 'sign' },
+  toInvest: { label: (t) => t.common.activity.toInvest, icon: 'swap', tint: 'lav', tone: 'info' },
+  fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'swap', tint: 'lav', tone: 'info' },
+  walletMove: { label: (t) => t.common.activity.walletMove, icon: 'swap', tint: 'lav', tone: 'info' },
+  loanPayment: { label: (t) => t.common.activity.loanPayment, icon: 'out', tint: 'peach', tone: 'sign' },
 };
 
+// Full literal strings so the build keeps every class.
+const HERO: Record<TileTint, string> = {
+  peach: 'bg-peach',
+  mint: 'bg-mint',
+  lav: 'bg-lav',
+  sun: 'bg-sun',
+};
+// The same order the money sheet colours its goal tiles in.
+const TINTS: TileTint[] = ['peach', 'lav', 'sun', 'mint'];
 
 interface GoalDetailProps {
   uid: string;
@@ -37,6 +67,10 @@ interface GoalDetailProps {
   onChangePhoto: (imageUrl: string) => Promise<void> | void;
   onArchive: () => void;
   onUnarchive: () => void;
+  /** Saves a change to the goal's name, target or icon. Rejects with the reason it was refused. */
+  onEditGoal: (edit: BankEdit) => Promise<void>;
+  /** Tapping an entry opens it in the shared entry sheet. */
+  onOpenEntry: (id: string) => void;
   /** A trade's row is corrected through its trade, so tapping one opens it. */
   onOpenTrade?: (tradeId: string) => void;
 }
@@ -52,6 +86,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   onChangePhoto,
   onArchive,
   onUnarchive,
+  onEditGoal,
+  onOpenEntry,
   onOpenTrade,
 }) => {
   const t = useT();
@@ -59,7 +95,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
-  useBackHandler(confirmArchive, () => setConfirmArchive(false));
+  const [editing, setEditing] = useState(false);
 
   const pickPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -97,6 +133,7 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
     ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
     : 0;
   const remaining = bank.targetAmount - bank.currentAmount;
+  const tint = TINTS[Math.max(0, banks.findIndex((b) => b.id === bank.id)) % TINTS.length];
 
   const archived = isArchived(bank);
   // What archiving would do to the strategy, so the sheet can spell it out.
@@ -110,182 +147,162 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   const history = useLedgerRange(ledger, ledger.keptFrom);
   const complete = history === 'ready';
   const stats = [
-    { label: t.goals.paidIn, value: complete ? formatMoney(paidIn) : '—' },
-    { label: t.goals.takenOut, value: complete ? formatMoney(takenOut) : '—' },
+    { label: t.goals.paidIn, value: complete ? formatMoney(paidIn, { decimals: 0 }) : '—' },
+    { label: t.goals.takenOut, value: complete ? formatMoney(takenOut, { decimals: 0 }) : '—' },
     { label: t.goals.entries, value: complete ? String(entries.length) : '—' },
   ];
 
   return (
-    <div className="flex flex-col min-h-full bg-bg-dark pb-40 safe-pt">
-      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/95 z-20">
+    <div className="flex min-h-full flex-col bg-page pb-40 font-figtree text-ink safe-pt">
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-page px-5 py-2">
         <button
+          type="button"
           onClick={onBack}
-          className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
+          aria-label={t.common.back}
+          className="grid size-11 place-items-center rounded-full bg-card text-ink active:opacity-70"
         >
-          <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
+          <Icon name="back" size={20} />
         </button>
-        <h2 className="text-white text-lg font-bold tracking-tight truncate px-3">{bank.name}</h2>
-        <div className="size-10"></div>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-label={t.goalEdit.editGoal}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-card px-4 text-[13.5px] font-bold text-ink active:opacity-70"
+        >
+          <Icon name="pencil" size={16} />
+          {t.goalEdit.edit}
+        </button>
       </div>
 
-      <div className="px-6 pt-2 space-y-4">
-        {/* Artwork, drawn locally when there is no uploaded cover. */}
-        <div className="w-full aspect-[16/10] rounded-[2rem] relative overflow-hidden bg-gradient-to-br from-primary/25 to-accent/10">
-          <div className="absolute inset-0 flex items-center justify-center text-primary/25">
-            <span className="material-symbols-rounded text-8xl">{bank.icon}</span>
-          </div>
+      <div className="space-y-3 px-5">
+        <h1 className="break-words text-[30px] font-extrabold leading-tight tracking-[-0.035em]">{bank.name}</h1>
+
+        {/* The goal at a glance. The cover photo, when there is one, sits across the top. */}
+        <div className={`overflow-hidden rounded-[28px] ${HERO[tint]}`}>
           {bank.imageUrl && (
             <img
               key={bank.imageUrl}
               src={bank.imageUrl}
               alt=""
-              className="absolute inset-0 size-full object-cover"
+              className="aspect-[16/9] w-full object-cover"
               onError={(e) => {
                 e.currentTarget.style.display = 'none';
               }}
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent"></div>
+          <div className="p-5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="grid size-11 place-items-center rounded-full bg-card/70 text-ink" aria-hidden="true">
+                <span className="material-symbols-rounded" style={{ fontSize: 24 }}>
+                  {safeGoalIcon(bank.icon)}
+                </span>
+              </span>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  void pickPhoto(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInput.current?.click()}
+                disabled={uploading}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-card/70 px-4 text-[13px] font-bold text-ink active:opacity-70 disabled:opacity-50"
+              >
+                <Icon name="camera" size={16} />
+                {uploading ? t.goals.saving : bank.imageUrl ? t.goals.change : t.goals.addPhoto}
+              </button>
+            </div>
 
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => void pickPhoto(e.target.files?.[0])}
-          />
-          <button
-            onClick={() => fileInput.current?.click()}
-            disabled={uploading}
-            className="absolute top-4 right-4 h-10 px-4 rounded-full glass flex items-center gap-2 text-white text-xs font-bold active:scale-90 transition-transform disabled:opacity-50"
-          >
-            <span className="material-symbols-rounded text-lg">
-              {bank.imageUrl ? 'edit' : 'add_photo_alternate'}
-            </span>
-            {uploading ? t.goals.saving : bank.imageUrl ? t.goals.change : t.goals.addPhoto}
-          </button>
+            <p className="mt-4 text-[12.5px] font-bold text-mute">{overspent ? t.goals.overspent : t.goals.saved}</p>
+            <Amount cents={toCents(bank.currentAmount)} size="xl" tone={overspent ? 'neg' : 'ink'} />
 
-          <div className="absolute bottom-5 left-5 right-5">
-            <p className="text-white/60 text-[10px] font-black uppercase tracking-widest mb-1">
-              {overspent ? t.goals.overspent : t.goals.saved}
+            {hasTarget && !overspent && (
+              <div
+                className="mt-4 h-2 w-full overflow-hidden rounded-full bg-line/10"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(progress)}
+              >
+                <div className="h-full rounded-full bg-ink" style={{ width: `${progress}%` }} />
+              </div>
+            )}
+            <p className="mt-2 text-[12.5px] font-semibold text-mute">
+              {hasTarget
+                ? toCents(remaining) > 0
+                  ? t.goals.toGo(formatMoney(remaining), percentReached(bank.currentAmount, bank.targetAmount))
+                  : t.goals.targetReached
+                : t.goals.noFinishLine}
             </p>
-            <h1 className={`text-3xl font-extrabold tracking-tight ${overspent ? 'text-red-400' : 'text-white'}`}>
-              {formatMoney(bank.currentAmount)}
-            </h1>
           </div>
         </div>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4">
-            <span className="material-symbols-rounded text-red-400 text-lg">error</span>
-            <p className="text-red-300 text-xs font-bold leading-relaxed">{error}</p>
-          </div>
+          <p role="alert" className="rounded-2xl bg-card px-4 py-3 text-[13px] font-bold text-neg">
+            {error}
+          </p>
         )}
 
-        {/* Progress toward the target, or the open-ended marker. */}
-        <div className="bg-surface border border-white/5 rounded-[2rem] p-6 space-y-3 shadow-xl">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="text-slate-500 text-xs font-black uppercase tracking-widest">
-              {hasTarget ? t.goals.target : t.goals.noLimit}
-            </p>
-            <p className="text-white font-black">
-              {hasTarget ? formatMoney(bank.targetAmount, { decimals: 0 }) : '∞'}
-            </p>
-          </div>
-          <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-            {overspent ? (
-              <div className="h-full w-full rounded-full bg-red-500/30"></div>
-            ) : hasTarget ? (
-              <div
-                className="h-full bg-primary rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)] transition-all duration-700"
-                style={{ width: `${progress}%` }}
-              ></div>
-            ) : (
-              <div className="h-full w-full rounded-full bg-gradient-to-r from-primary/40 to-accent/10"></div>
-            )}
-          </div>
-          <p className="text-slate-500 text-xs font-medium">
-            {hasTarget
-              ? toCents(remaining) > 0
-                ? t.goals.toGo(formatMoney(remaining), percentReached(bank.currentAmount, bank.targetAmount))
-                : t.goals.targetReached
-              : t.goals.noFinishLine}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           {stats.map((s) => (
-            <div key={s.label} className="bg-surface border border-white/5 rounded-3xl p-4 text-center shadow-xl">
-              <p className="text-white text-lg font-black tabular-nums">{s.value}</p>
-              <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mt-1">{s.label}</p>
+            <div key={s.label} className="min-w-0 rounded-2xl bg-card px-3 py-2.5">
+              <p className="truncate text-[11.5px] font-semibold text-mute">{s.label}</p>
+              <p className="truncate text-[15px] font-extrabold tabular-nums">{s.value}</p>
             </div>
           ))}
         </div>
 
-        <button
-          onClick={onEditStrategy}
-          className="w-full bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-4 shadow-xl active:scale-[0.99] transition-transform text-left"
-        >
-          <div className="size-12 shrink-0 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
-            <span className="material-symbols-rounded text-2xl">pie_chart</span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-white font-bold">
-              {bank.autoSplit === false ? t.goals.excludedFromDeposits : t.goals.percentOfEveryDeposit(bank.splitPercentage)}
-            </p>
-            <p className="text-slate-500 text-xs font-medium">{t.goals.changeOnStrategyTab}</p>
-          </div>
-          <span className="material-symbols-rounded text-slate-600">chevron_right</span>
-        </button>
-
-        {archived ? (
-          <button
-            onClick={onUnarchive}
-            className="w-full bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-4 shadow-xl active:scale-[0.99] transition-transform text-left"
-          >
-            <div className="size-12 shrink-0 rounded-2xl bg-white/5 text-slate-400 flex items-center justify-center">
-              <span className="material-symbols-rounded text-2xl">unarchive</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-white font-bold">{t.goals.archived}</p>
-              <p className="text-slate-500 text-xs font-medium">{t.goals.restoreAtZero}</p>
-            </div>
-          </button>
-        ) : (
-          <button
-            onClick={() => setConfirmArchive(true)}
-            className="w-full bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-4 shadow-xl active:scale-[0.99] transition-transform text-left"
-          >
-            <div className="size-12 shrink-0 rounded-2xl bg-white/5 text-slate-400 flex items-center justify-center">
-              <span className="material-symbols-rounded text-2xl">inventory_2</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-white font-bold">{t.goals.archiveThisGoal}</p>
-              <p className="text-slate-500 text-xs font-medium">
-                {isFull(bank) ? t.goals.archiveFull : t.goals.archiveNotFull}
-              </p>
-            </div>
-          </button>
-        )}
+        <Group>
+          <Row
+            icon="pie"
+            tint="mint"
+            title={bank.autoSplit === false ? t.goals.excludedFromDeposits : t.goals.percentOfEveryDeposit(bank.splitPercentage)}
+            sub={t.goalEdit.shareHint}
+            trailing={<Icon name="chev" size={18} className="text-mute" />}
+            onClick={onEditStrategy}
+          />
+          {archived ? (
+            <Row
+              icon="archive"
+              tint="peach"
+              title={t.goals.archived}
+              sub={t.goals.restoreAtZero}
+              trailing={<Icon name="chev" size={18} className="text-mute" />}
+              onClick={onUnarchive}
+            />
+          ) : (
+            <Row
+              icon="archive"
+              tint="peach"
+              title={t.goals.archiveThisGoal}
+              sub={isFull(bank) ? t.goals.archiveFull : t.goals.archiveNotFull}
+              trailing={<Icon name="chev" size={18} className="text-mute" />}
+              onClick={() => setConfirmArchive(true)}
+            />
+          )}
+        </Group>
       </div>
 
-      <div className="px-6 mt-8">
-        <h3 className="text-white text-lg font-bold mb-4">{t.goals.activity}</h3>
-        <div className="space-y-3">
-          {history !== 'ready' && <OlderRecordsNotice status={history} onRetry={ledger.retry} />}
-          {entries.length === 0 && history !== 'ready' ? null : entries.length === 0 ? (
-            <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
-              <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">receipt_long</span>
-              <p className="text-slate-500 font-bold">{t.goals.nothingYet}</p>
-              <p className="text-slate-600 text-xs mt-1">{t.goals.depositsShowHere}</p>
-            </div>
-          ) : (
-            entries.map(({ activity, amount }) => {
+      <div className="mt-7 px-5">
+        <h2 className="mb-2.5 px-1 text-[17px] font-extrabold tracking-tight">{t.goals.activity}</h2>
+        {history !== 'ready' && <OlderRecordsNotice status={history} onRetry={ledger.retry} />}
+        {entries.length === 0 && history !== 'ready' ? null : entries.length === 0 ? (
+          <div className="rounded-3xl bg-card">
+            <EmptyState icon="doc" title={t.goals.nothingYet} body={t.goals.depositsShowHere} />
+          </div>
+        ) : (
+          <Group>
+            {entries.map(({ activity, amount }) => {
               const style = STYLES[activity.type];
               // Money moved for shares reads as the trade it was, and opens it.
               const trade = activity.type === 'invest' || activity.type === 'divest';
               const { tradeId } = activity;
-              const openTrade = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : null;
+              const open = trade && tradeId && onOpenTrade ? () => onOpenTrade(tradeId) : () => onOpenEntry(activity.id);
               const when = new Date(activity.date).toLocaleDateString(deviceDateLocale(), {
                 month: 'short',
                 day: 'numeric',
@@ -310,96 +327,66 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
                   : activity.type === 'transfer' && activity.fromGoal
                     ? t.common.movedFrom(style.label(t), activity.fromGoal)
                     : (activity.note && noteText(activity.note)) || style.label(t);
-              const content = (
-                <>
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className={`size-11 shrink-0 rounded-2xl flex items-center justify-center ${style.tint}`}>
-                      <span className="material-symbols-rounded">{style.icon}</span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-white font-bold text-sm truncate">{title}</p>
-                      <p className="text-slate-500 text-[10px] font-medium truncate">{meta}</p>
-                    </div>
-                  </div>
-                  <p className={`font-black shrink-0 tabular-nums ${amount < 0 ? 'text-slate-400' : 'text-white'}`}>
-                    {formatMoney(amount, { signed: true })}
-                  </p>
-                </>
-              );
-              return openTrade ? (
-                <button
+              const tone: RowTone = style.tone === 'info' ? 'info' : amount < 0 ? 'neg' : 'pos';
+              return (
+                <Row
                   key={activity.id}
-                  onClick={openTrade}
-                  aria-label={t.history.openTrade}
-                  className="w-full flex items-center justify-between gap-3 p-4 rounded-2xl glass text-left active:scale-[0.99] transition-transform"
-                >
-                  {content}
-                </button>
-              ) : (
-                <div key={activity.id} className="flex items-center justify-between gap-3 p-4 rounded-2xl glass">
-                  {content}
-                </div>
+                  icon={style.icon}
+                  tint={style.tint}
+                  title={title}
+                  sub={meta}
+                  trailing={formatMoney(amount, { signed: true })}
+                  tone={tone}
+                  onClick={open}
+                />
               );
-            })
-          )}
-        </div>
+            })}
+          </Group>
+        )}
       </div>
 
+      {editing && <EditGoalSheet bank={bank} onSave={onEditGoal} onClose={() => setEditing(false)} />}
+
       {confirmArchive && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => setConfirmArchive(false)}
-        >
-          <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-white text-2xl font-black">{t.goals.archiveTitle(bank.name)}</h3>
-            <p className="text-slate-400 text-sm font-medium mt-3 leading-relaxed">
-              {t.goals.archiveBody(formatMoney(bank.currentAmount))}
-            </p>
-
-            {share > 0 && (
-              <div className="mt-5 rounded-3xl bg-white/5 p-5">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                  {t.goals.shareGoesTo(share)}
-                </p>
-                {handovers.length === 0 ? (
-                  <p className="text-slate-400 text-xs font-medium mt-3 leading-relaxed">
-                    {t.goals.noOtherGoal(share)}
-                  </p>
-                ) : (
-                  <div className="space-y-2 mt-3">
-                    {handovers.map((h) => (
-                      <div key={h.name} className="flex items-center justify-between gap-3">
-                        <span className="text-slate-300 text-sm font-bold truncate">{h.name}</span>
-                        <span className="text-primary text-sm font-black shrink-0">+{h.gained}%</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setConfirmArchive(false)}
-                className="flex-1 h-14 rounded-2xl glass text-slate-300 font-black active:scale-95 transition-transform"
-              >
+        <Sheet
+          title={t.goals.archiveTitle(bank.name)}
+          onClose={() => setConfirmArchive(false)}
+          footer={
+            <div className="flex gap-3">
+              <Button variant="ghost" onClick={() => setConfirmArchive(false)}>
                 {t.common.cancel}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => {
                   setConfirmArchive(false);
                   onArchive();
                 }}
-                className="flex-1 h-14 rounded-2xl bg-primary text-black font-black active:scale-95 transition-transform"
               >
                 {t.goals.archive}
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+          }
+        >
+          <p className="text-[14px] font-medium leading-relaxed text-mute">{t.goals.archiveBody(formatMoney(bank.currentAmount))}</p>
+
+          {share > 0 && (
+            <div className="mt-4 rounded-3xl bg-card p-4">
+              <p className="text-[12.5px] font-bold text-mute">{t.goals.shareGoesTo(share)}</p>
+              {handovers.length === 0 ? (
+                <p className="mt-2 text-[13px] font-medium leading-relaxed text-mute">{t.goals.noOtherGoal(share)}</p>
+              ) : (
+                <div className="mt-2 divide-y divide-line/10">
+                  {handovers.map((h) => (
+                    <div key={h.name} className="flex min-h-11 items-center justify-between gap-3">
+                      <span className="truncate text-[14.5px] font-bold">{h.name}</span>
+                      <span className="shrink-0 text-[14.5px] font-extrabold text-pos">+{h.gained}%</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Sheet>
       )}
     </div>
   );

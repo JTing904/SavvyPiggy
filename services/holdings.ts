@@ -87,6 +87,20 @@ export const quotePricePoints = (quote: Pick<Quote, 'priceCents' | 'pricePoints'
  */
 export const pointsValueCents = (units: number, pricePoints: number) => Math.floor((units * pricePoints) / 100);
 
+/** What a position is worth now: the live price when there is one, otherwise what was paid for it. */
+export const holdingValueCents = (h: Pick<Holding, 'units' | 'costCents'>, quote: Pick<Quote, 'priceCents' | 'pricePoints'> | undefined) =>
+  quote ? quoteValueCents(h, quote) : h.costCents;
+
+/** Positions largest first, the way a portfolio is read; ties keep the order they were bought in. */
+export const byValueDesc = <T extends Pick<Holding, 'units' | 'costCents'>>(
+  holdings: T[],
+  quoteOf: (h: T) => Pick<Quote, 'priceCents' | 'pricePoints'> | undefined
+): T[] =>
+  holdings
+    .map((h, i) => ({ h, i, value: holdingValueCents(h, quoteOf(h)) }))
+    .sort((a, b) => b.value - a.value || a.i - b.i)
+    .map((x) => x.h);
+
 /** A position's value at a live quote. */
 export const quoteValueCents = (holding: Pick<Holding, 'units'>, quote: Pick<Quote, 'priceCents' | 'pricePoints'>) =>
   pointsValueCents(holding.units, quotePricePoints(quote));
@@ -242,9 +256,10 @@ export const unitsOnExDate = (trades: Trade[], exDateMs: number) =>
  * the price paid; a dividend is quoted per unit in ten-thousandths of a
  * ringgit, because Bursa pays amounts like RM0.0125.
  */
-export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints'>) =>
+export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints' | 'amountCents'>) =>
   trade.kind === 'dividend'
-    ? Math.floor((trade.units * (trade.perUnitPoints ?? 0)) / 100)
+    // A corrected dividend states what was really received; otherwise it is derived.
+    ? (trade.amountCents ?? Math.floor((trade.units * (trade.perUnitPoints ?? 0)) / 100))
     : trade.pricePoints
       ? valueCents(trade.units, trade.pricePoints)
       : trade.units * trade.priceCents;
@@ -254,7 +269,7 @@ export const tradeCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 
  * brought home after them. A dividend is its value. Older trades have no fees
  * recorded, and none are guessed.
  */
-export const tradeTotalCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints' | 'fees'>) => {
+export const tradeTotalCents = (trade: Pick<Trade, 'kind' | 'units' | 'priceCents' | 'perUnitPoints' | 'pricePoints' | 'fees' | 'amountCents'>) => {
   const value = tradeCents(trade);
   if (trade.kind === 'buy') return value + totalFees(trade.fees);
   // What the sale really brought home. When the fees are bigger than the sale

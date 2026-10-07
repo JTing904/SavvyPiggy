@@ -6,6 +6,7 @@ import { useAdvisor } from '../../hooks/useAdvisor';
 import { useT } from '../../contexts/LanguageContext';
 import { dateLocale } from '../../i18n';
 import { activeStyles, mergeQuotes, monthDate, watchSymbols } from './monthlyPlan';
+import { Icon } from '../ui/Icon';
 
 interface PickCardProps {
   invest: InvestSettings;
@@ -40,7 +41,6 @@ const PickCard: React.FC<PickCardProps> = ({ invest, quotes, onOpen }) => {
 
   let headline: string;
   let why: string | null = null;
-  let icon = 'chevron_right';
 
   if (!mix) {
     headline = c.setUp;
@@ -51,14 +51,11 @@ const PickCard: React.FC<PickCardProps> = ({ invest, quotes, onOpen }) => {
   } else if (advisor.status === 'unavailable') {
     headline = c.unavailable;
     why = c.unavailableHint;
-    icon = 'cloud_off';
   } else if (nothingScored) {
     headline = c.noPick;
     why = t.plan.noScores;
-    icon = 'hourglass_empty';
   } else if (!pick) {
     headline = c.working;
-    icon = 'progress_activity';
   } else {
     headline = invest.watchlist.find((w) => w.symbol === pick.symbol)?.name ?? pick.symbol;
     why = c.bestMatchFor(
@@ -71,18 +68,15 @@ const PickCard: React.FC<PickCardProps> = ({ invest, quotes, onOpen }) => {
   const working = !!mix && symbols.length >= 2 && !pick && !nothingScored && advisor.status !== 'unavailable';
 
   return (
-    <button
-      onClick={onOpen}
-      className="w-full text-left rounded-3xl px-5 py-4 border border-accent/30 bg-gradient-to-b from-accent/10 to-accent/[0.03] active:scale-[0.99] transition-transform"
-    >
-      <div className="flex items-center gap-2">
-        <span className="flex-1 min-w-0 truncate text-accent text-[10px] font-black uppercase tracking-widest">{c.pick(month)}</span>
-        <span className={`material-symbols-rounded text-accent text-lg shrink-0 ${working ? 'animate-spin' : ''}`}>{icon}</span>
-      </div>
-      <p className={`mt-1 font-black tracking-tight truncate ${pick ? 'text-white text-xl' : working ? 'text-slate-400 text-sm' : 'text-white text-base'}`}>
-        {headline}
-      </p>
-      {why && <p className="mt-2 text-slate-500 text-[11px] font-bold leading-snug">{why}</p>}
+    <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 rounded-3xl bg-sun px-5 py-4 text-left text-ink active:opacity-80">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12.5px] font-bold">{c.pick(month)}</span>
+        <span className={`mt-0.5 block truncate font-extrabold tracking-tight ${pick ? 'text-[24px]' : 'text-[16px]'}`}>{headline}</span>
+        {why && <span className="mt-0.5 block text-[12.5px] font-medium leading-snug opacity-75">{why}</span>}
+      </span>
+      <span className={`grid size-10 shrink-0 place-items-center rounded-full bg-cta text-cta-fg ${working ? 'animate-pulse motion-reduce:animate-none' : ''}`}>
+        <Icon name="chev" size={18} />
+      </span>
     </button>
   );
 };

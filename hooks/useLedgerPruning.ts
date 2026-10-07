@@ -15,7 +15,8 @@ import { hasBetween } from '../services/ledgerArchive';
  *
  * Nothing is deleted without warning first. Records become deletable only once
  * the Statements screen has listed them as about to be cleared, beside their
- * download buttons; the screen records the cutoff it showed. Anything that has
+ * download buttons, and a statement has been saved there; the screen records
+ * the cutoff it showed at that moment. Anything that has
  * become due since — a month aging out, or the window shrinking — raises the
  * alert again and is left alone until the screen has been opened again.
  *

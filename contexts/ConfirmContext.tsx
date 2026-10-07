@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import { useBackHandler } from '../hooks/useBackHandler';
+import { Button } from '../components/ui/Button';
+import { Sheet } from '../components/ui/Sheet';
 import { useT } from './LanguageContext';
 
 /**
@@ -25,7 +26,7 @@ import { useT } from './LanguageContext';
 export interface ConfirmDetail {
   /** Material symbol name. */
   icon: string;
-  /** Tailwind classes for the icon chip, e.g. 'bg-amber-500/10 text-amber-400'. */
+  /** Tailwind classes for the icon chip, e.g. 'bg-peach text-ink'. */
   tint?: string;
   label: string;
   /** A second line under the label — a time, a counter, a running total. */
@@ -78,83 +79,47 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
-  // The back stack is LIFO, and this registers when the sheet opens — after
-  // whatever sheet asked the question — so back lands here first and cancels.
-  useBackHandler(request !== null, () => settle(false));
-
   const danger = request?.tone === 'danger';
 
   return (
     <ConfirmContext.Provider value={ask}>
       {children}
       {request && (
-        <div
-          /* Above z-50, which every other sheet in the app uses. */
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => settle(false)}
-        >
-          <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              className={`size-12 rounded-2xl flex items-center justify-center mb-4 ${
-                danger ? 'bg-red-500/10 text-red-400' : 'bg-primary/10 text-primary'
-              }`}
-            >
-              <span className="material-symbols-rounded text-2xl">
-                {danger ? 'delete' : 'help'}
-              </span>
-            </div>
-
-            <h3 className="text-white text-2xl font-black tracking-tight">{request.title}</h3>
-            {request.body && (
-              <p className="text-slate-400 text-sm font-medium mt-3 leading-relaxed">{request.body}</p>
-            )}
-
-            {request.detail && (
-              <div className="mt-5 rounded-3xl bg-white/5 p-4 flex items-center gap-3">
-                <span
-                  className={`size-10 shrink-0 rounded-2xl flex items-center justify-center ${
-                    request.detail.tint ?? 'bg-white/5 text-slate-400'
-                  }`}
-                >
-                  <span className="material-symbols-rounded text-xl">{request.detail.icon}</span>
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-white text-sm font-black truncate">{request.detail.label}</p>
-                  {request.detail.meta && (
-                    <p className="text-slate-500 text-[11px] font-bold mt-0.5 truncate">
-                      {request.detail.meta}
-                    </p>
-                  )}
-                </div>
-                {request.detail.amount && (
-                  <p className={`text-[15px] font-black shrink-0 ${request.detail.amountTint ?? 'text-white'}`}>
-                    {request.detail.amount}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => settle(false)}
-                className="flex-1 h-14 rounded-2xl glass text-slate-300 font-black active:scale-95 transition-transform"
-              >
+        // Above z-50, which every other sheet in the app uses. The sheet registers
+        // the back button itself, and registers after whatever asked the question,
+        // so back lands here first and cancels.
+        <Sheet
+          z={60}
+          title={request.title}
+          onClose={() => settle(false)}
+          footer={
+            <div className="flex gap-3">
+              <Button variant="ghost" full={false} className="flex-1" onClick={() => settle(false)}>
                 {request.cancelLabel ?? t.common.cancel}
-              </button>
-              <button
-                onClick={() => settle(true)}
-                className={`flex-1 h-14 rounded-2xl font-black active:scale-95 transition-transform ${
-                  danger ? 'bg-red-500 text-white' : 'bg-primary text-black'
-                }`}
-              >
+              </Button>
+              <Button variant={danger ? 'danger' : 'primary'} full={false} className="flex-1" onClick={() => settle(true)}>
                 {request.confirmLabel ?? t.common.confirm}
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+          }
+        >
+          {request.body && <p className="px-1 text-[14px] font-medium leading-relaxed text-mute">{request.body}</p>}
+
+          {request.detail && (
+            <div className="mt-4 flex items-center gap-3 rounded-3xl bg-card p-4">
+              <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${request.detail.tint ?? 'bg-line/10 text-mute'}`}>
+                <span className="material-symbols-rounded" style={{ fontSize: 20 }}>
+                  {request.detail.icon}
+                </span>
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[15px] font-bold">{request.detail.label}</p>
+                {request.detail.meta && <p className="truncate text-[12px] font-medium text-mute">{request.detail.meta}</p>}
+              </div>
+              {request.detail.amount && <p className={`shrink-0 text-[15px] font-extrabold tabular-nums ${request.detail.amountTint ?? ''}`}>{request.detail.amount}</p>}
+            </div>
+          )}
+        </Sheet>
       )}
     </ConfirmContext.Provider>
   );

@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   getDocsFromServer,
+  getCountFromServer,
   setDoc,
   addDoc,
   deleteDoc,
@@ -16,27 +17,43 @@ import {
   writeBatch,
   runTransaction,
   increment,
+  arrayUnion,
+  arrayRemove,
+  Bytes,
   type Unsubscribe,
   type FirestoreError,
   type Transaction,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { InvestSettings } from '../types';
+import type { Bill, InvestSettings, Liability, LiabilityKind, NetWorthPoint, WalletSettings } from '../types';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
-import type { Activity, ActivityType, Alert, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
-import { allowedRetention } from './analytics';
+import type { Activity, ActivityType, Alert, Budgets, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
+import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
 import { dayStart, tradeTotalCents } from './holdings';
 import type { LangChoice } from '../i18n';
 import { m as messages } from '../i18n';
 import { dividendsAfterChange, exchangeDay, type CreditedDividend, type DueDividend } from './dividends';
 import { dueOccurrences, localDate, runStamp, scheduleDay } from './schedules';
-import { fromCents, resplitDeposit, toCents } from './money';
+import { formatMoney, fromCents, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type GoneShareChoice, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 import { activityRowsChanged } from './ledgerEvents';
 import { localKey, readLocal, writeLocal } from './localFlags';
+import { debtExistedOn, stampFor } from './activityDate';
+import { planActivityEdit, staleCheck, type ActivityEdit } from './activityEdit';
+import { planBankEdit, type BankEdit } from './bankEdit';
+import { GOAL_ICON_SET } from './goalIcons';
+import { firstGoalSplit } from './firstGoalSplit';
+import { liveWindowStart } from './ledgerWindow';
+import { billNote, outsideHistory, planFixedRun, WALLET_SOURCE } from './bills';
+import { cleanBudgets, TOTAL, withLimit } from './budgets';
+import { debtDaysOutsideHistory, planPayment } from './debts';
+import { cleanWallet, planIncome, planWalletMove, planWalletSpend, walletCents, type IncomeTarget, type WalletMove } from './wallet';
+import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from './potTransfers';
+import { planDividendCorrection, planDividendRemoval } from './dividendCorrection';
+import { activityEditProblemText, bankEditProblemText, dateProblemText, dividendProblemText, potTransferProblemText, walletProblemText } from './problemText';
 
 export { isInSplit, isArchived, isFull } from './ledger';
 
@@ -68,6 +85,14 @@ const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notificatio
 const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings');
 const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general');
 const investRef = (uid: string) => doc(db, 'users', uid, 'settings', 'invest');
+const walletRef = (uid: string) => doc(db, 'users', uid, 'settings', 'wallet');
+const budgetsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'budgets');
+const liabilitiesCol = (uid: string) => collection(db, 'users', uid, 'liabilities');
+const liabilityRef = (uid: string, id: string) => doc(db, 'users', uid, 'liabilities', id);
+const receiptRef = (uid: string, id: string) => doc(db, 'users', uid, 'receipts', id);
+const netWorthCol = (uid: string) => collection(db, 'users', uid, 'netWorth');
+const billsCol = (uid: string) => collection(db, 'users', uid, 'bills');
+const billRef = (uid: string, id: string) => doc(db, 'users', uid, 'bills', id);
 
 /** Which alerts a deposit is allowed to raise. */
 export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
@@ -76,7 +101,44 @@ export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
 export interface DepositOptions {
   alerts?: AlertOptions;
   savings?: SavingsSettings;
+  /** Record it on this day instead of now (a past day, at most). */
+  at?: Date;
+  /** The earliest day an entry may be dated; the retention cutoff when left out. */
+  notBefore?: Date;
+  /**
+   * The wallet as the screen has it. Given, income can be kept in the wallet; left out, a deposit
+   * behaves exactly as it did before the wallet.
+   */
+  wallet?: WalletSettings;
+  /** `wallet` (the default) keeps it all, `split` feeds every goal by its share. A named goal wins over both. */
+  incomeMode?: 'split' | 'wallet';
 }
+
+/** Back-dating for a withdrawal or a borrow. */
+export interface DatedOptions {
+  at?: Date;
+  notBefore?: Date;
+  /** Receipt photos to keep with the entry: base64 JPEGs, already compressed. */
+  receipts?: string[];
+}
+
+/**
+ * The stamp a new row is written with. A day in the future, or before the
+ * earliest kept day, is refused with the words every screen shows.
+ */
+const stampOrThrow = (at: Date | undefined, now: Date, notBefore: Date | undefined, months?: number | null) => {
+  const stamped = stampFor(at, now, notBefore ?? retentionCutoff(now, months));
+  if ('problem' in stamped) throw new Error(dateProblemText(stamped.problem, messages()));
+  return { stamp: stamped.stamp, when: new Date(stamped.stamp) };
+};
+
+/**
+ * A new row dated before the live window is not in the live listener, so the
+ * older ledger is told to read it from the server.
+ */
+const announceBackDated = (id: string, when: Date, now: Date) => {
+  if (when.getTime() < liveWindowStart(now).getTime()) activityRowsChanged([{ id, server: true, moved: true }]);
+};
 
 /** Alerts ride in the same batch as the money they describe. */
 const queueAlerts = (batch: ReturnType<typeof writeBatch>, uid: string, drafts: AlertDraft[]) =>
@@ -328,13 +390,13 @@ export const saveLanguage = (uid: string, choice: LangChoice) => {
 
 /* ------------------------------------------------------------------- banks */
 
-export const createBank = async (uid: string, goal: Partial<PiggyBank>) => {
+export const createBank = async (uid: string, goal: Partial<PiggyBank>, existing: PiggyBank[] = []) => {
   const name = goal.name || messages().errors.newGoal;
   const bank: Omit<PiggyBank, 'id'> = {
     name,
     targetAmount: Math.max(0, goal.targetAmount ?? 1000),
     currentAmount: 0,
-    splitPercentage: 0,
+    splitPercentage: firstGoalSplit(existing, goal.autoSplit),
     icon: goal.icon || 'savings',
     // Empty means "no upload"; the card draws its own artwork instead of
     // depending on an image host that may not be reachable.
@@ -360,8 +422,19 @@ export const saveStrategy = async (uid: string, banks: PiggyBank[]) => {
   await batch.commit();
 };
 
-export const updateBank = (uid: string, id: string, patch: Partial<PiggyBank>) =>
-  updateDoc(bankRef(uid, id), patch);
+/**
+ * Name, target and icon only, written as a patch: the balance and the split are
+ * never part of an edit, so a concurrent deposit cannot be overwritten by it.
+ */
+export const updateBank = async (uid: string, id: string, edit: BankEdit) => {
+  // planBankEdit reads the balance only to warn about a target below it, which the screen does itself.
+  const result = planBankEdit({ currentAmount: 0 } as PiggyBank, edit, GOAL_ICON_SET);
+  if ('problem' in result) throw new Error(bankEditProblemText(result.problem, messages()));
+  if (Object.keys(result.patch).length === 0) return;
+  await updateDoc(bankRef(uid, id), result.patch);
+};
+
+export const setBankPhoto = (uid: string, id: string, imageUrl: string) => updateDoc(bankRef(uid, id), { imageUrl });
 
 /**
  * Deletes a goal and moves whatever it held — see planGoalRemoval. One batch:
@@ -461,28 +534,51 @@ export const deposit = async (
   banks: PiggyBank[],
   loans: Loan[],
   targetBankId: string | null = null,
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, at, notBefore, wallet, incomeMode = 'wallet' }: DepositOptions = {}
 ) => {
-  const plan = planDeposit(toCents(amount), banks, loans, targetBankId, savings.overflow);
-  if (plan.movements.length === 0 && plan.repayments.length === 0) {
-    throw new Error(messages().errors.nothingToDepositInto);
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
+  // A deposit recorded for a past day can only repay a debt that was already owed that day.
+  const owed = at ? loans.filter((l) => debtExistedOn(new Date(l.createdAt).toISOString(), when)) : loans;
+  let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
+  if (wallet) {
+    const target: IncomeTarget = targetBankId ? { mode: 'goal', goalId: targetBankId } : { mode: incomeMode };
+    const income = planIncome({
+      amountCents: toCents(amount),
+      banks,
+      loans: owed,
+      wallet: walletCents(wallet),
+      target,
+      overflow: savings.overflow,
+    });
+    if ('problem' in income) throw new Error(walletProblemText({ kind: income.problem }, messages(), banks));
+    plan = income.plan;
+  } else {
+    const old = planDeposit(toCents(amount), banks, owed, targetBankId, savings.overflow);
+    if (old.movements.length === 0 && old.repayments.length === 0) {
+      throw new Error(messages().errors.nothingToDepositInto);
+    }
+    plan = { ...old, walletCents: 0 };
   }
 
-  const now = new Date();
   const batch = writeBatch(db);
 
-  batch.set(doc(activitiesCol(uid)), {
+  const entry = doc(activitiesCol(uid));
+  batch.set(entry, {
     type: 'manual' satisfies ActivityType,
-    date: now.toISOString(),
+    date: stamp,
     amount: fromCents(toCents(amount)),
     distributions: toDistributions(plan.movements),
     repaid: fromCents(plan.repaidCents),
     repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
+    // Only when the wallet took part, so every other row stays exactly as it was.
+    ...(plan.walletCents !== 0 ? { wallet: fromCents(plan.walletCents) } : {}),
   });
 
   plan.movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
+  if (plan.walletCents !== 0) batch.set(walletRef(uid), { balance: increment(fromCents(plan.walletCents)) }, { merge: true });
 
     /*
       Relative, not absolute.
@@ -499,7 +595,7 @@ export const deposit = async (
     const left = outstandingCents(r.loan) - r.cents;
     batch.update(loanRef(uid, r.loan.id), {
       outstanding: increment(-fromCents(r.cents)),
-      settledAt: left === 0 ? now.toISOString() : null,
+      settledAt: left === 0 ? stamp : null,
     });
   });
 
@@ -507,7 +603,8 @@ export const deposit = async (
   if (alerts.milestones) queueAlerts(batch, uid, milestoneAlerts(banks, plan.movements, now, savings.overflow));
 
   await batch.commit();
-  return plan;
+  announceBackDated(entry.id, when, now);
+  return { ...plan, id: entry.id };
 };
 
 /**
@@ -519,33 +616,107 @@ export const withdraw = async (
   amount: number,
   sourceBankId: string,
   note = '',
-  category: string = UNCATEGORISED
+  category: string = UNCATEGORISED,
+  { at, notBefore, receipts }: DatedOptions = {}
 ) => {
   const movements = planWithdrawal(toCents(amount), sourceBankId);
   if (movements.length === 0) throw new Error(messages().errors.enterWithdrawAmount);
 
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore);
+  const entry = doc(activitiesCol(uid));
   const batch = writeBatch(db);
-  batch.set(doc(activitiesCol(uid)), {
+  batch.set(entry, {
     type: 'withdraw' satisfies ActivityType,
-    date: new Date().toISOString(),
+    date: stamp,
     amount: fromCents(toCents(amount)),
     distributions: toDistributions(movements),
     note,
     category,
+    ...receiptFields(batch, uid, 'activity', entry.id, receipts),
   });
   movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
   await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id };
+};
+
+/**
+ * Spending from the wallet. It may take the wallet below zero: that is an
+ * overdraft, and the next income clears it before anything else is placed.
+ */
+export const spendFromWallet = async (
+  uid: string,
+  amount: number,
+  note = '',
+  category: string = UNCATEGORISED,
+  { at, notBefore, receipts }: DatedOptions = {}
+) => {
+  const spend = planWalletSpend(toCents(amount));
+  if ('problem' in spend) throw new Error(messages().errors.enterWithdrawAmount);
+
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore);
+  const entry = doc(activitiesCol(uid));
+  const batch = writeBatch(db);
+  batch.set(entry, {
+    type: 'withdraw' satisfies ActivityType,
+    date: stamp,
+    amount: fromCents(toCents(amount)),
+    distributions: [],
+    wallet: fromCents(spend.walletCents),
+    note,
+    category,
+    ...receiptFields(batch, uid, 'activity', entry.id, receipts),
+  });
+  batch.set(walletRef(uid), { balance: increment(fromCents(spend.walletCents)) }, { merge: true });
+  await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id };
+};
+
+/** Moving money between the wallet and the goals by hand. Neither side may be overdrawn by it. */
+export const moveWallet = async (
+  uid: string,
+  amount: number,
+  move: WalletMove,
+  banks: PiggyBank[],
+  wallet: WalletSettings,
+  { savings = DEFAULT_SAVINGS, at, notBefore }: { savings?: SavingsSettings; at?: Date; notBefore?: Date } = {}
+) => {
+  const planned = planWalletMove({ amountCents: toCents(amount), move, banks, wallet: walletCents(wallet), overflow: savings.overflow });
+  if ('problem' in planned) throw new Error(walletProblemText({ kind: planned.problem, cents: planned.availableCents }, messages(), banks));
+  const { plan } = planned;
+
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
+  const entry = doc(activitiesCol(uid));
+  const batch = writeBatch(db);
+  batch.set(entry, {
+    type: 'walletMove' satisfies ActivityType,
+    date: stamp,
+    amount: fromCents(toCents(amount)),
+    distributions: toDistributions(plan.movements),
+    wallet: fromCents(plan.walletCents),
+  });
+  plan.movements.forEach((m) => batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) }));
+  batch.set(walletRef(uid), { balance: increment(fromCents(plan.walletCents)) }, { merge: true });
+  await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id };
 };
 
 /**
  * Borrowing is money from outside, so no goal is touched — it only records what
  * is owed, which the next untargeted deposits clear before anything is split.
  */
-export const borrow = async (uid: string, amount: number, note = '') => {
+export const borrow = async (uid: string, amount: number, note = '', { at, notBefore }: DatedOptions = {}) => {
   const cents = toCents(amount);
   if (cents <= 0) throw new Error(messages().errors.enterSpendAmount);
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore);
 
   // One batch, with the loan's id made on the phone. Two awaited addDocs waited
   // for the server between them, so offline the debt was queued and the
@@ -557,18 +728,22 @@ export const borrow = async (uid: string, amount: number, note = '') => {
     outstanding: fromCents(cents),
     note,
     sources: [],
-    createdAt: Date.now(),
+    // The day the debt began, so a back-dated deposit only repays what was owed by then.
+    createdAt: at ? when.getTime() : now.getTime(),
     settledAt: null,
   });
-  batch.set(doc(activitiesCol(uid)), {
+  const entry = doc(activitiesCol(uid));
+  batch.set(entry, {
     type: 'borrow' satisfies ActivityType,
-    date: new Date().toISOString(),
+    date: stamp,
     amount: fromCents(cents),
     distributions: [],
     loanId: loan.id,
     note,
   });
   await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id, loanId: loan.id };
 };
 
 /** Re-labelling a past entry. Touches no balance, so it needs no transaction. */
@@ -607,8 +782,13 @@ export const deleteActivity = (
   shownCovering: Activity[] = [],
   /** Where the share of a goal deleted since is settled — see GoneShareChoice. */
   takeBack?: GoneShareChoice
-) =>
-  runTransaction(db, async (tx) => {
+) => {
+  // Money moved to or from the pot, or by a goal's deletion, is undone from where it was made.
+  if (shown.type === 'toInvest' || shown.type === 'fromInvest') {
+    return Promise.reject(new Error(messages().errors.potRowUseOwnUndo));
+  }
+  if (shown.type === 'transfer') return Promise.reject(new Error(messages().errors.transferLocked));
+  return runTransaction(db, async (tx) => {
     // What is undone is the record as it stands, not the copy on screen: an
     // older row is not listened to, so another device may have edited or
     // deleted it since, and undoing the stale copy would move the money twice.
@@ -633,6 +813,8 @@ export const deleteActivity = (
     // A debt this entry paid down may have been removed since; updating a
     // missing document would fail the whole undo.
     const repaidLoans = await Promise.all((activity.repayments ?? []).map((r) => tx.get(loanRef(uid, r.loanId))));
+    // A payment on a debt puts its principal back; the debt may have been deleted since.
+    const paidDebt = activity.liabilityId ? await tx.get(liabilityRef(uid, activity.liabilityId)) : null;
 
     // Spent ahead that was already covered: that money goes back to the goals.
     // If the split cannot place all of it (no goal takes a share, or the shares
@@ -659,6 +841,16 @@ export const deleteActivity = (
     });
     if (settle && settleSnap?.exists()) move(settle.id, settleSnap.data().currentAmount ?? 0, -gone);
     next.forEach((cents, id) => tx.update(bankRef(uid, id), { currentAmount: fromCents(cents) }));
+
+    // What the entry did to the wallet is undone with the rest (an increment needs no read).
+    if (toCents(activity.wallet ?? 0) !== 0) {
+      tx.set(walletRef(uid), { balance: increment(-(activity.wallet ?? 0)) }, { merge: true });
+    }
+
+    if (paidDebt?.exists() && toCents(activity.principal ?? 0) > 0) {
+      tx.update(liabilityRef(uid, paidDebt.id), { balance: increment(activity.principal ?? 0) });
+    }
+    activity.receipts?.forEach((id) => tx.delete(receiptRef(uid, id)));
 
     // Undoing a repayment puts the debt back.
     activity.repayments?.forEach((r, i) => {
@@ -694,6 +886,7 @@ export const deleteActivity = (
       ...(shown.loanId ? shownCovering.map((paid) => ({ id: paid.id, server: true })) : []),
     ])
   );
+};
 
 /** One ledger row read inside a transaction, or null when it is gone. */
 const readRow = async (tx: Transaction, uid: string, id: string): Promise<Activity | null> => {
@@ -701,48 +894,137 @@ const readRow = async (tx: Transaction, uid: string, id: string): Promise<Activi
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Activity) : null;
 };
 
-/** Rewrites a plain deposit's amount and applies the delta to each goal. */
-/**
- * Correcting the amount of a past deposit.
- *
- * The shares are re-split with the same rule the original deposit used, so
- * the parts still add up to the whole: splitting each one on its own and
- * flooring shed the odd cent, leaving the entry's total larger than the sum
- * of what it says reached the goals.
- *
- * Anything this cannot honestly rewrite is refused rather than half-applied.
- * A missing goal used to be skipped silently while the total was rewritten
- * anyway, which left the ledger and the balances disagreeing with no trace.
- */
-export const editActivity = (uid: string, shown: Activity, newAmount: number) =>
-  runTransaction(db, async (tx) => {
-    // Rewritten from the record as it stands, not the copy on screen — see deleteActivity.
-    const activity = await readRow(tx, uid, shown.id);
-    if (!activity) throw new Error(messages().errors.recordGone);
-    if (activity.repaid || (activity.repayments?.length ?? 0) > 0) {
-      throw new Error(messages().errors.editRepaidDebt);
-    }
-    // Zero would leave an entry that moved nothing; taking it back is what delete is for.
-    if (toCents(newAmount) <= 0) throw new Error(messages().errors.editAmountPositive);
+/** Everything an edit needs that is not the row itself, as the screen has it. */
+export interface ActivityEditContext {
+  banks: PiggyBank[];
+  loans: Loan[];
+  savings: SavingsSettings;
+  /** The earliest day an entry may be moved to. */
+  notBefore: Date;
+  now?: Date;
+}
 
-    const cents = resplitDeposit(toCents(newAmount), toCents(activity.amount), activity.distributions);
-    const distributions = activity.distributions.map((d, i) => ({ ...d, amount: fromCents(cents[i]) }));
+const staleText = (kind: 'staleRow' | 'staleDebt') => activityEditProblemText({ kind }, messages());
 
-    const refs = distributions.map((d) => bankRef(uid, d.bankId));
-    const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+/** Whether an edit can re-run the deposit plan, and so may repay or release debts the row never touched. */
+const replansDeposit = (row: Activity, edit: ActivityEdit) =>
+  (row.type === 'manual' || row.type === 'auto-save') &&
+  (!!edit.target || toCents(row.repaid ?? 0) > 0 || (row.repayments?.length ?? 0) > 0);
 
-    const missing = snaps.findIndex((snap) => !snap.exists());
-    if (missing >= 0) {
-      throw new Error(messages().errors.editDeletedGoal);
-    }
+const applyActivityEdit = async (
+  uid: string,
+  shown: Activity,
+  edit: ActivityEdit,
+  ctx: ActivityEditContext,
+  /** Without the screen's loans there is nothing to compare the debts with. */
+  lenient: boolean
+) => {
+  const now = ctx.now ?? new Date();
+  let from = shown.date;
+  let to = shown.date;
 
-    snaps.forEach((snap, i) => {
-      const delta = toCents(distributions[i].amount) - toCents(activity.distributions[i].amount);
-      const next = toCents(snap.data().currentAmount ?? 0) + delta;
-      tx.update(refs[i], { currentAmount: fromCents(next) });
+  await runTransaction(db, async (tx) => {
+    const fresh = await readRow(tx, uid, shown.id);
+    if (!fresh) throw new Error(messages().errors.recordGone);
+    from = fresh.date;
+
+    const replan = replansDeposit(fresh, edit);
+    const loanIds = new Set<string>([...(fresh.repayments ?? []).map((r) => r.loanId), ...(fresh.loanId ? [fresh.loanId] : [])]);
+    if (replan) ctx.loans.filter((l) => outstandingCents(l) > 0).forEach((l) => loanIds.add(l.id));
+    const bankIds = new Set<string>(fresh.distributions.map((d) => d.bankId));
+    if (edit.source) bankIds.add(edit.source);
+    if (edit.target?.mode === 'goal') bankIds.add(edit.target.goalId);
+    if (replan) ctx.banks.forEach((b) => bankIds.add(b.id));
+
+    // Every read has to happen before the first write, and a transaction cannot query: ids only.
+    const loanSnaps = await Promise.all([...loanIds].map((id) => tx.get(loanRef(uid, id))));
+    const bankSnaps = await Promise.all([...bankIds].map((id) => tx.get(bankRef(uid, id))));
+    const bankSnapOf = new Map(bankSnaps.map((snap) => [snap.id, snap]));
+    const freshLoans = loanSnaps.filter((s) => s.exists()).map((s) => ({ id: s.id, ...s.data() }) as Loan);
+    const freshBanks = bankSnaps.filter((s) => s.exists()).map((s) => ({ id: s.id, ...s.data() }) as PiggyBank);
+
+    const stale = staleCheck(shown, fresh, lenient ? freshLoans : ctx.loans, freshLoans);
+    if (stale) throw new Error(staleText(stale));
+
+    const result = planActivityEdit({
+      activity: fresh,
+      edit,
+      banks: freshBanks,
+      loans: freshLoans,
+      overflow: ctx.savings.overflow,
+      notBefore: ctx.notBefore,
+      now,
     });
-    tx.update(activityRef(uid, activity.id), { amount: fromCents(toCents(newAmount)), distributions });
-  }).then(() => activityRowsChanged([{ id: shown.id, server: true }]));
+    if ('problem' in result) throw new Error(activityEditProblemText(result.problem, messages(), freshBanks));
+    const { plan } = result;
+    to = plan.patch.date ?? fresh.date;
+
+    // One write per goal, with the figure worked out from what this transaction read.
+    for (const [id, delta] of Object.entries(plan.bankDeltas)) {
+      const snap = bankSnapOf.get(id);
+      if (!snap?.exists()) throw new Error(activityEditProblemText({ kind: 'goalGone', goalId: id }, messages()));
+      tx.update(bankRef(uid, id), { currentAmount: fromCents(toCents(snap.data().currentAmount ?? 0) + delta) });
+    }
+    for (const id of Object.keys(plan.loanDeltas)) {
+      const owed = plan.loanOutstanding[id];
+      tx.update(loanRef(uid, id), {
+        ...(fresh.type === 'borrow' && plan.patch.amount !== undefined ? { amount: plan.patch.amount } : {}),
+        outstanding: fromCents(owed),
+        settledAt: owed === 0 ? now.toISOString() : null,
+      });
+    }
+
+    if (plan.walletDelta !== 0) tx.set(walletRef(uid), { balance: increment(fromCents(plan.walletDelta)) }, { merge: true });
+
+    const patch = defined({ ...plan.patch } as Record<string, unknown>);
+    if (Object.keys(patch).length > 0) tx.update(activityRef(uid, fresh.id), patch);
+  });
+
+  const moved = to !== from;
+  // A transaction does not update the phone's cache, so the row is read back from the server.
+  activityRowsChanged([{ id: shown.id, server: true, moved, ...(moved ? { dates: { from, to } } : {}) }]);
+};
+
+/**
+ * Correcting an entry in History: its amount, date, note, category, where a
+ * deposit went or which goal a spend came out of.
+ *
+ * A transaction over the row as it stands now, not the copy on screen: the
+ * row, every goal and every debt it touches are re-read and the plan is made
+ * from those. A row or debt that differs from the copy on screen is refused
+ * rather than applied twice. Rows that carry no money (notes) still go through
+ * it so one path answers every edit.
+ */
+export const updateActivity = (uid: string, shown: Activity, edit: ActivityEdit, ctx: ActivityEditContext) =>
+  applyActivityEdit(uid, shown, edit, ctx, false);
+
+/**
+ * Correcting the amount of a past entry, for callers that have no goals and
+ * debts to hand: they are looked up here instead.
+ */
+export const editActivity = async (uid: string, shown: Activity, newAmount: number, ctx?: ActivityEditContext) => {
+  if (ctx) return applyActivityEdit(uid, shown, { amount: newAmount }, ctx, false);
+  const now = new Date();
+  const [banks, savings, open] = await Promise.all([
+    getDocs(banksCol(uid)),
+    getDoc(savingsRef(uid)),
+    getDocs(query(loansCol(uid), where('settledAt', '==', null))),
+  ]);
+  const saved = { ...DEFAULT_SAVINGS, ...(savings.data() ?? {}) } as SavingsSettings;
+  return applyActivityEdit(
+    uid,
+    shown,
+    { amount: newAmount },
+    {
+      banks: banks.docs.map((d) => ({ id: d.id, ...d.data() }) as PiggyBank),
+      loans: open.docs.map((d) => ({ id: d.id, ...d.data() }) as Loan),
+      savings: saved,
+      notBefore: retentionCutoff(now, allowedRetention(saved.retentionMonths)),
+      now,
+    },
+    true
+  );
+};
 
 /**
  * Housekeeping, not an undo: clears old ledger entries so the app stays light
@@ -788,9 +1070,18 @@ export const pruneOlderThan = async (uid: string, cutoff: Date, max = 800) => {
     );
     if (snap.empty) break;
 
-    const batch = writeBatch(db);
-    snap.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+    // A cleared entry takes its receipt photos with it; left behind they would
+    // sit in the account unreachable, and still be counted.
+    const doomed = snap.docs.flatMap((d) => [
+      d.ref,
+      ...(((d.data() as { receipts?: string[] }).receipts ?? []).map((id) => receiptRef(uid, id))),
+    ]);
+    // A batch holds 500 writes; entries plus their photos can come to more.
+    for (let i = 0; i < doomed.length; i += 450) {
+      const batch = writeBatch(db);
+      doomed.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
     removed += snap.size;
     // A short page means there was nothing else waiting.
     if (snap.size < 400) break;
@@ -853,6 +1144,41 @@ export const subscribeToInvest = (
   onSnapshot(investRef(uid), (snap) => onChange({ ...DEFAULT_INVEST, ...(snap.data() ?? {}) } as InvestSettings), onError);
 
 export const saveInvest = (uid: string, patch: Partial<InvestSettings>) => setDoc(investRef(uid), patch, { merge: true });
+
+export const subscribeToBills = (uid: string, onChange: (bills: Bill[]) => void, onError: (e: FirestoreError) => void): Unsubscribe =>
+  onSnapshot(
+    query(billsCol(uid), orderBy('createdAt', 'asc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bill)),
+    onError
+  );
+
+export const subscribeToWallet = (
+  uid: string,
+  onChange: (wallet: WalletSettings) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe => onSnapshot(walletRef(uid), (snap) => onChange(cleanWallet(snap.data() as Partial<WalletSettings> | undefined)), onError);
+
+export const subscribeToBudgets = (
+  uid: string,
+  onChange: (budgets: Budgets) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe => onSnapshot(budgetsRef(uid), (snap) => onChange(cleanBudgets(snap.data() as Partial<Budgets> | undefined)), onError);
+
+/**
+ * Sets one monthly limit from a month on: the total, or one category's. Read and
+ * written in a transaction, so two devices changing different limits at once
+ * keep both. 0 takes the limit away from that month.
+ */
+export const saveBudget = (uid: string, target: string, month: string, cents: number) =>
+  runTransaction(db, async (tx) => {
+    const snap = await tx.get(budgetsRef(uid));
+    const current = cleanBudgets(snap.data() as Partial<Budgets> | undefined);
+    const next: Budgets =
+      target === TOTAL
+        ? { ...current, total: withLimit(current.total, month, cents) }
+        : { ...current, categories: { ...current.categories, [target]: withLimit(current.categories[target], month, cents) } };
+    tx.set(budgetsRef(uid), next);
+  });
 
 /** Why a trade's money could not move, carried to the screen that has to ask about it. */
 export class TradeMoneyError extends Error {
@@ -1154,6 +1480,63 @@ export const creditDividend = async (uid: string, due: DueDividend, name: string
   });
 };
 
+/**
+ * Reads the three documents a dividend correction rests on. The marker shares
+ * the trade's id (see creditDividend); the pot is the settings document.
+ */
+const readDividend = async (tx: Transaction, uid: string, tradeId: string) => {
+  const [trade, marker, pot] = await Promise.all([tx.get(tradeRef(uid, tradeId)), tx.get(creditedRef(uid, tradeId)), tx.get(investRef(uid))]);
+  if (!trade.exists()) throw new Error(messages().errors.recordGone);
+  if (!marker.exists()) throw new Error(dividendProblemText({ problem: 'outOfSync' }, messages()));
+  return {
+    trade: { id: trade.id, ...trade.data() } as Trade,
+    marker: { ...marker.data(), id: marker.id } as CreditedDividend,
+    potCents: potCentsOf(pot.data()),
+  };
+};
+
+/**
+ * The amount that really arrived for a dividend already paid into the pot
+ * (tax withheld, a rounded payout). The pot moves by the difference, the trade
+ * row and its marker both say the new figure, and the marker is flagged so a
+ * later change to the units leaves it alone.
+ */
+export const correctDividend = async (uid: string, tradeId: string, newCents: number) => {
+  const now = new Date();
+  await runTransaction(db, async (tx) => {
+    const { trade, marker, potCents } = await readDividend(tx, uid, tradeId);
+    const result = planDividendCorrection({ trade, marker, newCents, potCents });
+    if (!('plan' in result)) throw new Error(dividendProblemText(result, messages()));
+    const { plan } = result;
+
+    tx.update(tradeRef(uid, tradeId), { amountCents: plan.trade.amountCents });
+    tx.update(creditedRef(uid, tradeId), { amountCents: plan.marker.amountCents, corrected: true, correctedAt: now.toISOString() });
+    if (plan.potDelta !== 0) tx.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
+  });
+  // Cosmetic, so outside the transaction: an alert another device cleared must not fail the money.
+  void updateDoc(alertRef(uid, `dividend_${tradeId}`), { amount: fromCents(newCents) }).catch(() => undefined);
+};
+
+/**
+ * Taking a paid dividend back out of the pot. The trade row and its alert go;
+ * the marker stays, marked removed and keeping its units, so the reconcile
+ * never reads the dividend as owed again.
+ */
+export const removeDividend = async (uid: string, tradeId: string) => {
+  const now = new Date();
+  await runTransaction(db, async (tx) => {
+    const { trade, marker, potCents } = await readDividend(tx, uid, tradeId);
+    const result = planDividendRemoval({ trade, marker, potCents });
+    if (!('plan' in result)) throw new Error(dividendProblemText(result, messages()));
+    const { plan } = result;
+
+    tx.delete(tradeRef(uid, tradeId));
+    tx.update(creditedRef(uid, tradeId), { removed: true, amountCents: plan.marker.amountCents, correctedAt: now.toISOString() });
+    tx.delete(alertRef(uid, `dividend_${tradeId}`));
+    if (plan.potDelta !== 0) tx.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
+  });
+};
+
 /* ---------------------------------------------------------- investment pot */
 
 /**
@@ -1211,6 +1594,106 @@ export const transferFromPot = (
     distributions: toDistributions(movements),
   });
   return batch.commit();
+};
+
+/** The pot as a transaction read it, in whole sen. */
+const potCentsOf = (data: Record<string, unknown> | undefined) => toCents(Number(data?.potBalance ?? 0));
+
+const readGoals = async (tx: Transaction, uid: string, ids: Iterable<string>) => {
+  const snaps = await Promise.all([...new Set(ids)].map((id) => tx.get(bankRef(uid, id))));
+  return snaps.filter((snap) => snap.exists()).map((snap) => ({ id: snap.id, ...snap.data() }) as PiggyBank);
+};
+
+/** Goal and pot changes of a plan, each goal written once from the figure the transaction read. */
+const applyPotPlan = (
+  tx: Transaction,
+  uid: string,
+  goals: PiggyBank[],
+  plan: { bankDeltas: Record<string, number>; potDelta: number }
+) => {
+  for (const [id, delta] of Object.entries(plan.bankDeltas)) {
+    const goal = goals.find((b) => b.id === id);
+    if (!goal) throw new Error(potTransferProblemText({ problem: 'goalGone', goalId: id }, messages()));
+    tx.update(bankRef(uid, id), { currentAmount: fromCents(toCents(goal.currentAmount) + delta) });
+  }
+  if (plan.potDelta !== 0) tx.set(investRef(uid), { potBalance: increment(fromCents(plan.potDelta)) }, { merge: true });
+};
+
+const potRowOf = async (tx: Transaction, uid: string, shown: Activity) => {
+  const fresh = await readRow(tx, uid, shown.id);
+  // Changed on another device since it was shown: the plan was made from a copy that is no longer true.
+  if (!fresh || staleCheck(shown, fresh, [], [])) throw new Error(messages().errors.recordGone);
+  return fresh;
+};
+
+/**
+ * Undoing a move to or from the investment pot, in full: the goals and the pot
+ * go back as they were and the row goes. Refused (never trimmed) when that
+ * would leave the pot or a goal below zero.
+ */
+export const deletePotTransfer = async (
+  uid: string,
+  shown: Activity,
+  ctx: { banks: PiggyBank[]; savings: SavingsSettings; returnTo?: PotReturn }
+) => {
+  await runTransaction(db, async (tx) => {
+    const fresh = await potRowOf(tx, uid, shown);
+    const ids = fresh.distributions.map((d) => d.bankId);
+    if (ctx.returnTo) ids.push(...ctx.banks.map((b) => b.id));
+    const goals = await readGoals(tx, uid, ids);
+    const potCents = potCentsOf((await tx.get(investRef(uid))).data());
+
+    const result = planPotTransferDelete({ activity: fresh, banks: goals, potCents, returnTo: ctx.returnTo, savings: ctx.savings });
+    if (!('plan' in result)) throw new Error(potTransferProblemText(result, messages(), ctx.banks));
+    applyPotPlan(tx, uid, goals, result.plan);
+    tx.delete(activityRef(uid, fresh.id));
+  });
+  activityRowsChanged([{ id: shown.id, deleted: true }]);
+};
+
+const DAY_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Correcting a move to or from the pot: its amount, its day, or the goal it
+ * came from. Money moves by the difference only.
+ */
+export const editPotTransfer = async (
+  uid: string,
+  shown: Activity,
+  edit: { amount?: number; date?: string; goalId?: string | null },
+  ctx: { banks: PiggyBank[]; savings: SavingsSettings; notBefore: Date; now?: Date }
+) => {
+  const now = ctx.now ?? new Date();
+  let from = shown.date;
+  let to = shown.date;
+
+  await runTransaction(db, async (tx) => {
+    const fresh = await potRowOf(tx, uid, shown);
+    from = fresh.date;
+    const goals = await readGoals(tx, uid, [...fresh.distributions.map((d) => d.bankId), ...(edit.goalId ? [edit.goalId] : [])]);
+    const potCents = potCentsOf((await tx.get(investRef(uid))).data());
+
+    const result = planPotTransferEdit({ activity: fresh, edit, banks: goals, potCents, notBefore: ctx.notBefore, now, savings: ctx.savings });
+    if (!('plan' in result)) throw new Error(potTransferProblemText(result, messages(), ctx.banks));
+    const { plan } = result;
+
+    // The planner accepts a bare day; a row is always stored as an instant, stamped like any other entry.
+    let date: string | undefined = plan.activity.date;
+    const day = date ? DAY_ONLY.exec(date) : null;
+    if (day) {
+      const stamped = stampFor(new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])), now, ctx.notBefore);
+      if ('problem' in stamped) throw new Error(dateProblemText(stamped.problem, messages()));
+      date = stamped.stamp;
+    }
+    to = date ?? fresh.date;
+
+    applyPotPlan(tx, uid, goals, plan);
+    const patch = defined({ amount: plan.activity.amount, date, distributions: plan.activity.distributions } as Record<string, unknown>);
+    if (Object.keys(patch).length > 0) tx.update(activityRef(uid, fresh.id), patch);
+  });
+
+  const moved = to !== from;
+  activityRowsChanged([{ id: shown.id, server: true, moved, ...(moved ? { dates: { from, to } } : {}) }]);
 };
 
 /* --------------------------------------------------------------- schedules */
@@ -1301,10 +1784,12 @@ export const runDueSchedules = async (
   schedules: Schedule[],
   banks: PiggyBank[],
   loans: Loan[],
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS }: DepositOptions = {}
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, wallet }: DepositOptions = {}
 ) => {
   // Scheduled income clears debt too, so the balance is tracked across the run.
   let openLoans = loans.map((l) => ({ ...l }));
+  // Scheduled income follows the wallet's rule like any other income, so the wallet is tracked across the run too.
+  let liveWallet = wallet ? walletCents(wallet) : 0;
   // Likewise goal balances, so milestones are judged against the running total.
   let liveBanks = banks.map((b) => ({ ...b }));
   let posted = 0;
@@ -1316,7 +1801,7 @@ export const runDueSchedules = async (
     // write would fail and take every later schedule down with it. The others
     // post first; this one is still reported once they have.
     // An archived goal counts as gone here too: it is put away and takes no new money.
-    if (schedule.targetBankId && !banks.some((b) => b.id === schedule.targetBankId && !b.archivedAt)) {
+    if (schedule.targetBankId && schedule.targetBankId !== WALLET_SOURCE && !banks.some((b) => b.id === schedule.targetBankId && !b.archivedAt)) {
       aimedAtNothing += 1;
       continue;
     }
@@ -1325,9 +1810,29 @@ export const runDueSchedules = async (
     let seen = scheduleDay(schedule.lastRunAt);
     for (const day of due) {
       const when = localDate(day);
-      const plan = planDeposit(toCents(schedule.amount), liveBanks, openLoans, schedule.targetBankId, savings.overflow);
+      let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
+      if (wallet) {
+        // Into the wallet, into one goal, or (nothing named) split over the goals by their shares.
+        const income = planIncome({
+          amountCents: toCents(schedule.amount),
+          banks: liveBanks,
+          loans: openLoans,
+          wallet: liveWallet,
+          target:
+            schedule.targetBankId === WALLET_SOURCE
+              ? { mode: 'wallet' }
+              : schedule.targetBankId
+                ? { mode: 'goal', goalId: schedule.targetBankId }
+                : { mode: 'split' },
+          overflow: savings.overflow,
+        });
+        plan = 'plan' in income ? income.plan : { repayments: [], repaidCents: 0, movements: [], walletCents: 0 };
+      } else {
+        const named = schedule.targetBankId === WALLET_SOURCE ? null : schedule.targetBankId;
+        plan = { ...planDeposit(toCents(schedule.amount), liveBanks, openLoans, named, savings.overflow), walletCents: 0 };
+      }
       // Nothing allocated and no debt to clear: the rule waits for a strategy.
-      if (plan.movements.length === 0 && plan.repayments.length === 0) {
+      if (plan.movements.length === 0 && plan.repayments.length === 0 && plan.walletCents === 0) {
         await skipWaitingRuns(uid, schedule, seen, due[due.length - 1], openLoans, savings);
         break;
       }
@@ -1349,10 +1854,12 @@ export const runDueSchedules = async (
           distributions: toDistributions(plan.movements),
           repaid: fromCents(plan.repaidCents),
           repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
+          ...(plan.walletCents !== 0 ? { wallet: fromCents(plan.walletCents) } : {}),
         });
         plan.movements.forEach((m) =>
           tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
         );
+        if (plan.walletCents !== 0) tx.set(walletRef(uid), { balance: increment(fromCents(plan.walletCents)) }, { merge: true });
         plan.repayments.forEach((r) => {
           const left = outstandingCents(r.loan) - r.cents;
           tx.update(loanRef(uid, r.loan.id), {
@@ -1372,6 +1879,7 @@ export const runDueSchedules = async (
       if (!done) break;
       posted += 1;
       seen = day;
+      liveWallet += plan.walletCents;
       // Back-dated, so it can land inside older rows already read; a transaction
       // leaves the phone's cache alone, so the row is read back from the server.
       activityRowsChanged([{ id: entry.id, server: true }]);
@@ -1390,6 +1898,126 @@ export const runDueSchedules = async (
   }
   if (aimedAtNothing > 0) throw new Error(messages().errors.scheduleGoalGone(aimedAtNothing));
   return posted;
+};
+
+/* -------------------------------------------------------------- recurring bills */
+
+export type NewBill = Omit<Bill, 'id' | 'createdAt' | 'lastRunAt'>;
+
+/** Starts counting from now, like an auto deposit: making a bill never backfills history. */
+export const createBill = (uid: string, bill: NewBill) =>
+  addDoc(billsCol(uid), { ...bill, lastRunAt: new Date().toISOString(), createdAt: Date.now() });
+
+const BILL_RESCHEDULES: (keyof Bill)[] = ['frequency', 'weekday', 'dayOfMonth', 'month'];
+
+/**
+ * Changing a bill. Anything that alters when it falls, or switching it back on,
+ * restarts its clock, so the change applies from the next time and never
+ * backwards (a bill paused for months must not record every month on resume).
+ */
+export const updateBill = (uid: string, id: string, patch: Partial<Bill>) => {
+  const restarts = patch.enabled === true || BILL_RESCHEDULES.some((key) => patch[key] !== undefined);
+  return updateDoc(billRef(uid, id), { ...patch, ...(restarts ? { lastRunAt: new Date().toISOString() } : {}) });
+};
+
+export const deleteBill = (uid: string, id: string) => deleteDoc(billRef(uid, id));
+
+/** The day's own noon, never later than now: an entry is dated on its day, and never in the future. */
+const billMoment = (day: string, now: Date) => {
+  const [y, m, d] = day.split('-').map(Number);
+  const noon = new Date(y, m - 1, d, 12);
+  return noon.getTime() > now.getTime() ? now : noon;
+};
+
+/**
+ * Records one day of a bill as spending, and moves the bill's clock to that day,
+ * in one transaction that first re-reads the bill: two devices opening on the
+ * same day both see it as due, and only one of them gets to record it.
+ * Returns false when it was already handled (or the bill is gone or paused).
+ *
+ * Spending out of the wallet may take it below zero, as spending always may.
+ */
+export const recordBillDay = async (
+  uid: string,
+  bill: Bill,
+  day: string,
+  amount: number,
+  { auto = false, note, now = new Date() }: { auto?: boolean; note?: string; now?: Date } = {}
+): Promise<boolean> => {
+  const cents = toCents(amount);
+  if (!(cents > 0)) throw new Error(messages().errors.enterWithdrawAmount);
+  const entry = doc(activitiesCol(uid));
+  const done = await runTransaction(db, async (tx) => {
+    const fresh = await tx.get(billRef(uid, bill.id));
+    if (!fresh.exists() || fresh.data().enabled === false) return false;
+    const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+    if (last === null || last >= day) return false;
+
+    const fromGoal = bill.sourceId !== WALLET_SOURCE;
+    const goal = fromGoal ? await tx.get(bankRef(uid, bill.sourceId)) : null;
+    if (fromGoal && (!goal?.exists() || goal.data().archivedAt)) throw new Error(messages().errors.billGoalGone(1));
+
+    tx.set(entry, {
+      type: 'withdraw' satisfies ActivityType,
+      date: billMoment(day, now).toISOString(),
+      amount: fromCents(cents),
+      distributions: fromGoal ? [{ bankId: bill.sourceId, amount: -fromCents(cents), percentage: 100 }] : [],
+      ...(fromGoal ? {} : { wallet: -fromCents(cents) }),
+      note: note ?? billNote(bill),
+      category: bill.category,
+      billId: bill.id,
+      ...(auto ? { auto: true } : {}),
+    });
+    if (fromGoal && goal) tx.update(bankRef(uid, bill.sourceId), { currentAmount: fromCents(toCents(goal.data().currentAmount ?? 0) - cents) });
+    else tx.set(walletRef(uid), { balance: increment(-fromCents(cents)) }, { merge: true });
+    tx.update(billRef(uid, bill.id), { lastRunAt: runStamp(day) });
+    return true;
+  });
+  if (done) activityRowsChanged([{ id: entry.id, server: true }]);
+  return done;
+};
+
+/** Passes over a day (and everything before it) without recording anything. */
+export const skipBillDay = (uid: string, bill: Bill, day: string) =>
+  runTransaction(db, async (tx) => {
+    const fresh = await tx.get(billRef(uid, bill.id));
+    if (!fresh.exists()) return false;
+    const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+    if (last !== null && last >= day) return false;
+    tx.update(billRef(uid, bill.id), { lastRunAt: runStamp(day) });
+    return true;
+  });
+
+/**
+ * What the app does for bills when it opens. Days older than the history it
+ * keeps are only passed over, for every bill; fixed bills then record each day
+ * that is due. A variable bill is never recorded here: it waits to be asked.
+ * Returns what was recorded, so the screen can say so.
+ */
+export const runDueBills = async (uid: string, bills: Bill[], { now = new Date(), notBefore }: { now?: Date; notBefore: Date }) => {
+  const recorded: { name: string; day: string }[] = [];
+  let aimedAtNothing = 0;
+  for (const bill of bills) {
+    if (!bill.enabled) continue;
+    const old = outsideHistory(bill, now, notBefore);
+    if (old.length > 0) await skipBillDay(uid, bill, old[old.length - 1]);
+
+    for (const day of planFixedRun(bill, now, notBefore).post) {
+      try {
+        if (await recordBillDay(uid, bill, day, bill.amount, { auto: true, now })) recorded.push({ name: bill.name, day });
+        else break;
+      } catch (e) {
+        // A goal that has gone leaves the bill unrecorded; the rest still run, and it is reported once at the end.
+        if (e instanceof Error && e.message === messages().errors.billGoalGone(1)) {
+          aimedAtNothing += 1;
+          break;
+        }
+        throw e;
+      }
+    }
+  }
+  if (aimedAtNothing > 0) throw new Error(messages().errors.billGoalGone(aimedAtNothing));
+  return recorded;
 };
 
 /* ------------------------------------------------------------ sample data */
@@ -1416,3 +2044,202 @@ export const seedSampleBanks = async (uid: string) => {
   );
   await batch.commit();
 };
+
+
+/* ----------------------------------------------------------------- receipts */
+
+/**
+ * Receipt photos are kept as small JPEGs in their own documents, so opening an
+ * entry never reads them: only looking at the receipt does. The page asks for
+ * them already compressed (about 150 KB), well inside a document's limit.
+ */
+type ReceiptOwnerKind = 'activity';
+
+const receiptDoc = (kind: ReceiptOwnerKind, ownerId: string, base64: string) => ({
+  ownerKind: kind,
+  ownerId,
+  data: Bytes.fromBase64String(base64),
+  bytes: Math.floor((base64.length * 3) / 4),
+  at: Date.now(),
+});
+
+/** Writes the receipts into a batch and returns what the owner document should say about them. */
+const receiptFields = (batch: ReturnType<typeof writeBatch>, uid: string, kind: ReceiptOwnerKind, ownerId: string, images?: string[]) => {
+  if (!images || images.length === 0) return {};
+  const ids = images.map((image) => {
+    const ref = doc(collection(db, 'users', uid, 'receipts'));
+    batch.set(ref, receiptDoc(kind, ownerId, image));
+    return ref.id;
+  });
+  return { receipts: ids };
+};
+
+/** One receipt as a picture the page can show. */
+export const loadReceipt = async (uid: string, id: string): Promise<string> => {
+  const snap = await getDoc(receiptRef(uid, id));
+  if (!snap.exists()) throw new Error(messages().net.receiptLoadFailed);
+  return `data:image/jpeg;base64,${(snap.data().data as Bytes).toBase64()}`;
+};
+
+/** Adds a receipt to an entry. */
+export const addReceipt = async (uid: string, owner: { kind: ReceiptOwnerKind; id: string }, base64: string) => {
+  const ref = doc(collection(db, 'users', uid, 'receipts'));
+  const batch = writeBatch(db);
+  batch.set(ref, receiptDoc(owner.kind, owner.id, base64));
+  batch.update(activityRef(uid, owner.id), { receipts: arrayUnion(ref.id) });
+  await batch.commit();
+  // An older row is not listened to, so it is read back.
+  activityRowsChanged([{ id: owner.id, server: true }]);
+  return ref.id;
+};
+
+export const removeReceipt = async (uid: string, owner: { kind: ReceiptOwnerKind; id: string }, id: string) => {
+  const batch = writeBatch(db);
+  batch.delete(receiptRef(uid, id));
+  batch.update(activityRef(uid, owner.id), { receipts: arrayRemove(id) });
+  await batch.commit();
+  activityRowsChanged([{ id: owner.id, server: true }]);
+};
+
+/** How many receipts are kept: a count on the server, so no receipt is downloaded to answer it. */
+export const receiptCount = async (uid: string): Promise<number> => {
+  const snap = await getCountFromServer(collection(db, 'users', uid, 'receipts'));
+  return snap.data().count;
+};
+
+/* ------------------------------------------------------------------- debts */
+
+export const subscribeToLiabilities = (uid: string, onChange: (debts: Liability[]) => void, onError: (e: FirestoreError) => void): Unsubscribe =>
+  onSnapshot(
+    query(liabilitiesCol(uid), orderBy('createdAt', 'asc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Liability)),
+    onError
+  );
+
+export interface NewLiability {
+  name: string;
+  kind: LiabilityKind;
+  balance: number;
+  monthly: number | null;
+  rate: number | null;
+  rateType: 'eir' | 'flat';
+  original: number | null;
+  payDay: number | null;
+}
+
+/** Starts counting from now, like a bill: adding a debt never asks about the months before. */
+export const createLiability = (uid: string, debt: NewLiability) =>
+  addDoc(liabilitiesCol(uid), { ...debt, lastRunAt: new Date().toISOString(), createdAt: Date.now() });
+
+/** Changing a debt's terms. A new pay day restarts the clock, so it applies from the next one and never backwards. */
+export const updateLiability = (uid: string, id: string, patch: Partial<Pick<Liability, 'name' | 'kind' | 'monthly' | 'rate' | 'rateType' | 'original' | 'payDay'>>) =>
+  updateDoc(liabilityRef(uid, id), { ...patch, ...(patch.payDay !== undefined ? { lastRunAt: new Date().toISOString() } : {}) });
+
+/** Correcting what is owed by hand, for when the bank's figure and the app's have drifted apart. */
+export const setLiabilityBalance = (uid: string, id: string, balance: number) => updateDoc(liabilityRef(uid, id), { balance });
+
+export const deleteLiability = (uid: string, id: string) => deleteDoc(liabilityRef(uid, id));
+
+/**
+ * Records a payment on a debt: what left the wallet (or one goal), how much of
+ * it lowered the debt, and how much was interest. One transaction that reads the
+ * debt first, so two devices answering the same month cannot both record it.
+ * With `forDay`, the entry is dated that pay day and the debt's clock moves to it.
+ * Returns false when that day had already been answered or the debt is gone.
+ */
+export const recordDebtPayment = async (
+  uid: string,
+  debt: Liability,
+  payment: { totalCents: number; interestCents: number; source: string },
+  { at, notBefore, forDay, now = new Date() }: DatedOptions & { forDay?: string; now?: Date } = {}
+): Promise<boolean> => {
+  const stamped = forDay ? null : stampOrThrow(at, now, notBefore);
+  const entry = doc(activitiesCol(uid));
+  const fromWallet = payment.source === WALLET_SOURCE;
+  const done = await runTransaction(db, async (tx) => {
+    const fresh = await tx.get(liabilityRef(uid, debt.id));
+    if (!fresh.exists()) return false;
+    if (forDay) {
+      const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+      if (last === null || last >= forDay) return false;
+    }
+    const goal = fromWallet ? null : await tx.get(bankRef(uid, payment.source));
+    if (!fromWallet && !goal?.exists()) throw new Error(messages().errors.billGoalGone(1));
+
+    // Worked out against what is owed now, not what this screen last saw.
+    const planned = planPayment({ totalCents: payment.totalCents, interestCents: payment.interestCents, balanceCents: toCents(fresh.data().balance ?? 0) });
+    if ('problem' in planned) {
+      const n = messages().net;
+      throw new Error(
+        planned.problem === 'interestTooBig'
+          ? n.interestTooBig
+          : planned.problem === 'overBalance'
+            ? n.overBalance(formatMoney(fresh.data().balance ?? 0))
+            : messages().errors.enterSpendAmount
+      );
+    }
+    const { plan } = planned;
+    tx.set(entry, {
+      type: 'loanPayment' satisfies ActivityType,
+      date: forDay ? billMoment(forDay, now).toISOString() : stamped!.stamp,
+      amount: fromCents(plan.totalCents),
+      principal: fromCents(plan.principalCents),
+      interest: fromCents(plan.interestCents),
+      liabilityId: debt.id,
+      note: debt.name,
+      category: 'interest',
+      distributions: fromWallet ? [] : [{ bankId: payment.source, amount: -fromCents(plan.totalCents), percentage: 100 }],
+      ...(fromWallet ? { wallet: -fromCents(plan.totalCents) } : {}),
+    });
+    if (fromWallet) tx.set(walletRef(uid), { balance: increment(-fromCents(plan.totalCents)) }, { merge: true });
+    else tx.update(bankRef(uid, payment.source), { currentAmount: increment(-fromCents(plan.totalCents)) });
+    tx.update(liabilityRef(uid, debt.id), {
+      balance: increment(-fromCents(plan.principalCents)),
+      ...(forDay ? { lastRunAt: runStamp(forDay) } : {}),
+    });
+    return true;
+  });
+  if (done) {
+    activityRowsChanged([{ id: entry.id, server: true }]);
+    if (stamped) announceBackDated(entry.id, stamped.when, now);
+  }
+  return done;
+};
+
+/** Passes over a pay day (and everything before it) without recording anything. */
+export const skipDebtDay = (uid: string, debt: Liability, day: string) =>
+  runTransaction(db, async (tx) => {
+    const fresh = await tx.get(liabilityRef(uid, debt.id));
+    if (!fresh.exists()) return false;
+    const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+    if (last !== null && last >= day) return false;
+    tx.update(liabilityRef(uid, debt.id), { lastRunAt: runStamp(day) });
+    return true;
+  });
+
+/** What the app does for debts when it opens: pay days older than the history it keeps are only passed over. */
+export const passOverOldDebtDays = async (uid: string, debts: Liability[], { now = new Date(), notBefore }: { now?: Date; notBefore: Date }) => {
+  for (const debt of debts) {
+    const old = debtDaysOutsideHistory(debt, now, notBefore);
+    if (old.length > 0) await skipDebtDay(uid, debt, old[old.length - 1]);
+  }
+};
+
+/* --------------------------------------------------------- net worth trend */
+
+export const subscribeToNetWorth = (uid: string, onChange: (points: NetWorthPoint[]) => void, onError: (e: FirestoreError) => void): Unsubscribe =>
+  onSnapshot(
+    netWorthCol(uid),
+    (snap) =>
+      onChange(
+        snap.docs
+          .map((d) => ({ month: d.id, cents: Number(d.data().cents) }))
+          .filter((p) => /^\d{4}-\d{2}$/.test(p.month) && Number.isFinite(p.cents))
+          .sort((a, b) => a.month.localeCompare(b.month))
+      ),
+    onError
+  );
+
+/** Keeps today's net worth as this month's figure; the last one written in a month is the month's. */
+export const saveNetWorthPoint = (uid: string, month: string, cents: number) =>
+  setDoc(doc(netWorthCol(uid), month), { cents, at: Date.now() });

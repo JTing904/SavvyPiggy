@@ -156,6 +156,10 @@ export interface Summary {
   spent: number;
   repaid: number;
   borrowed: number;
+  /** Spent out of the wallet rather than a goal: spending all the same, but the goals did not pay for it. */
+  walletSpent: number;
+  /** What moving money between the wallet and the goals changed the goals by, signed. */
+  walletMoved: number;
   /** Paid out of goals for shares. Not spending: the money still exists, as shares. */
   invested: number;
   /** A sale's proceeds coming back — split, into a goal, or covering spent ahead. Not saving. */
@@ -189,11 +193,18 @@ export interface Summary {
  * rather than money saved, so it counts neither here nor towards a streak.
  */
 export const inflowCents = (a: Activity) =>
-  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
+  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' || a.type === 'walletMove'
+    ? 0
+    : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
 
 /** What was spent out of goals. Buying shares is not spending, so it is left out. */
 const outflowCents = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' || a.type === 'walletMove'
+    ? 0
+    : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+
+/** Spending that came out of the wallet rather than a goal, in cents. */
+export const walletSpentCents = (a: Activity) => (a.type === 'withdraw' && (a.wallet ?? 0) < 0 ? -toCents(a.wallet ?? 0) : 0);
 
 const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
 
@@ -208,6 +219,8 @@ const signedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + to
  */
 export const goalsChangeCents = (a: Activity) => {
   if (a.type === 'transfer') return 0;
+  // Money moved between the wallet and the goals: the goals changed by exactly what was moved, signed.
+  if (a.type === 'walletMove') return signedCents(a);
   if (a.type === 'invest' || a.type === 'toInvest') return -movedCents(a);
   if (a.type === 'fromInvest') return movedCents(a);
   if (a.type === 'divest') return signedCents(a);
@@ -310,6 +323,37 @@ export const bucketsFor = (period: Period, range: PeriodRange): { label: string;
   return out;
 };
 
+/**
+ * Pace is each goal's own average, so targeted deposits count for the goal
+ * they went to rather than being smeared across the strategy. The goal that
+ * would be full soonest is the one reported.
+ */
+export const forecastFor = (
+  stats: Pick<BankStat, 'bankId' | 'name' | 'credited' | 'target' | 'current'>[],
+  days: number,
+  now: Date
+): Forecast | null => {
+  let forecast: Forecast | null = null;
+  for (const stat of stats) {
+    if (stat.target <= 0 || stat.credited <= 0) continue;
+    const remaining = toCents(stat.target) - toCents(stat.current);
+    if (remaining <= 0) continue;
+    const dailyRate = toCents(stat.credited) / days;
+    const needed = Math.ceil(remaining / dailyRate);
+    if (!forecast || needed < forecast.days) {
+      forecast = {
+        bankId: stat.bankId,
+        name: stat.name,
+        dailyRate: fromCents(Math.floor(dailyRate)),
+        remaining: fromCents(remaining),
+        days: needed,
+        date: addDays(startOfDay(now), needed),
+      };
+    }
+  }
+  return forecast;
+};
+
 export const summarize = (
   activities: Activity[],
   banks: PiggyBank[],
@@ -324,6 +368,8 @@ export const summarize = (
   let spent = 0;
   let repaid = 0;
   let borrowed = 0;
+  let walletSpent = 0;
+  let walletMoved = 0;
   let invested = 0;
   let cameBack = 0;
   let cameBackToGoals = 0;
@@ -343,6 +389,11 @@ export const summarize = (
     }
     // A deleted goal's money moving into another goal changes nothing overall.
     if (a.type === 'transfer') continue;
+    // Moving money between the wallet and the goals is neither saving nor spending; the goals' change is kept.
+    if (a.type === 'walletMove') {
+      walletMoved += signedCents(a);
+      continue;
+    }
     if (a.type === 'divest') {
       cameBack += signedCents(a) + toCents(a.repaid ?? 0);
       cameBackToGoals += signedCents(a);
@@ -352,6 +403,7 @@ export const summarize = (
     distributed += inflow;
     spent += outflowCents(a);
     repaid += toCents(a.repaid ?? 0);
+    walletSpent += walletSpentCents(a);
     if (a.type === 'borrow') borrowed += toCents(a.amount);
     for (const dist of a.distributions) {
       if (dist.amount > 0) credited.set(dist.bankId, (credited.get(dist.bankId) ?? 0) + toCents(dist.amount));
@@ -403,26 +455,7 @@ export const summarize = (
     current: inRange(now, bucket.range),
   }));
 
-  // Pace is each goal's own average, so targeted deposits count for the goal
-  // they went to rather than being smeared across the strategy.
-  let forecast: Forecast | null = null;
-  for (const stat of bankStats) {
-    if (stat.target <= 0 || stat.credited <= 0) continue;
-    const remaining = toCents(stat.target) - toCents(stat.current);
-    if (remaining <= 0) continue;
-    const dailyRate = toCents(stat.credited) / range.days;
-    const days = Math.ceil(remaining / dailyRate);
-    if (!forecast || days < forecast.days) {
-      forecast = {
-        bankId: stat.bankId,
-        name: stat.name,
-        dailyRate: fromCents(Math.floor(dailyRate)),
-        remaining: fromCents(remaining),
-        days,
-        date: addDays(startOfDay(now), days),
-      };
-    }
-  }
+  const forecast = forecastFor(bankStats, range.days, now);
 
   const run = streakRun(activities, now);
 
@@ -432,6 +465,8 @@ export const summarize = (
     spent: fromCents(spent),
     repaid: fromCents(repaid),
     borrowed: fromCents(borrowed),
+    walletSpent: fromCents(walletSpent),
+    walletMoved: fromCents(walletMoved),
     invested: fromCents(invested),
     cameBack: fromCents(cameBack),
     cameBackToGoals: fromCents(cameBackToGoals),
@@ -480,14 +515,18 @@ export const spendingByCategory = (
   const totals = new Map<string, { cents: number; entries: number }>();
 
   for (const a of activities) {
-    if (a.type !== 'withdraw') continue;
+    if (a.type !== 'withdraw' && a.type !== 'loanPayment') continue;
     const at = new Date(a.date);
     if (at < range.start || at >= range.end || at > now) continue;
 
-    const cents = a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
+    // A payment on a debt is spending only by its interest.
+    const cents =
+      a.type === 'loanPayment'
+        ? toCents(a.interest ?? 0)
+        : a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0) + walletSpentCents(a);
     if (cents === 0) continue;
 
-    const key = categoryOf(a.category).key;
+    const key = a.type === 'loanPayment' ? 'interest' : categoryOf(a.category).key;
     const row = totals.get(key) ?? { cents: 0, entries: 0 };
     row.cents += cents;
     row.entries += 1;

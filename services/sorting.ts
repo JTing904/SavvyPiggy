@@ -80,6 +80,21 @@ export const sortBanks = (banks: PiggyBank[], order: SortOrder): PiggyBank[] => 
 };
 
 /**
+ * Things that happen on a schedule, soonest first. Paused ones come last, and
+ * ones with no coming day are treated as paused, each group in the order they were made.
+ */
+export const soonestFirst = <T extends { enabled: boolean; createdAt: number }>(rows: T[], next: (row: T) => Date | null): T[] =>
+  rows
+    .map((row) => ({ row, at: row.enabled ? (next(row)?.getTime() ?? null) : null }))
+    .sort((a, b) => {
+      if (a.at === null && b.at === null) return a.row.createdAt - b.row.createdAt;
+      if (a.at === null) return 1;
+      if (b.at === null) return -1;
+      return a.at - b.at || a.row.createdAt - b.row.createdAt;
+    })
+    .map((x) => x.row);
+
+/**
  * Splits 100% evenly over the goals that can take a share (in the split and not
  * locked), leaving locked goals exactly as they are. Whole percentages only, so
  * the odd point left over goes to the earliest goals. Returns the new

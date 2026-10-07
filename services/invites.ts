@@ -1,10 +1,10 @@
-import { doc, getDoc, onSnapshot, writeBatch, type Unsubscribe } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, setDoc, Timestamp, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import { m } from '../i18n';
+import { INVITE_TTL_MS, normalizeCode, randomInviteCode } from './inviteCodes';
 
-/** Codes are case-insensitive to type but stored as upper-case document IDs. */
-export const normalizeCode = (raw: string) => raw.trim().toUpperCase().replace(/\s+/g, '');
+export { normalizeCode };
 
 const VALID_CODE = /^[A-Z0-9_-]{4,64}$/;
 
@@ -68,6 +68,12 @@ export const redeemInvite = async (user: User, rawCode: string) => {
 
   if (!snap.exists()) throw new Error(m().errors.inviteMissing);
   if (snap.data().claimedBy) throw new Error(m().errors.inviteUsed);
+  // A code minted in the app is good for ten minutes; the server checks this
+  // too, this just says so in words rather than as a refused write.
+  const expiresAt = snap.data().expiresAt;
+  if (expiresAt && typeof expiresAt.toMillis === 'function' && expiresAt.toMillis() <= Date.now()) {
+    throw new Error(m().errors.inviteExpired);
+  }
 
   const batch = writeBatch(db);
   batch.update(inviteRef, { claimedBy: user.uid, claimedAt: Date.now() });
@@ -80,3 +86,55 @@ export const redeemInvite = async (user: User, rawCode: string) => {
     throw new Error(m().errors.inviteJustClaimed);
   }
 };
+
+/* ------------------------------------------------------ minting (the admin) */
+
+const LAST_KEY = 'savvypiggy.lastInvite';
+
+const lastMinted = (): string | null => {
+  try {
+    return localStorage.getItem(LAST_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const remember = (code: string | null) => {
+  try {
+    if (code) localStorage.setItem(LAST_KEY, code);
+    else localStorage.removeItem(LAST_KEY);
+  } catch {
+    // Only used to tidy up the previous code; the expiry covers it anyway.
+  }
+};
+
+/**
+ * Makes a fresh code that works for ten minutes. The one made before it, if it
+ * was never used, is withdrawn first, so only one is ever live.
+ */
+export const mintInvite = async (uid: string): Promise<{ code: string; expiresAt: number }> => {
+  const previous = lastMinted();
+  if (previous) {
+    // It may already be used or gone; neither matters.
+    await deleteDoc(doc(db, 'invites', previous)).catch(() => undefined);
+  }
+  const code = randomInviteCode();
+  const expiresAt = Date.now() + INVITE_TTL_MS;
+  await setDoc(doc(db, 'invites', code), {
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    expiresAt: Timestamp.fromMillis(expiresAt),
+  });
+  remember(code);
+  return { code, expiresAt };
+};
+
+/** Tells the admin's screen when someone has used the code. */
+export const subscribeToInviteUse = (code: string, onUsed: () => void): Unsubscribe =>
+  onSnapshot(
+    doc(db, 'invites', code),
+    (snap) => {
+      if (snap.exists() && snap.data().claimedBy) onUsed();
+    },
+    () => undefined
+  );

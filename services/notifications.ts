@@ -1,8 +1,11 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
-import type { Dividend, NotificationPrefs, Schedule, Trade } from '../types';
+import type { Bill, Dividend, Liability, NotificationPrefs, Schedule, Trade } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
+import { billSchedule, WALLET_SOURCE } from './bills';
+import { debtSchedule, suggestPayment } from './debts';
+import { toCents } from './money';
 import { unitsOnExDate } from './holdings';
 import { dividendId, exchangeDay } from './dividends';
 import { formatMoney } from '../services/money';
@@ -37,6 +40,7 @@ export const DIGEST_ID = 2;
 const SPAN = 1_000_000;
 const DUE_BASE = 1_000_000;
 const EX_BASE = 10_000_000;
+const BILL_BASE = 20_000_000;
 
 /** A small stable number from a string, so an id survives reordering. */
 const slot = (key: string, span: number) => {
@@ -134,13 +138,25 @@ export const requestExactAlarms = async () => {
   }
 };
 
+/** What the bill alarms need that the settings alone do not say. */
+export interface BillExtras {
+  bills: Bill[];
+  /** Loans that ask for a payment on a day each month. */
+  debts?: Liability[];
+  /** What the wallet holds now, in cents. */
+  walletCents: number;
+  /** What each bill usually costs, in cents, by bill id. */
+  expected: Record<string, number>;
+}
+
 /** What the phone should hold, given the settings and the auto-deposit rules. */
 export const plannedNotifications = (
   prefs: NotificationPrefs,
   schedules: Schedule[],
   dividends: Dividend[] = [],
   trades: Trade[] = [],
-  now = new Date()
+  now = new Date(),
+  extras?: BillExtras
 ): LocalNotificationSchema[] => {
   const out: LocalNotificationSchema[] = [];
   // Written in the current language; a change of language changes the plan's
@@ -182,6 +198,64 @@ export const plannedNotifications = (
       extra: { open: 'home' satisfies OpenTarget },
     });
   });
+
+  /**
+   * Bills. A variable one asks on its day (the app cannot know the amount); a
+   * fixed one records itself and says nothing, except the day before, when the
+   * wallet as it stands could not cover it.
+   */
+  if (prefs.bills && extras) {
+    for (const bill of extras.bills) {
+      if (!bill.enabled) continue;
+      const next = nextOccurrence(billSchedule(bill), now);
+      if (!next) continue;
+      const expected = extras.expected[bill.id] ?? toCents(bill.amount);
+
+      if (bill.mode === 'variable') {
+        const at = new Date(next);
+        at.setHours(MORNING, 0, 0, 0);
+        out.push({
+          id: BILL_BASE + slot(`due:${bill.id}`, SPAN),
+          title: words.billDueTitle(bill.name),
+          body: expected > 0 ? words.billDueBody(formatMoney(expected / 100)) : words.billDueBodyNoAmount,
+          schedule: { at },
+          extra: { open: 'home' satisfies OpenTarget },
+        });
+      } else if (bill.sourceId === WALLET_SOURCE && toCents(bill.amount) > extras.walletCents) {
+        const at = new Date(next);
+        at.setDate(at.getDate() - 1);
+        at.setHours(MORNING, 0, 0, 0);
+        if (at.getTime() <= now.getTime()) continue;
+        out.push({
+          id: BILL_BASE + slot(`short:${bill.id}`, SPAN),
+          title: words.billShortTitle,
+          body: words.billShortBody(bill.name, formatMoney(bill.amount), formatMoney(Math.max(0, extras.walletCents) / 100)),
+          schedule: { at },
+          extra: { open: 'home' satisfies OpenTarget },
+        });
+      }
+    }
+  }
+
+  // Loan payments ask on their day, like a bill with a changing amount: the usual figure is in the note.
+  if (prefs.bills && extras?.debts) {
+    for (const debt of extras.debts) {
+      const schedule = debtSchedule(debt);
+      if (!schedule.enabled) continue;
+      const next = nextOccurrence(schedule, now);
+      if (!next) continue;
+      const at = new Date(next);
+      at.setHours(MORNING, 0, 0, 0);
+      const plan = suggestPayment(debt);
+      out.push({
+        id: BILL_BASE + slot(`debt:${debt.id}`, SPAN),
+        title: m().net.notifyTitle(debt.name),
+        body: plan ? m().net.notifyBody(formatMoney(plan.totalCents / 100)) : m().net.notifyBodyNoAmount,
+        schedule: { at },
+        extra: { open: 'home' satisfies OpenTarget },
+      });
+    }
+  }
 
   /**
    * The ex-date is the one day that decides a dividend: hold the shares the
@@ -255,7 +329,8 @@ export const syncNotifications = async (
   schedules: Schedule[],
   dividends: Dividend[] = [],
   trades: Trade[] = [],
-  now = new Date()
+  now = new Date(),
+  extras?: BillExtras
 ) => {
   if (!native() || (await checkPermission()) !== 'granted') return;
   await ensureChannel();
@@ -264,7 +339,7 @@ export const syncNotifications = async (
   // phone dozes, which is no use for "remind me at 8pm" — so take a real one
   // whenever the phone already allows it, and fall back quietly when it does not.
   const isExactNotification = await exactAllowed();
-  const planned = plannedNotifications(prefs, schedules, dividends, trades, now).map((n) => ({
+  const planned = plannedNotifications(prefs, schedules, dividends, trades, now, extras).map((n) => ({
     ...n,
     channelId: CHANNEL_ID,
     isExactNotification,
@@ -296,6 +371,23 @@ export const syncNotifications = async (
   }
   if (changed.length > 0) await LocalNotifications.schedule({ notifications: changed });
   writePlan(after);
+};
+
+/**
+ * Takes every reminder this app has set off the phone. Signing out calls it:
+ * the alarms carry the last account's amounts and bill names, and nothing would
+ * otherwise stop them going off, on the lock screen, for whoever holds the phone.
+ */
+export const cancelAllNotifications = async () => {
+  if (!native()) return;
+  try {
+    // cancelAll works from the plugin's own record of every alarm it set,
+    // rather than from the list getPending hands back.
+    await LocalNotifications.cancelAll();
+    writePlan({});
+  } catch {
+    // A phone that refuses is no worse off than before; sign-out goes ahead.
+  }
 };
 
 /** Fires when the user taps a notification; returns a way to stop listening. */

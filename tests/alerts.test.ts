@@ -9,7 +9,7 @@ import {
 } from '../services/alerts';
 import { plannedNotifications } from '../services/notifications';
 import { nextOccurrence } from '../services/schedules';
-import type { Activity, Alert, PiggyBank, Schedule } from '../types';
+import type { Activity, Alert, Bill, PiggyBank, Schedule } from '../types';
 import { eq, report } from './harness';
 
 const bank = (id: string, extra: Partial<PiggyBank> = {}): PiggyBank => ({
@@ -159,7 +159,7 @@ eq('next weekly (Monday) occurrence', nextOccurrence(rule({ frequency: 'weekly' 
 eq('today is skipped even if unposted', nextOccurrence(rule({ lastRunAt: at(2026, 9, 1) }), NOW)?.getDate(), 6);
 eq('a dormant rule still looks forward from today', nextOccurrence(rule({ frequency: 'monthly', dayOfMonth: 3, lastRunAt: at(2026, 1, 3) }), NOW)?.toDateString(), 'Sat Oct 03 2026');
 
-const PREFS = { receipts: true, milestones: true, reminder: true, reminderTime: '21:15', digest: true, exDates: true };
+const PREFS = { receipts: true, milestones: true, reminder: true, reminderTime: '21:15', digest: true, exDates: true, bills: true };
 const RULES = [
   rule({}),
   rule({ id: 'off', enabled: false }),
@@ -212,12 +212,37 @@ eq('rule nudge names the amount', plan[2].title, 'Auto deposit of RM50.00 due to
   const past = { ...declared, exDate: new Date(2026, 7, 1).getTime() };
   eq('a past ex-date plans nothing', plannedNotifications(PREFS, [], [past], held, NOW).length, 2);
   eq('and neither does the setting turned off',
-    plannedNotifications({ ...PREFS, exDates: false }, [], [declared], held, NOW).length, 2);
+    plannedNotifications({ ...PREFS, exDates: false, bills: true }, [], [declared], held, NOW).length, 2);
+}
+
+// --- bills
+{
+  const base: Bill = { id: 'bill', name: 'Electricity', mode: 'variable', amount: 0, frequency: 'monthly', weekday: 0, dayOfMonth: 15, month: 1, sourceId: 'wallet', category: 'bills', enabled: true, createdAt: 1, lastRunAt: at(2026, 7, 20) };
+  const onlyBills = { ...PREFS, reminder: false, digest: false, exDates: false };
+  const plannedBills = (bills: Bill[], walletCents: number, expected: Record<string, number> = {}, prefs = onlyBills) =>
+    plannedNotifications(prefs, [], [], [], NOW, { bills, walletCents, expected });
+  const when = (n: { schedule?: { at?: Date | undefined } }) => (n.schedule?.at as Date).toString().slice(0, 21);
+
+  const asked = plannedBills([base], 0, { bill: 11800 });
+  eq('a variable bill asks on its next day, at nine', asked.map(when), ['Tue Sep 15 2026 09:00']);
+  eq('and says what it was last time', asked[0].body, 'Last time it was RM118.00. Open SavvyPiggy to confirm the amount and record it.');
+  eq('without a known amount it just asks', plannedBills([base], 0)[0].body, 'Open SavvyPiggy to enter the amount and record it.');
+  eq('a paused bill plans nothing', plannedBills([{ ...base, enabled: false }], 0), []);
+  eq('the bills setting off plans nothing', plannedBills([base], 0, {}, { ...onlyBills, bills: false }), []);
+
+  const fixed: Bill = { ...base, id: 'net', name: 'Netflix', mode: 'fixed', amount: 55, dayOfMonth: 8 };
+  const warned = plannedBills([fixed], 2400);
+  eq('a fixed bill the wallet cannot cover warns the day before, at nine', warned.map(when), ['Mon Sep 07 2026 09:00']);
+  eq('and names the bill and the wallet', warned[0].body, 'Netflix RM55.00 comes out tomorrow, and your wallet holds RM24.00.');
+  eq('a fixed bill the wallet covers is silent', plannedBills([fixed], 5500), []);
+  eq('a fixed bill out of a goal is silent', plannedBills([{ ...fixed, sourceId: 'goal1' }], 0), []);
+  eq('a heads-up that would already be in the past is not planned', plannedBills([{ ...fixed, dayOfMonth: 6 }], 0), []);
+  eq('a variable bill and a fixed one plan one alarm each', plannedBills([base, fixed], 0).length, 2);
 }
 
 eq('everything off plans nothing',
   plannedNotifications(
-    { receipts: true, milestones: true, reminder: false, reminderTime: '20:00', digest: false, exDates: false },
+    { receipts: true, milestones: true, reminder: false, reminderTime: '20:00', digest: false, exDates: false, bills: true },
     [], [], [], NOW
   ),
   []);

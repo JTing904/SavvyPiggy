@@ -367,4 +367,23 @@ eq('a valid one is left alone', allowedRetention(6), 6);
   eq('nothing spent, nothing to show', spendingByCategory([], month, NOW), []);
 }
 
+// --- the wallet
+{
+  const kept = deposit(at(2026, 9, 4), { a: 70 }, { amount: 100, wallet: 30 });
+  const spendWallet: Activity = { id: 'w1', type: 'withdraw', date: at(2026, 9, 4), amount: 12, distributions: [], wallet: -12, category: 'food' };
+  const intoGoals: Activity = { id: 'w2', type: 'walletMove', date: at(2026, 9, 4), amount: 20, distributions: [{ bankId: 'a', amount: 20, percentage: 100 }], wallet: -20 };
+  const outOfGoals: Activity = { id: 'w3', type: 'walletMove', date: at(2026, 9, 3), amount: 5, distributions: [{ bankId: 'a', amount: -5, percentage: 100 }], wallet: 5 };
+  const sum = summarize([kept, spendWallet, intoGoals, outOfGoals], [bank('a')], 'month', NOW);
+  eq('only what reached the goals is saved', sum.distributed, 70);
+  eq('spending out of the wallet is counted apart from goal spending', [sum.spent, sum.walletSpent], [0, 12]);
+  eq('moving money between wallet and goals is not saving or spending', [sum.invested, sum.borrowed], [0, 0]);
+  eq('but the goals change by what was moved, signed', sum.walletMoved, 15);
+  eq('goalsChange: income kept partly in the wallet', goalsChangeCents(kept), 7000);
+  eq('goalsChange: wallet spending leaves goals alone', goalsChangeCents(spendWallet), 0);
+  eq('goalsChange: a move reads as signed', [goalsChangeCents(intoGoals), goalsChangeCents(outOfGoals)], [2000, -500]);
+  const cats = spendingByCategory([spendWallet, deposit(at(2026, 9, 4), { a: -8 }, { type: 'withdraw', category: 'food' })], summarize([], [], 'month', NOW).range, NOW);
+  eq('category spending includes the wallet', cats[0]?.cents, 2000);
+}
+
+
 report();

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { Activity } from '../types';
 import { OlderLedger, type OlderStatus } from '../services/olderLedger';
 import { loadActivitiesBetween, readActivity } from '../services/ledgerArchive';
-import { onActivityRowsChanged } from '../services/ledgerEvents';
+import { onActivityRowsChanged, shouldClearStreak } from '../services/ledgerEvents';
 import { olderNeed, parseStreakMemory, type StreakMemory } from '../services/ledgerWindow';
 import { localKey, readLocal, writeLocal } from '../services/localFlags';
 
@@ -55,6 +55,8 @@ export const useOlderLedgerStore = (uid: string | undefined, liveFrom: Date, kep
     if (!store || !uid) return;
     const stopRows = onActivityRowsChanged((changes) => {
       for (const change of changes) {
+        // A moved row changes a day before the live window even when it is not in the store.
+        if (shouldClearStreak(change, liveFrom)) writeStreakMemory(uid, null);
         const known = store.has(change.id);
         // A row not read yet can still belong in the older ledger (a back-dated
         // catch-up deposit), but only once some of it is loaded is it worth a read.
@@ -79,7 +81,7 @@ export const useOlderLedgerStore = (uid: string | undefined, liveFrom: Date, kep
       // Not closed: StrictMode re-runs this with the same store. A replaced
       // store simply goes unused, and a read still under way lands nowhere.
     };
-  }, [store, uid]);
+  }, [store, uid, liveFrom]);
 
   const noop = useMemo(() => () => () => undefined, []);
   const version = useSyncExternalStore(store?.subscribe ?? noop, store?.getVersion ?? (() => 0));

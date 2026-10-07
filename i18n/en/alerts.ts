@@ -41,9 +41,9 @@ export const alerts = {
   streakBody: (days: number | string) =>
     `You have put money into your goals every day for ${days} days straight. Keep it going.`,
   housekeepingBody: (months: number | undefined) =>
-    `The app reads your whole history every time it opens, so records older than ${months ?? ''} months are cleared to keep that quick. Nothing is removed until it has been listed there. Open Report → Statements to save those months first, or to change how long they are kept. Your balances are never affected.`,
+    `The app reads your whole history every time it opens, so records older than ${months ?? ''} months are cleared to keep that quick. Nothing is removed until it has been listed there and you have saved a statement from it. Open Report → Statements to save those months first, or to change how long they are kept. Your balances are never affected.`,
   dividendBody: (units: string) =>
-    `Worked out on the ${units} units you held on the ex-date and paid into your investment pot at the amount announced. Check what actually reached your account — if less arrived, move the difference out of the pot.`,
+    `Worked out on the ${units} units you held on the ex-date and paid into your investing cash at the amount announced. Check what actually reached your account — if less arrived, move the difference out of the pot.`,
 
   // Reminder card and warnings
   dailySavingsReminder: 'Daily savings reminder',
@@ -60,7 +60,18 @@ export const alerts = {
   emptyBody: 'Milestones, auto-deposit receipts and streaks show up here as they happen.',
 
   // Preferences
-  deliveryPreferences: 'Delivery preferences',
+  deliveryPreferences: 'Reminder settings',
+  prefsCollapse: 'Hide',
+  prefsExpand: 'Change',
+  prefsNone: 'Everything is off',
+  prefsShortNames: {
+    receipts: 'Auto deposits',
+    milestones: 'Milestones',
+    reminder: (time: string) => `Daily ${time}`,
+    digest: 'Monthly report',
+    exDates: 'Ex-dates',
+    bills: 'Bills',
+  },
   receiptsTitle: 'Auto-deposit receipts',
   receiptsHint: 'A card here each time a rule posts a deposit.',
   milestonesTitle: 'Milestones & streaks',
@@ -73,6 +84,8 @@ export const alerts = {
   monthlyReport: 'Monthly report',
   monthlyReportHint: 'On the 1st at 9:00 AM, opening last month’s Report.',
   exDates: 'Ex-dividend days',
+  billReminders: 'Bills',
+  billRemindersHint: 'A bill that asks for its amount, or a loan payment to confirm, on its day, and a heads-up the day before a bill your wallet cannot cover.',
   exDatesHint:
     'Two days before a counter you hold goes ex-dividend — the day that decides whether the payment is yours.',
   footer:
@@ -88,6 +101,11 @@ export const alerts = {
     digestBody: 'See where last month’s deposits went and how fast you saved.',
     dueTitle: (amount: string) => `Auto deposit of ${amount} due today`,
     dueBody: 'Open SavvyPiggy to post it to your goals.',
+    billDueTitle: (name: string) => `${name} is due today`,
+    billDueBody: (amount: string) => `Last time it was ${amount}. Open SavvyPiggy to confirm the amount and record it.`,
+    billDueBodyNoAmount: 'Open SavvyPiggy to enter the amount and record it.',
+    billShortTitle: 'Your wallet may not cover tomorrow’s bill',
+    billShortBody: (name: string, amount: string, held: string) => `${name} ${amount} comes out tomorrow, and your wallet holds ${held}.`,
     exTitle: (symbol: string) => `${symbol} goes ex-dividend in 2 days`,
     exBodyHeld: (rate: string, units: string) => `${rate} a unit. You hold ${units}.`,
     exBodyNone: (rate: string) => `${rate} a unit. Buy before the ex-date to qualify.`,

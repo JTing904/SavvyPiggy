@@ -1,15 +1,26 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Activity, PiggyBank, SavingsSettings, Schedule } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useT } from '../contexts/LanguageContext';
 import LanguageSheet from './LanguageSheet';
-import { isArchived, isFull, isInSplit, seedSampleBanks } from '../services/firestore';
+import InviteSheet from './InviteSheet';
+import { isAdminUser } from '../services/inviteCodes';
+import { isArchived, isFull, isInSplit, receiptCount, seedSampleBanks } from '../services/firestore';
 import { summarize, type StreakRun } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
+import { safeGoalIcon } from '../services/goalIcons';
 import { APP_VERSION } from '../services/version';
-import { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
 import { dateLocale } from '../i18n';
+import { getThemePreference, setThemePreference, type ThemePreference } from '../hooks/useScreenLook';
+import { Button } from './ui/Button';
+import { Group } from './ui/Group';
+import { Icon } from './ui/Icon';
+import { Row } from './ui/Row';
+import { Toggle } from './ui/Toggle';
+
+/** About 80% of the free gigabyte, at roughly 150 KB a receipt. */
+const RECEIPT_WARN = 5400;
 
 interface ProfileProps {
   banks: PiggyBank[];
@@ -17,6 +28,8 @@ interface ProfileProps {
   /** The current saving streak, counted by the app. */
   streak: StreakRun;
   schedules: Schedule[];
+  /** How many bills are switched on. */
+  liveBills: number;
   savings: SavingsSettings;
   unreadAlerts: number;
   onBack: () => void;
@@ -33,67 +46,21 @@ interface ProfileProps {
 const monthYear = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'long', year: 'numeric' });
 const shortDate = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' });
 
-const Card: React.FC<{ className?: string; children: React.ReactNode }> = ({ className = '', children }) => (
-  <div className={`bg-surface border border-white/5 rounded-[2rem] shadow-xl ${className}`}>{children}</div>
-);
-
-const Section: React.FC<{ label: string; action?: React.ReactNode; children: React.ReactNode }> = ({ label, action, children }) => (
-  <section>
-    <div className="flex items-center justify-between gap-3 px-1 mb-3">
-      <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{label}</p>
-      {action}
-    </div>
+const Section: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <section className="mt-6">
+    <h2 className="mb-2 px-1 text-[15px] font-extrabold">{label}</h2>
     {children}
   </section>
 );
 
-const Switch: React.FC<{ on: boolean; onChange: (on: boolean) => void }> = ({ on, onChange }) => (
-  <button
-    role="switch"
-    aria-checked={on}
-    onClick={() => onChange(!on)}
-    className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${on ? 'bg-primary/20' : 'bg-white/10'}`}
-  >
-    <span className={`inline-block size-6 transform rounded-full transition-transform ${on ? 'translate-x-7 bg-primary' : 'translate-x-1 bg-slate-600'}`} />
-  </button>
-);
-
-const Row: React.FC<{
-  icon: string;
-  title: string;
-  subtitle: string;
-  onClick?: () => void;
-  dot?: boolean;
-  trailing?: React.ReactNode;
-}> = ({ icon, title, subtitle, onClick, dot, trailing }) => {
-  const inner = (
-    <>
-      <div className="size-11 shrink-0 rounded-2xl bg-white/5 text-slate-300 flex items-center justify-center">
-        <span className="material-symbols-rounded">{icon}</span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-white font-bold text-sm">{title}</p>
-        <p className="text-slate-500 text-xs font-medium mt-0.5">{subtitle}</p>
-      </div>
-      {dot && <span className="size-2.5 rounded-full bg-primary shrink-0" />}
-      {trailing ?? (onClick && <span className="material-symbols-rounded text-slate-600 shrink-0">chevron_right</span>)}
-    </>
-  );
-
-  return onClick ? (
-    <button onClick={onClick} className="w-full p-5 flex items-center gap-4 text-left active:bg-white/[0.02] transition-colors">
-      {inner}
-    </button>
-  ) : (
-    <div className="w-full p-5 flex items-center gap-4">{inner}</div>
-  );
-};
+const Chevron = () => <Icon name="chev" size={18} className="text-mute" />;
 
 const Profile: React.FC<ProfileProps> = ({
   banks,
   activities,
   streak: streakRun,
   schedules,
+  liveBills,
   savings,
   unreadAlerts,
   onBack,
@@ -110,8 +77,18 @@ const Profile: React.FC<ProfileProps> = ({
   const [busy, setBusy] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
   const t = useT();
+  // How many receipt photos are kept (a count on the server: none is downloaded to answer it).
+  const [receipts, setReceipts] = useState(0);
+  useEffect(() => {
+    if (user?.uid) void receiptCount(user.uid).then(setReceipts).catch(() => undefined);
+  }, [user?.uid]);
   const now = new Date();
+
+  const summary = useMemo(() => summarize(activities, banks, 'month', now), [activities, banks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [seedError, setSeedError] = useState<string | null>(null);
 
   if (!user) return null;
 
@@ -120,19 +97,17 @@ const Profile: React.FC<ProfileProps> = ({
   const joined = user.metadata.creationTime ? new Date(user.metadata.creationTime) : null;
 
   const active = banks.filter((b) => !isArchived(b));
-  const archived = banks.filter(isArchived);
+  // The one put away most recently first.
+  const archived = banks.filter(isArchived).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
   const totalBalance = banks.reduce((sum, b) => sum + b.currentAmount, 0);
   const archivedTotal = archived.reduce((sum, b) => sum + b.currentAmount, 0);
   const withTarget = active.filter((b) => b.targetAmount > 0);
   const reached = active.filter(isFull);
 
-  const summary = useMemo(() => summarize(activities, banks, 'month', now), [activities, banks]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Counted from loaded history only; a streak reaching back to the window start is shown as "at least".
   // Counted once for the whole app (see knownStreak), so the live window's start does not cut it short.
   const run = streakRun;
   const streak = run.days;
 
-  const colorOf = (id: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === id)) % SLICE_COLORS.length];
   const inSplit = active.filter(isInSplit);
   const allocated = inSplit.reduce((sum, b) => sum + b.splitPercentage, 0);
 
@@ -142,7 +117,6 @@ const Profile: React.FC<ProfileProps> = ({
     .filter((d): d is Date => d !== null)
     .sort((a, b) => a.getTime() - b.getTime())[0];
 
-  const [seedError, setSeedError] = useState<string | null>(null);
   const handleSeed = async () => {
     setBusy(true);
     setSeedError(null);
@@ -168,273 +142,278 @@ const Profile: React.FC<ProfileProps> = ({
         summary.change === null
           ? t.profile.thisMonth
           : t.profile.vsMonth(`${summary.change >= 0 ? '+' : ''}${summary.change}`, lastMonth),
-      tone: summary.change !== null && summary.change < 0 ? 'text-slate-500' : 'text-primary',
+      tone: summary.change !== null && summary.change < 0 ? 'text-mute' : 'text-pos',
     },
     {
       label: t.common.goals,
       value: String(active.length),
       hint: withTarget.length === 0 ? t.profile.noTargets : t.profile.reachedRatio(reached.length, withTarget.length),
-      tone: 'text-slate-500',
+      tone: 'text-mute',
     },
     {
       label: t.profile.streak,
       value: run.capped ? t.report.streakAtLeast(streak) : t.profile.streakValue(streak),
       hint: streak === 0 ? t.profile.startToday : t.profile.inARow,
-      tone: streak > 0 ? 'text-primary' : 'text-slate-500',
+      tone: streak > 0 ? 'text-pos' : 'text-mute',
     },
   ];
 
+  const appearance = t.language.appearance;
+  const THEMES: { value: ThemePreference; label: string }[] = [
+    { value: 'light', label: appearance.light },
+    { value: 'dark', label: appearance.dark },
+    { value: 'system', label: appearance.system },
+  ];
+
+  const rules = liveRules.length + liveBills;
+
   return (
-    <div className="flex flex-col min-h-full pb-16 safe-pt">
-      {/* Header */}
-      <div className="px-6 pt-6 flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-        >
-          <span className="material-symbols-rounded">arrow_back</span>
+    <div className="flex min-h-full flex-col px-4 pb-24 pt-3 safe-pt font-figtree text-ink">
+      <div className="mb-1 flex items-center gap-3 px-1">
+        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
+          <Icon name="back" size={20} />
         </button>
-        <div className="min-w-0">
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.profile.memberProfile}</p>
-          <h2 className="text-white text-3xl font-black tracking-tight">{t.profile.settings}</h2>
+      </div>
+      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.profile.settings}</h1>
+
+      {/* Who */}
+      <div className="mt-4 rounded-3xl bg-card p-5">
+        <div className="flex items-center gap-4">
+          {user.photoURL ? (
+            <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="size-16 rounded-3xl object-cover" />
+          ) : (
+            <span className="grid size-16 shrink-0 place-items-center rounded-3xl bg-mint text-[26px] font-extrabold">{initial}</span>
+          )}
+          <div className="min-w-0">
+            <p className="truncate text-[18px] font-extrabold">{label}</p>
+            <p className="truncate text-[12.5px] font-medium text-mute">{user.email}</p>
+            {joined && <p className="mt-0.5 text-[12px] font-bold text-pos">{t.profile.savingSince(monthYear(joined))}</p>}
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {/* A third of a phone's width, so everything here wraps rather than truncating on a large system font. */}
+          {stats.map((s) => (
+            <div key={s.label} className="min-w-0 rounded-2xl bg-line/5 px-2 py-3 text-center">
+              <p className="whitespace-nowrap text-[15px] font-extrabold tabular-nums leading-tight">{s.value}</p>
+              <p className="mt-1 text-[11px] font-bold leading-tight text-mute">{s.label}</p>
+              <p className={`mt-1 text-[10.5px] font-bold leading-tight ${s.tone}`}>{s.hint}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="px-6 mt-6 space-y-8">
-        {/* Identity */}
-        <Card className="p-6 bg-gradient-to-br from-surface to-primary/5">
-          <div className="flex items-center gap-5">
-            {user.photoURL ? (
-              <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="size-16 rounded-2xl object-cover border-2 border-primary/40" />
-            ) : (
-              <div className="size-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-2xl font-black">
-                {initial}
-              </div>
-            )}
-            <div className="min-w-0">
-              <h3 className="text-white font-black text-lg truncate">{label}</h3>
-              <p className="text-slate-500 text-xs font-medium truncate">{user.email}</p>
-              {joined && <p className="text-primary/70 text-[11px] font-bold mt-1">{t.profile.savingSince(monthYear(joined))}</p>}
-            </div>
+      {/* Light, dark, or the phone's own */}
+      <Section label={appearance.title}>
+        <div className="rounded-3xl bg-card p-3">
+          <div role="tablist" aria-label={appearance.title} className="flex rounded-full bg-line/10 p-1">
+            {THEMES.map((o) => {
+              const on = o.value === theme;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => {
+                    setTheme(o.value);
+                    setThemePreference(o.value);
+                  }}
+                  className={`min-h-11 min-w-0 flex-1 whitespace-nowrap rounded-full px-1 text-[13px] font-extrabold ${on ? 'bg-card text-ink' : 'text-mute'}`}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
           </div>
+          <p className="mt-2 px-2 text-[12px] font-medium leading-snug text-mute">{appearance.hint}</p>
+        </div>
+      </Section>
 
-          <div className="grid grid-cols-3 gap-3 mt-6">
-            {/* A third of a phone's width, so everything here wraps rather
-                than truncating on a large system font. */}
-            {stats.map((s) => (
-              <div key={s.label} className="bg-black/20 rounded-2xl p-3 text-center min-w-0">
-                <p className="text-white text-base font-black tabular-nums leading-tight whitespace-nowrap">{s.value}</p>
-                <p className="text-slate-500 text-[9px] font-black uppercase tracking-wider mt-1 leading-tight">{s.label}</p>
-                <p className={`text-[9px] font-bold mt-1.5 leading-tight ${s.tone}`}>{s.hint}</p>
-              </div>
-            ))}
+      {/* Automatic */}
+      <Section label={t.profile.automatedSavings}>
+        <Group>
+          <Row
+            icon="repeat"
+            tint="mint"
+            title={
+              rules === 0
+                ? t.profile.noAutoDeposits
+                : liveBills === 0 && liveRules.length === 1
+                  ? describe(liveRules[0])
+                  : t.profile.rulesRunning(rules)
+            }
+            sub={rules === 0 ? t.profile.setAside : nextRun ? t.profile.nextOn(shortDate(nextRun)) : t.profile.postsOnOpen}
+            trailing={
+              liveRules.length > 0 ? (
+                <span className="rounded-full bg-mint px-3 py-1 text-[11.5px] font-extrabold">{formatMoney(liveRules.reduce((sum, s) => sum + s.amount, 0))}</span>
+              ) : (
+                <Chevron />
+              )
+            }
+            tone="mute"
+            onClick={onOpenAutoDeposits}
+          />
+          <div className="flex items-center gap-3 py-2.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-lav text-ink">
+              <Icon name="swap" size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14.5px] font-bold">{t.profile.overflowTitle}</span>
+              <span className="block text-[11.5px] font-medium leading-snug text-mute">{t.profile.overflowHint}</span>
+            </span>
+            <Toggle checked={savings.overflow} onChange={onToggleOverflow} label={t.profile.overflowTitle} />
           </div>
-        </Card>
+          <Row
+            icon="pie"
+            tint="sun"
+            title={t.profile.distributionSplit}
+            sub={allocated === 100 ? t.profile.fullyAllocated : t.profile.allocatedUnassigned(allocated, 100 - allocated)}
+            trailing={<Chevron />}
+            tone="mute"
+            onClick={onOpenStrategy}
+          />
+        </Group>
+      </Section>
 
-        {/* Savings engine */}
-        <Section label={t.profile.automatedSavings}>
-          <Card className="divide-y divide-white/5">
-            <Row
-              icon="event_repeat"
-              title={liveRules.length === 0 ? t.profile.noAutoDeposits : liveRules.length === 1 ? describe(liveRules[0]) : t.profile.rulesRunning(liveRules.length)}
-              subtitle={
-                liveRules.length === 0
-                  ? t.profile.setAside
-                  : nextRun
-                    ? t.profile.nextOn(shortDate(nextRun))
-                    : t.profile.postsOnOpen
-              }
-              onClick={onOpenAutoDeposits}
-              trailing={
-                liveRules.length > 0 ? (
-                  <span className="shrink-0 px-3 h-7 rounded-full bg-primary/10 text-primary text-[11px] font-black flex items-center">
-                    {formatMoney(liveRules.reduce((sum, s) => sum + s.amount, 0))}
-                  </span>
-                ) : undefined
-              }
-            />
-            <div className="p-5 flex items-center gap-4">
-              <div className="size-11 shrink-0 rounded-2xl bg-white/5 text-slate-300 flex items-center justify-center">
-                <span className="material-symbols-rounded">sync_alt</span>
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-white font-bold text-sm">{t.profile.overflowTitle}</p>
-                <p className="text-slate-500 text-xs font-medium mt-0.5 leading-relaxed">
-                  {t.profile.overflowHint}
-                </p>
-              </div>
-              <Switch on={savings.overflow} onChange={onToggleOverflow} />
-            </div>
-            <Row
-              icon="pie_chart"
-              title={t.profile.distributionSplit}
-              subtitle={allocated === 100 ? t.profile.fullyAllocated : t.profile.allocatedUnassigned(allocated, 100 - allocated)}
-              onClick={onOpenStrategy}
-            />
-          </Card>
-        </Section>
-
-        {/* Goals */}
-        <Section
-          label={t.common.goals}
-          action={
-            <button onClick={onOpenStrategy} className="text-primary text-[11px] font-black active:opacity-60">
-              {t.profile.manageAll(active.length)}
-            </button>
-          }
-        >
-          <Card className="p-6">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-white font-black text-sm">{t.profile.activeDistribution}</p>
-              <span className="px-3 h-7 rounded-full bg-white/5 text-slate-400 text-[11px] font-black flex items-center">
-                {t.profile.activeAmount(formatMoney(totalBalance - archivedTotal, { decimals: 0 }))}
-              </span>
-            </div>
-
-            {inSplit.length === 0 ? (
-              <p className="text-slate-500 text-xs font-medium mt-4 leading-relaxed">
-                {t.profile.noSplit}
-              </p>
-            ) : (
-              <>
-                <div className="flex gap-1 mt-4 h-3">
-                  {inSplit.map((b) => (
-                    <div
-                      key={b.id}
-                      className="rounded-full"
-                      style={{ width: `${b.splitPercentage}%`, backgroundColor: colorOf(b.id) }}
-                    />
-                  ))}
-                  {allocated < 100 && <div className="rounded-full bg-white/10" style={{ width: `${100 - allocated}%` }} />}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-4">
-                  {inSplit.map((b) => (
-                    <div key={b.id} className="flex items-center gap-2 bg-white/5 rounded-xl px-3 py-2.5 min-w-0">
-                      <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: colorOf(b.id) }} />
-                      <span className="text-slate-300 text-[11px] font-bold truncate flex-1">{b.name}</span>
-                      <span className="text-white text-[11px] font-black shrink-0">{b.splitPercentage}%</span>
+      {/* Goals: one way in; the split itself lives on its own page */}
+      <Section label={t.common.goals}>
+        <Group>
+          <Row
+            icon="target"
+            tint="peach"
+            title={t.profile.manageAll(active.length)}
+            sub={t.profile.activeAmount(formatMoney(totalBalance - archivedTotal, { decimals: 0 }))}
+            trailing={<Chevron />}
+            tone="mute"
+            onClick={onOpenStrategy}
+          />
+          {archived.length > 0 && (
+            <>
+              <Row
+                icon="archive"
+                tint="lav"
+                title={t.profile.archivedGoals(archived.length)}
+                sub={t.profile.putAway(formatMoney(archivedTotal, { decimals: 0 }))}
+                trailing={<Icon name="chev" size={18} className={`text-mute transition-transform ${showArchive ? 'rotate-90' : ''}`} />}
+                tone="mute"
+                onClick={() => setShowArchive((v) => !v)}
+              />
+              {showArchive && (
+                <div className="space-y-1 pb-2">
+                  {archived.map((b) => (
+                    <div key={b.id} className="flex min-w-0 items-center gap-3 py-1.5">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-line/5 text-mute">
+                        <span className="material-symbols-rounded" style={{ fontSize: 20 }}>
+                          {safeGoalIcon(b.icon)}
+                        </span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-bold">{b.name}</span>
+                        <span className="block truncate text-[11.5px] font-medium text-mute">
+                          {formatMoney(b.currentAmount)}
+                          {b.archivedAt ? t.profile.archivedOn(shortDate(new Date(b.archivedAt))) : ''}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onUnarchive(b.id)}
+                        className="min-h-11 shrink-0 rounded-full bg-line/10 px-4 text-[12.5px] font-extrabold active:opacity-70"
+                      >
+                        {t.profile.restore}
+                      </button>
                     </div>
                   ))}
+                  <p className="px-1 pt-1 text-[11.5px] font-medium leading-relaxed text-mute">{t.profile.archiveNote}</p>
                 </div>
-              </>
-            )}
+              )}
+            </>
+          )}
+        </Group>
+      </Section>
 
-            {archived.length > 0 && (
-              <div className="mt-5 pt-5 border-t border-white/5">
-                <button onClick={() => setShowArchive((v) => !v)} className="w-full flex items-center gap-3 text-left">
-                  <span className="material-symbols-rounded text-slate-500 text-lg">inventory_2</span>
-                  <span className="text-slate-400 text-xs font-bold flex-1">
-                    {t.profile.archivedGoals(archived.length)}
-                  </span>
-                  <span className="text-slate-500 text-xs font-black">{t.profile.putAway(formatMoney(archivedTotal, { decimals: 0 }))}</span>
-                  <span className={`material-symbols-rounded text-slate-600 transition-transform ${showArchive ? 'rotate-180' : ''}`}>
-                    expand_more
-                  </span>
-                </button>
-
-                {showArchive && (
-                  <div className="space-y-2 mt-4">
-                    {archived.map((b) => (
-                      <div key={b.id} className="flex items-center gap-3 bg-white/5 rounded-2xl p-3 min-w-0">
-                        <div className="size-10 shrink-0 rounded-xl bg-white/5 text-slate-400 flex items-center justify-center">
-                          <span className="material-symbols-rounded text-lg">{b.icon}</span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-slate-300 text-sm font-bold truncate">{b.name}</p>
-                          <p className="text-slate-600 text-[10px] font-medium">
-                            {formatMoney(b.currentAmount)}
-                            {b.archivedAt ? t.profile.archivedOn(shortDate(new Date(b.archivedAt))) : ''}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => onUnarchive(b.id)}
-                          className="shrink-0 h-9 px-4 rounded-full glass text-slate-300 text-[11px] font-black active:scale-95 transition-transform"
-                        >
-                          {t.profile.restore}
-                        </button>
-                      </div>
-                    ))}
-                    <p className="text-slate-600 text-[10px] font-medium leading-relaxed px-1 pt-1">
-                      {t.profile.archiveNote}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-        </Section>
-
-        {/* App */}
-        <Section label={t.profile.app}>
-          <Card className="divide-y divide-white/5">
+      {/* App */}
+      <Section label={t.profile.app}>
+        <Group>
+          <Row
+            icon="bell"
+            tint="peach"
+            title={t.profile.notificationCenter}
+            sub={t.profile.notificationHint}
+            trailing={
+              <span className="flex items-center gap-2">
+                {unreadAlerts > 0 && <span className="size-2.5 rounded-full bg-neg" aria-label={String(unreadAlerts)} />}
+                <Chevron />
+              </span>
+            }
+            tone="mute"
+            onClick={onOpenAlerts}
+          />
+          <Row
+            icon="trend"
+            tint="mint"
+            title={t.profile.investments}
+            sub={holdingCount === 0 ? t.profile.investmentsEmpty : t.profile.investmentsCount(holdingCount)}
+            trailing={<Chevron />}
+            tone="mute"
+            onClick={onOpenHoldings}
+          />
+          {receipts > 0 && (
             <Row
-              icon="notifications"
-              title={t.profile.notificationCenter}
-              subtitle={t.profile.notificationHint}
-              onClick={onOpenAlerts}
-              dot={unreadAlerts > 0}
+              icon="image"
+              tint="lav"
+              title={t.net.receiptsRow}
+              sub={receipts >= RECEIPT_WARN ? t.net.receiptsNearFull : t.net.receiptsUsed(receipts, `${((receipts * 150) / 1024).toFixed(1)} MB`)}
             />
+          )}
+          <Row icon="doc" tint="lav" title={t.profile.statementsExports} sub={t.profile.statementsHint} trailing={<Chevron />} tone="mute" onClick={onOpenReport} />
+          {isAdminUser(user) && (
             <Row
-              icon="trending_up"
-              title={t.profile.investments}
-              subtitle={
-                holdingCount === 0
-                  ? t.profile.investmentsEmpty
-                  : t.profile.investmentsCount(holdingCount)
-              }
-              onClick={onOpenHoldings}
+              icon="userplus"
+              tint="mint"
+              title={t.invite.rowTitle}
+              sub={t.invite.rowSub}
+              trailing={<Chevron />}
+              tone="mute"
+              onClick={() => setShowInvite(true)}
             />
-            <Row
-              icon="description"
-              title={t.profile.statementsExports}
-              subtitle={t.profile.statementsHint}
-              onClick={onOpenReport}
-            />
-            <Row
-              icon="translate"
-              title={t.language.title}
-              subtitle={t.language.subtitle}
-              onClick={() => setShowLanguage(true)}
-              trailing={<span className="text-primary text-xs font-black shrink-0">{t.language.current}</span>}
-            />
-            <Row
-              icon="payments"
-              title={t.profile.amountsInRM}
-              subtitle={t.profile.amountsHint}
-            />
-            <Row icon="cloud_done" title={t.profile.synced} subtitle={t.profile.syncedHint} />
-          </Card>
-        </Section>
+          )}
+          <Row
+            icon="globe"
+            tint="sun"
+            title={t.language.title}
+            sub={t.language.subtitle}
+            trailing={
+              <span className="flex items-center gap-1 text-[13px] font-bold text-mute">
+                {t.language.current}
+                <Chevron />
+              </span>
+            }
+            tone="mute"
+            onClick={() => setShowLanguage(true)}
+          />
+          <Row icon="check" tint="mint" title={t.profile.synced} sub={t.profile.syncedHint} />
+        </Group>
+      </Section>
 
-        {banks.length === 0 && (
-          <button
-            onClick={() => void handleSeed()}
-            disabled={busy}
-            className="w-full h-16 rounded-[2rem] glass border border-white/10 text-white font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform disabled:opacity-40"
-          >
-            <span className="material-symbols-rounded text-primary">auto_awesome</span>
-            {busy ? t.profile.adding : t.profile.addSamples}
-          </button>
-        )}
+      {banks.length === 0 && (
+        <Button variant="ghost" loading={busy} onClick={() => void handleSeed()} className="mt-6">
+          {busy ? t.profile.adding : t.profile.addSamples}
+        </Button>
+      )}
+      {seedError && <p className="mt-2 text-center text-[12.5px] font-bold text-neg">{seedError}</p>}
 
-        {seedError && (
-          <p className="text-red-400 text-xs font-bold text-center -mt-3">{seedError}</p>
-        )}
-
-        <div>
-          <button
-            onClick={() => void logout()}
-            className="w-full h-16 rounded-[2rem] bg-red-500/10 border border-red-500/20 text-red-400 font-black flex items-center justify-center gap-3 active:scale-95 transition-transform"
-          >
-            <span className="material-symbols-rounded">logout</span>
-            {t.profile.signOut}
-          </button>
-          <p className="text-center text-slate-600 text-[10px] font-bold mt-4">SavvyPiggy v{APP_VERSION}</p>
-        </div>
-      </div>
+      <button
+        type="button"
+        onClick={() => void logout()}
+        className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-line/10 text-[15px] font-extrabold text-neg active:opacity-70"
+      >
+        <Icon name="logout" size={18} />
+        {t.profile.signOut}
+      </button>
+      <p className="mt-4 text-center text-[11.5px] font-semibold text-mute">SavvyPiggy v{APP_VERSION}</p>
 
       {showLanguage && <LanguageSheet onClose={() => setShowLanguage(false)} />}
+      {showInvite && <InviteSheet onClose={() => setShowInvite(false)} />}
     </div>
   );
 };

@@ -1,31 +1,54 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { PiggyBank } from '../types';
 import { uploadGoalImage } from '../services/storage';
 import { compressImage } from '../services/image';
 import { isStorageEnabled } from '../lib/firebase';
+import { GOAL_NAME_MAX } from '../services/bankEdit';
+import { canCreateGoal, clipName, iconForNewGoal, newGoalOf, targetMissing } from '../services/goalEditForm';
 import { useT } from '../contexts/LanguageContext';
+import { Sheet } from './ui/Sheet';
+import { Field } from './ui/Field';
+import { Keypad } from './ui/Keypad';
+import { Toggle } from './ui/Toggle';
+import { Group } from './ui/Group';
+import { Row } from './ui/Row';
+import { Button } from './ui/Button';
+import { GoalIconRow } from './GoalIconPicker';
 
 interface CreateGoalProps {
   uid: string;
   onCancel: () => void;
   onCreate: (goal: Partial<PiggyBank>) => Promise<void> | void;
+  /** A name and icon to start from (the first-run suggestions). */
+  prefill?: { name?: string; icon?: string };
+  /** True when this will be the only goal, so it takes every deposit. */
+  isFirstGoal?: boolean;
 }
 
-const ICONS = ['directions_car', 'flight', 'home', 'shopping_bag', 'restaurant', 'devices', 'pets', 'fitness_center', 'movie', 'celebration', 'school', 'medical_services'];
+const NAME_ID = 'create-goal-name';
 
-const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
+const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate, prefill, isFirstGoal = false }) => {
   const t = useT();
-  const [name, setName] = useState('');
-  const [amount, setAmount] = useState('');
-  const [selectedIcon, setSelectedIcon] = useState(ICONS[2]); // Default to 'home'
+  const [name, setName] = useState(() => clipName(prefill?.name ?? ''));
+  // Until the person picks one, the icon follows what the name suggests.
+  const [pickedIcon, setPickedIcon] = useState<string | null>(prefill?.icon ?? null);
+  const [targetText, setTargetText] = useState('');
+  const [noLimit, setNoLimit] = useState(false);
   const [autoSplit, setAutoSplit] = useState(true);
-  const [noTarget, setNoTarget] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const icon = iconForNewGoal(name, pickedIcon);
+  const form = { name, targetText, noLimit, icon };
+  const canSubmit = canCreateGoal(form);
+
+  // The sheet focuses its own panel when it opens; this runs after that, so the name wins.
+  useEffect(() => {
+    document.getElementById(NAME_ID)?.focus();
+  }, []);
 
   // Revoke the object URL so the blob is not leaked when the preview changes.
   useEffect(() => {
@@ -38,9 +61,6 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  // An open-ended goal needs no amount, so it is stored as a target of 0.
-  const canSubmit = Boolean(name) && (noTarget || Boolean(amount));
-
   const handleSubmit = async () => {
     if (!canSubmit || busy) return;
     setBusy(true);
@@ -48,18 +68,8 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
     try {
       // Without Cloud Storage the shrunken photo rides along inside the
       // Firestore document, which the free plan allows.
-      const imageUrl = file
-        ? isStorageEnabled
-          ? await uploadGoalImage(uid, file)
-          : await compressImage(file)
-        : undefined;
-      await onCreate({
-        name,
-        targetAmount: noTarget ? 0 : parseFloat(amount),
-        icon: selectedIcon,
-        imageUrl,
-        autoSplit,
-      });
+      const imageUrl = file ? (isStorageEnabled ? await uploadGoalImage(uid, file) : await compressImage(file)) : undefined;
+      await onCreate(newGoalOf(form, autoSplit, imageUrl));
     } catch (e) {
       setError((e as Error).message || t.goals.couldNotCreate);
       setBusy(false);
@@ -67,186 +77,102 @@ const CreateGoal: React.FC<CreateGoalProps> = ({ uid, onCancel, onCreate }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-bg-dark safe-pt">
-      {/* Header */}
-      <div className="flex items-center px-6 py-4 justify-between sticky top-0 bg-bg-dark/95 z-20">
-        <button
-          className="size-10 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-          onClick={onCancel}
-        >
-          <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
-        </button>
-        <h2 className="text-white text-lg font-bold tracking-tight">{t.goals.newPiggyBank}</h2>
-        <div className="size-10"></div> {/* Spacer for alignment */}
-      </div>
-
-      <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4">
-        <div className="mb-8">
-          <h1 className="text-white text-4xl font-black tracking-tight mb-2">{t.goals.createGoal}</h1>
-          <p className="text-slate-500 font-medium">{t.goals.whatSavingFor}</p>
-        </div>
-
-        <div className="space-y-8">
-          {/* Cover Image */}
-          <div className="space-y-3">
-            <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">{t.goals.coverImage}</label>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                setError(null);
-                setFile(e.target.files?.[0] ?? null);
-              }}
-            />
-            <button
-              onClick={() => fileInput.current?.click()}
-              className="w-full aspect-[16/9] rounded-3xl bg-surface border-2 border-dashed border-white/10 overflow-hidden relative flex flex-col items-center justify-center gap-2 text-slate-600 active:scale-[0.98] transition-transform"
-            >
-              {preview ? (
-                <>
-                  <img src={preview} alt="" className="absolute inset-0 size-full object-cover" />
-                  <div className="absolute inset-0 bg-black/40"></div>
-                  <span className="material-symbols-rounded text-white text-3xl relative">edit</span>
-                  <span className="text-white text-xs font-bold relative">{t.goals.changeImage}</span>
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-rounded text-3xl">add_photo_alternate</span>
-                  <span className="text-xs font-bold">{t.goals.optionalUpload}</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Goal Name Input */}
-          <div className="space-y-3">
-            <label className="text-slate-500 text-xs font-black uppercase tracking-widest ml-1">{t.goals.goalName}</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full h-16 px-6 rounded-3xl bg-surface border border-white/5 text-xl font-bold focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 text-white shadow-xl"
-              placeholder={t.goals.goalNamePlaceholder}
-              type="text"
-            />
-          </div>
-
-          {/* Target Amount Input */}
-          <div className="space-y-3">
-            <div className="flex justify-between items-center px-1 gap-3">
-              <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.goals.targetAmount}</label>
-              <button
-                onClick={() => setNoTarget((on) => !on)}
-                className={`shrink-0 px-3 h-8 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors ${
-                  noTarget ? 'bg-primary text-black' : 'bg-white/5 text-slate-400'
-                }`}
-              >
-                {t.goals.noLimit}
-              </button>
-            </div>
-            {noTarget ? (
-              <div className="w-full h-20 px-6 rounded-3xl bg-surface border border-white/5 flex items-center gap-4 shadow-xl">
-                <span className="text-primary text-4xl font-black leading-none">&infin;</span>
-                <p className="text-slate-500 text-xs font-medium leading-relaxed">
-                  {t.goals.openEndedHint}
-                </p>
-              </div>
-            ) : (
-              <div className="relative">
-                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-slate-600">RM</span>
-                <input
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full h-20 pl-[4.5rem] pr-6 rounded-3xl bg-surface border border-white/5 text-3xl font-black focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 text-white shadow-xl"
-                  placeholder="0.00"
-                  type="number"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Icon Selection */}
-          <div className="space-y-4">
-            <div className="flex justify-between items-center px-1">
-              <label className="text-slate-500 text-xs font-black uppercase tracking-widest">{t.goals.selectIcon}</label>
-              <span className="text-primary text-[10px] font-black uppercase tracking-widest">
-                {t.goals.categoryIs(t.goals.iconCategories[selectedIcon] ?? t.common.categories.other)}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-4 pb-2">
-              {ICONS.map((icon) => (
-                <button
-                  key={icon}
-                  onClick={() => setSelectedIcon(icon)}
-                  className={`flex items-center justify-center aspect-square rounded-[2rem] border-2 transition-all duration-300 ${
-                    selectedIcon === icon
-                    ? 'bg-primary border-primary text-black shadow-lg shadow-primary/20 scale-105'
-                    : 'bg-surface border-white/5 text-slate-500 hover:border-white/10'
-                  }`}
-                >
-                  <span className="material-symbols-rounded text-3xl font-medium">{icon}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
+    <Sheet
+      title={t.goalEdit.createTitle}
+      onClose={onCancel}
+      height="tall"
+      dismissible={!busy}
+      footer={
+        <div>
           {error && (
-            <div className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4">
-              <span className="material-symbols-rounded text-red-400 text-lg">error</span>
-              <p className="text-red-300 text-xs font-bold leading-relaxed">{error}</p>
-            </div>
+            <p role="alert" className="mb-2 px-1 text-center text-[13px] font-bold text-neg">
+              {error}
+            </p>
           )}
-
-          {/* Automatic Split */}
-          <button
-            onClick={() => setAutoSplit((on) => !on)}
-            className="w-full bg-surface rounded-3xl p-6 border border-white/5 flex items-center justify-between gap-4 shadow-xl text-left"
-          >
-            <div className="flex flex-col gap-1 min-w-0">
-              <p className="font-bold text-white text-base">{t.goals.automaticSplit}</p>
-              <p className="text-xs text-slate-500 font-medium">
-                {autoSplit
-                  ? t.goals.takesShare
-                  : t.goals.skippedInSplit}
-              </p>
-            </div>
-            <div
-              className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${
-                autoSplit ? 'bg-primary/20' : 'bg-white/10'
-              }`}
-            >
-              <span
-                className={`inline-block h-6 w-6 transform rounded-full transition-transform ${
-                  autoSplit
-                    ? 'translate-x-7 bg-primary shadow-lg shadow-primary/30'
-                    : 'translate-x-1 bg-slate-600'
-                }`}
-              ></span>
-            </div>
-          </button>
-
-          <p className="text-slate-600 text-xs font-medium leading-relaxed px-1">
-            {t.goals.newGoalsStartAtZero}
-          </p>
+          <Button onClick={() => void handleSubmit()} disabled={!canSubmit} loading={busy}>
+            {busy ? t.goals.saving : t.goalEdit.createCta}
+          </Button>
         </div>
-      </div>
+      }
+    >
+      <div className="space-y-5 pb-2">
+        <Field
+          label={t.goalEdit.nameLabel}
+          value={name}
+          onChange={(v) => {
+            setError(null);
+            setName(clipName(v));
+          }}
+          id={NAME_ID}
+          maxLength={GOAL_NAME_MAX}
+          autoComplete="off"
+          placeholder={t.goalEdit.namePlaceholder}
+        />
 
-      {/* Footer Action */}
-      <div className="p-6 pb-12 safe-pb">
-        <button
-          onClick={() => void handleSubmit()}
-          disabled={!canSubmit || busy}
-          className={`w-full h-18 py-5 rounded-[2rem] font-black text-xl transition-all shadow-2xl ${
-            canSubmit && !busy
-            ? 'bg-primary text-black shadow-primary/20 active:scale-95'
-            : 'bg-white/5 text-slate-700 cursor-not-allowed'
-          }`}
-        >
-          {busy ? t.goals.saving : t.goals.confirmGoal}
-        </button>
+        <section aria-label={t.goalEdit.targetLabel}>
+          <div className="flex min-h-11 items-center justify-between gap-3 px-1">
+            <h3 className="text-[13px] font-bold text-mute">{t.goalEdit.targetLabel}</h3>
+            <div className="flex items-center gap-1">
+              <span className="text-[13px] font-bold text-ink" aria-hidden="true">
+                {t.goalEdit.noLimit}
+              </span>
+              <Toggle checked={noLimit} onChange={setNoLimit} label={t.goalEdit.noLimit} />
+            </div>
+          </div>
+          {noLimit ? (
+            <p className="rounded-3xl bg-card px-4 py-5 text-center text-[13px] font-semibold text-mute">
+              {t.goalEdit.noLimitHint}
+            </p>
+          ) : (
+            <Keypad value={targetText} onChange={setTargetText} />
+          )}
+          {targetMissing(form) && targetText !== '' && (
+            <p className="mt-2 px-1 text-xs font-semibold text-mute">{t.goalEdit.targetMissing}</p>
+          )}
+        </section>
+
+        <section aria-label={t.goalEdit.iconLabel}>
+          <h3 className="mb-2 px-1 text-[13px] font-bold text-mute">{t.goalEdit.iconLabel}</h3>
+          <GoalIconRow value={icon} onChange={setPickedIcon} />
+        </section>
+
+        <Group>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              setError(null);
+              setFile(e.target.files?.[0] ?? null);
+              // The same photo can be chosen again after it was removed from the form.
+              e.target.value = '';
+            }}
+          />
+          <Row
+            icon="image"
+            tint="peach"
+            title={t.goalEdit.coverPhoto}
+            sub={preview ? t.goalEdit.photoChange : `${t.ui.optional} · ${t.goalEdit.photoAdd}`}
+            onClick={() => fileInput.current?.click()}
+            trailing={preview ? <img src={preview} alt="" className="size-9 rounded-xl object-cover" /> : undefined}
+          />
+          <Row
+            icon="pie"
+            tint="mint"
+            title={t.goalEdit.shareOfDeposits}
+            sub={autoSplit ? t.goalEdit.shareOn : t.goalEdit.shareOff}
+            trailing={<Toggle checked={autoSplit} onChange={setAutoSplit} label={t.goalEdit.shareOfDeposits} />}
+          />
+        </Group>
+
+        {autoSplit && (
+          <p className="px-1 text-xs font-medium leading-relaxed text-mute">
+            {isFirstGoal ? t.goalEdit.onlyGoal : t.goalEdit.startsAtZero}
+          </p>
+        )}
       </div>
-    </div>
+    </Sheet>
   );
 };
 

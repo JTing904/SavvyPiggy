@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, writeBatch, collection, getDocs, query, orderBy, increment } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, collection, getDocs, query, orderBy, increment, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 const PROJECT = 'savvypiggy-rules-test';
 let pass = 0, fail = 0;
@@ -186,6 +186,76 @@ await test("member bob cannot write alice's pot", () =>
 
 await test('bob can keep his own pot', () =>
   assertSucceeds(setDoc(invest(bob, 'bob'), { potBalance: 20 }, { merge: true })));
+
+console.log('\nMINTING INVITES IN THE APP');
+
+const ADMIN_MAIL = 'kengtingtan@gmail.com';
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore();
+  await setDoc(doc(db, 'members/admin'), { code: 'FIRST', joinedAt: 1 });
+  await setDoc(doc(db, 'members/mallory'), { code: 'FIRST2', joinedAt: 1 });
+  await setDoc(doc(db, 'invites/SAVVY-OLD0-0000-0000'), { createdBy: 'admin', createdAt: Timestamp.fromMillis(Date.now() - 3600000), expiresAt: Timestamp.fromMillis(Date.now() - 60000) });
+  await setDoc(doc(db, 'invites/SAVVY-LIVE-0000-0001'), { createdBy: 'admin', createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 600000) });
+  await setDoc(doc(db, 'invites/SAVVY-LIVE-0000-0002'), { createdBy: 'admin', createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 600000) });
+  await setDoc(doc(db, 'invites/SAVVY-USED-0000-0003'), { createdBy: 'admin', createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 600000), claimedBy: 'zed', claimedAt: 1 });
+});
+const admin = env.authenticatedContext('admin', { email: ADMIN_MAIL, email_verified: true }).firestore();
+const mallory = env.authenticatedContext('mallory', { email: ADMIN_MAIL, email_verified: false }).firestore();
+const carol = env.authenticatedContext('carol').firestore();
+const dave = env.authenticatedContext('dave').firestore();
+const mint = (db, uid, code, ms = 600000) =>
+  setDoc(doc(db, 'invites', code), { createdBy: uid, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + ms) });
+
+await test('the admin can mint a ten-minute code', () =>
+  assertSucceeds(mint(admin, 'admin', 'SAVVY-AB12-CD34-EF56')));
+
+await test('a member who is not the admin cannot mint', () =>
+  assertFails(mint(alice, 'alice', 'SAVVY-AB12-CD34-EF57')));
+
+await test('the same email without a verified address cannot mint', () =>
+  assertFails(mint(mallory, 'mallory', 'SAVVY-AB12-CD34-EF58')));
+
+await test('the admin cannot mint a code that lasts an hour', () =>
+  assertFails(mint(admin, 'admin', 'SAVVY-AB12-CD34-EF59', 3600000)));
+
+await test('the admin cannot mint a code that is already out of date', () =>
+  assertFails(mint(admin, 'admin', 'SAVVY-AB12-CD34-EF60', -1000)));
+
+await test('the admin cannot mint a short, guessable code', () =>
+  assertFails(mint(admin, 'admin', 'ABCD')));
+
+await test('the admin cannot stamp someone else as the maker', () =>
+  assertFails(mint(admin, 'alice', 'SAVVY-AB12-CD34-EF61')));
+
+await test('a minted code cannot carry extra fields', () =>
+  assertFails(setDoc(doc(admin, 'invites/SAVVY-AB12-CD34-EF62'), { createdBy: 'admin', createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 600000), note: 'x' })));
+
+await test('a new person redeems a live minted code', () =>
+  assertSucceeds(claim(carol, 'carol', 'SAVVY-LIVE-0000-0001')));
+
+await test('the admin can see that it was claimed', async () => {
+  const snap = await assertSucceeds(getDoc(doc(admin, 'invites/SAVVY-LIVE-0000-0001')));
+  assert.strictEqual(snap.data().claimedBy, 'carol');
+});
+
+await test('an expired code cannot be redeemed', () =>
+  assertFails(claim(dave, 'dave', 'SAVVY-OLD0-0000-0000')));
+
+await test('a code cannot be burned without joining', () =>
+  assertFails(updateDoc(doc(dave, 'invites/SAVVY-LIVE-0000-0002'), { claimedBy: 'dave', claimedAt: Date.now() })));
+
+await test('the admin can withdraw an unused code of their own', () =>
+  assertSucceeds(deleteDoc(doc(admin, 'invites/SAVVY-LIVE-0000-0002'))));
+
+await test('a used code cannot be deleted', () =>
+  assertFails(deleteDoc(doc(admin, 'invites/SAVVY-USED-0000-0003'))));
+
+await test("someone else cannot delete the admin's code", () =>
+  assertFails(deleteDoc(doc(alice, 'invites/SAVVY-AB12-CD34-EF56'))));
+
+await test('invites still cannot be listed, even by the admin', () =>
+  assertFails(getDocs(collection(admin, 'invites'))));
+
 
 await env.cleanup();
 

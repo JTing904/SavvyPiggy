@@ -9,10 +9,18 @@ import Navigation from './components/Navigation';
 import Login from './components/Login';
 import Profile from './components/Profile';
 import GoalDetail from './components/GoalDetail';
+import EntrySheet from './components/EntrySheet';
+import FirstRun from './components/FirstRun';
 import SetupNotice from './components/SetupNotice';
 import RedeemInvite from './components/RedeemInvite';
-import AutoDeposits from './components/AutoDeposits';
+import AutoPage from './components/AutoPage';
 import Report from './components/Report';
+import MonthReview from './components/MonthReview';
+import BudgetPage from './components/BudgetPage';
+import NetWorthPage from './components/NetWorthPage';
+import { changeSinceLastMonth, needsSnapshot, netWorthOf, trendOf } from './services/netWorth';
+import { monthKeyOf } from './services/review';
+import { portfolioTotals } from './services/holdings';
 import Alerts from './components/Alerts';
 import Statements from './components/Statements';
 import Trades from './components/Trades';
@@ -32,6 +40,9 @@ import { useAuth } from './contexts/AuthContext';
 import { usePiggyData } from './hooks/usePiggyData';
 import { useMembership } from './hooks/useMembership';
 import { useBackHandler } from './hooks/useBackHandler';
+import { useScreenLook } from './hooks/useScreenLook';
+import { clearShared, onShared, takeShared, type QuickDraft, type Shared } from './services/quickRead';
+import { useToast } from './contexts/ToastContext';
 import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
 import { useSnapshots } from './hooks/useSnapshots';
@@ -40,21 +51,25 @@ import { cachedRecords } from './hooks/useAdvisor';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
 import * as api from './services/firestore';
-import { fromCents, toCents } from './services/money';
+import { formatMoney, fromCents, toCents } from './services/money';
+import { createUndoQueue } from './services/undoQueue';
 import type { GoalMoneyChoice, GoneShareChoice } from './services/ledger';
+import type { ActivityEdit } from './services/activityEdit';
+import type { PotReturn } from './services/potTransfers';
+import type { IncomeChoice } from './services/moneySheet';
+import type { WalletMove } from './services/wallet';
+import { expectedCents } from './services/bills';
+import type { Bill, Liability } from './types';
 import { staleAlerts, staleAlertsCutoff, streakAlertFor } from './services/alerts';
 import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
 import { useTradeRow } from './hooks/useTradeRow';
 import { OlderRecordsSheet } from './components/OlderRecordsNotice';
+import { Button } from './components/ui/Button';
+import { Icon } from './components/ui/Icon';
+import { Sheet } from './components/ui/Sheet';
+import { Splash } from './components/Splash';
 import { checkPermission, onNotificationOpen, requestPermission, syncNotifications } from './services/notifications';
-
-const Splash: React.FC<{ label: string }> = ({ label }) => (
-  <div className="h-full flex flex-col items-center justify-center gap-4">
-    <span className="material-symbols-rounded text-primary text-4xl animate-pulse">savings</span>
-    <p className="text-slate-600 text-xs font-black uppercase tracking-widest">{label}</p>
-  </div>
-);
 
 const App: React.FC = () => {
   const { user, loading: authLoading } = useAuth();
@@ -63,15 +78,24 @@ const App: React.FC = () => {
   const uid = isMember ? user?.uid : undefined;
   const { lang } = useLanguage();
   const t = useT();
+  const toast = useToast();
   const [languageChosen, setLanguageChosen] = useState(hasChosenLanguage);
   useEffect(() => onLangChange(() => setLanguageChosen(true)), []);
 
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
   const [showCreateGoal, setShowCreateGoal] = useState(false);
+  /** A starter the first-run screen picked, for the new goal's name and icon. */
+  const [goalPrefill, setGoalPrefill] = useState<{ name?: string; icon?: string } | undefined>(undefined);
+  /** The entry open in the shared edit sheet. */
+  const [entryId, setEntryId] = useState<string | null>(null);
   const [showAutoDeposits, setShowAutoDeposits] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [showStatements, setShowStatements] = useState(false);
+  /** The month open in the review page: any day in it. */
+  const [reviewMonth, setReviewMonth] = useState<Date | null>(null);
+  const [showBudgets, setShowBudgets] = useState(false);
+  const [showNetWorth, setShowNetWorth] = useState(false);
   /* Which half of the app the bar and Home body are showing. The card the
      user swipes to on Home sets it; nothing else does. */
   const [mode, setMode] = useState<Mode>('save');
@@ -92,6 +116,30 @@ const App: React.FC = () => {
     null
   );
 
+  // Signing out closes everything, so the next person to sign in starts at Home
+  // rather than on the last screen the previous one had open.
+  useEffect(() => {
+    if (user) return;
+    setActiveTab(Tab.HOME);
+    setMode('save');
+    setShowProfile(false);
+    setShowAlerts(false);
+    setShowStatements(false);
+    setShowAutoDeposits(false);
+    setShowBudgets(false);
+    setShowNetWorth(false);
+    setShowMonthlyBuy(false);
+    setShowCreateGoal(false);
+    setReviewMonth(null);
+    setSelectedGoalId(null);
+    setEntryId(null);
+    setTradeDraft(null);
+    setShowQuickPick(false);
+    setQuickAction(null);
+    setPotSheet(null);
+    setSetup(null);
+  }, [user]);
+
   // A tab belongs to one half of the app, so the bar follows it. Screens reached
   // from Profile or an alert (the split, the report) used to open under the
   // investing bar with nothing lit.
@@ -100,7 +148,7 @@ const App: React.FC = () => {
     else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
   }, [activeTab]);
 
-  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, budgets, liabilities, netWorthPoints, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -153,7 +201,7 @@ const App: React.FC = () => {
       if (catchingUp.current || document.visibilityState !== 'visible' || !navigator.onLine) return;
       catchingUp.current = true;
       try {
-        await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings });
+        await api.runDueSchedules(uid, schedules, banks, loans, { alerts: prefs, savings, wallet });
       } catch (e) {
         // The connection dropped under it. Each day posts in its own
         // transaction, so nothing is half-done, and it runs again once online.
@@ -175,7 +223,34 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', catchUp);
       window.removeEventListener('online', catchUp);
     };
-  }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings]);
+  }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings, wallet]);
+
+  // Fixed bills record themselves when the app opens, like auto deposits: each due day in its own
+  // transaction dated that day, the ones older than the history are only passed over.
+  const recordingBills = useRef(false);
+  useEffect(() => {
+    if (!uid || dataLoading || offline || bills.length === 0) return;
+    const run = async () => {
+      if (recordingBills.current || document.visibilityState !== 'visible' || !navigator.onLine) return;
+      recordingBills.current = true;
+      try {
+        const recorded = await api.runDueBills(uid, bills, { notBefore: ledger.liveFrom });
+        if (recorded.length > 0) toast.show({ message: t.bills.caughtUp(recorded.length), tone: 'success' });
+      } catch (e) {
+        if ((e as { code?: string } | null)?.code === 'unavailable') return;
+        fail(e);
+      } finally {
+        recordingBills.current = false;
+      }
+    };
+    void run();
+    document.addEventListener('visibilitychange', run);
+    window.addEventListener('online', run);
+    return () => {
+      document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('online', run);
+    };
+  }, [uid, dataLoading, offline, bills, ledger.liveFrom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /*
     The saving streak, shared by the alert, Profile and the Report.
@@ -269,7 +344,12 @@ const App: React.FC = () => {
         }
         if (!asked) await requestPermission().catch(() => undefined);
       }
-      await syncNotifications(prefs, schedules, dividends, trades).catch(() => {});
+      await syncNotifications(prefs, schedules, dividends, trades, new Date(), {
+        bills,
+        debts: liabilities,
+        walletCents: toCents(wallet.balance),
+        expected: Object.fromEntries(bills.map((b) => [b.id, expectedCents(b, activities)])),
+      }).catch(() => {});
     };
     const onVisible = () => void sync();
     onVisible();
@@ -277,7 +357,7 @@ const App: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisible);
     // The language is in the list because every alarm's words are: switching
     // re-arms each one in the new language.
-  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang]);
+  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang, bills, liabilities, wallet.balance, activities]);
 
   // Android's back gesture: close whatever is open, step back to Home, and
   // only then leave the app. Sheets inside a screen take it first — they push
@@ -307,8 +387,42 @@ const App: React.FC = () => {
     const trade = trades.find((t) => t.id === tradeId);
     if (trade) setTradeDraft({ mode: 'edit', trade });
   };
+  // A picture or some text shared from another app lands on the record sheet, filled in and waiting to be checked.
+  const [quickDraft, setQuickDraft] = useState<QuickDraft | null>(null);
+  useEffect(() => {
+    if (!uid || dataLoading) return;
+    const takeIn = (shared: Shared) => {
+      if (shared.kind === 'none') return;
+      void clearShared();
+      setShowProfile(false);
+      setShowAlerts(false);
+      setShowStatements(false);
+      setShowAutoDeposits(false);
+      setShowMonthlyBuy(false);
+      setShowBudgets(false);
+      setShowNetWorth(false);
+      setReviewMonth(null);
+      setSelectedGoalId(null);
+      setEntryId(null);
+      setMode('save');
+      setActiveTab(Tab.HOME);
+      setQuickDraft({ at: Date.now(), ...(shared.kind === 'text' ? { text: shared.text } : { imageUri: shared.uri }) });
+      toast.show({ message: t.quick.sharedIn, tone: 'success' });
+    };
+    let live = true;
+    void takeShared().then((shared) => live && takeIn(shared));
+    const stop = onShared(takeIn);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [uid, dataLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useBackHandler(true, () => {
-    if (showStatements) setShowStatements(false);
+    if (showNetWorth) setShowNetWorth(false);
+    else if (showBudgets) setShowBudgets(false);
+    else if (reviewMonth) setReviewMonth(null);
+    else if (showStatements) setShowStatements(false);
     else if (showCreateGoal) setShowCreateGoal(false);
     else if (showAutoDeposits) setShowAutoDeposits(false);
     else if (showAlerts) setShowAlerts(false);
@@ -331,6 +445,7 @@ const App: React.FC = () => {
         setShowStatements(false);
         setShowMonthlyBuy(false);
         setShowCreateGoal(false);
+        setEntryId(null);
         setShowAutoDeposits(false);
         setShowQuickPick(false);
         setQuickAction(null);
@@ -371,7 +486,7 @@ const App: React.FC = () => {
     // below zero in floats.
     return fromCents(
       activities
-        .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest'].includes(a.type))
+        .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest', 'walletMove'].includes(a.type))
         .filter((a) => new Date(a.date).toLocaleDateString() === today)
         .flatMap((a) => a.distributions)
         .reduce((sum, d) => sum + toCents(d.amount), 0)
@@ -397,22 +512,170 @@ const App: React.FC = () => {
     void job().catch(fail);
   };
 
-  const handleDeposit = (amount: number, targetBankId: string | null) => {
-    if (uid) run(() => api.deposit(uid, amount, banks, loans, targetBankId, { alerts: prefs, savings }));
+  /**
+   * A write that goes to the server as one batch settles only when the server
+   * answers, so offline it never does and a sheet waiting on it spun forever
+   * over money the phone had already saved. A refusal (a date too old, a goal
+   * gone) arrives at once and goes back to the caller; a write still pending
+   * after the grace period is queued on the phone, and if it is refused later
+   * the banner says so.
+   */
+  const settleOrQueue = (job: Promise<unknown>, graceMs = 1500) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        job.catch(fail);
+        resolve();
+      }, graceMs);
+      job.then(
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        }
+      );
+    });
+
+  /** The first day a record can be dated on or moved to: the live three months. */
+  const notBefore = ledger.liveFrom;
+
+  // The sheet only shows a generic line when a handler throws, so the reason goes to the banner.
+  const refuse = (e: unknown): never => {
+    fail(e);
+    throw e;
   };
 
-  const handleWithdraw = (amount: number, sourceBankId: string, note: string, category: string) => {
-    if (uid) run(() => api.withdraw(uid, amount, sourceBankId, note, category));
+  /** `choice` is `split`, `wallet` or the id of one goal. */
+  const handleDeposit = async (amount: number, choice: IncomeChoice, at?: Date) => {
+    if (!uid) return;
+    const byMode = choice === 'split' || choice === 'wallet';
+    await settleOrQueue(
+      api.deposit(uid, amount, banks, loans, byMode ? null : choice, {
+        alerts: prefs,
+        savings,
+        at,
+        notBefore,
+        wallet,
+        incomeMode: byMode ? choice : undefined,
+      })
+    ).catch(refuse);
+    toast.show({ message: t.app.toast.deposited(formatMoney(amount)), tone: 'success' });
   };
 
-  const handleBorrow = (amount: number, note: string) => {
-    if (uid) run(() => api.borrow(uid, amount, note));
+  /** `source` is `wallet` or the id of one goal. Spending past the wallet makes it overdrawn, which the sheet has said. */
+  const handleWithdraw = async (amount: number, source: string, note: string, category: string, at?: Date, extras?: { receipts?: string[] }) => {
+    if (!uid) return;
+    const options = { at, notBefore, receipts: extras?.receipts };
+    const job = source === 'wallet' ? api.spendFromWallet(uid, amount, note, category, options) : api.withdraw(uid, amount, source, note, category, options);
+    await settleOrQueue(job).catch(refuse);
+    toast.show({ message: t.app.toast.spent(formatMoney(amount)), tone: 'success' });
+  };
+
+  // What is known, less what is owed, and the figure kept for each month the app is opened in.
+  const holdingsValueCents = useMemo(() => portfolioTotals(holdings, quotes).valueCents, [holdings, quotes]);
+  const netParts = useMemo(
+    () =>
+      netWorthOf({
+        walletCents: toCents(wallet.balance),
+        goalsCents: banks.reduce((sum, b) => sum + toCents(b.currentAmount), 0),
+        potCents: toCents(invest.potBalance ?? 0),
+        holdingsCents: holdingsValueCents,
+        liabilities,
+      }),
+    [wallet.balance, banks, invest.potBalance, holdingsValueCents, liabilities]
+  );
+  const netTrend = trendOf(netWorthPoints, new Date(), netParts.totalCents);
+  const netChange = changeSinceLastMonth(netWorthPoints, new Date(), netParts.totalCents);
+  // Written once the figure has stopped moving for a while: prices arrive a moment after the app opens.
+  const savedNet = useRef(netWorthPoints);
+  savedNet.current = netWorthPoints;
+  useEffect(() => {
+    if (!uid || dataLoading || offline) return;
+    const now = new Date();
+    if (!needsSnapshot(savedNet.current, now, netParts.totalCents)) return;
+    const timer = window.setTimeout(() => {
+      void api.saveNetWorthPoint(uid, monthKeyOf(now), netParts.totalCents).catch(() => undefined);
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [uid, dataLoading, offline, netParts.totalCents]);
+
+  // Pay days older than the history the app keeps are only passed over, so they are never asked about.
+  useEffect(() => {
+    if (!uid || dataLoading || offline || liabilities.length === 0) return;
+    void api.passOverOldDebtDays(uid, liabilities, { notBefore: ledger.liveFrom }).catch(() => undefined);
+  }, [uid, dataLoading, offline, liabilities, ledger.liveFrom]);
+
+  const handleCreateDebt = async (debt: api.NewLiability) => {
+    if (!uid) return;
+    await settleOrQueue(api.createLiability(uid, debt)).catch(refuse);
+    toast.show({ message: t.net.saved, tone: 'success' });
+  };
+
+  const handleUpdateDebt = async (id: string, patch: Partial<Liability>) => {
+    if (!uid) return;
+    await settleOrQueue(api.updateLiability(uid, id, patch)).catch(refuse);
+    toast.show({ message: t.net.saved, tone: 'success' });
+  };
+
+  const handleSetBalance = async (id: string, balance: number) => {
+    if (!uid) return;
+    await settleOrQueue(api.setLiabilityBalance(uid, id, balance)).catch(refuse);
+    toast.show({ message: t.net.balanceUpdated, tone: 'success' });
+  };
+
+  /** A payment is a transaction, so it needs a connection and says why when it has none. */
+  const handleDebtPayment = async (
+    debt: Liability,
+    payment: { totalCents: number; interestCents: number; source: string },
+    day?: string
+  ) => {
+    if (!uid) return;
+    try {
+      const done = await api.recordDebtPayment(uid, debt, payment, { forDay: day, notBefore });
+      if (!done) return;
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.net.recorded(formatMoney(fromCents(payment.totalCents))), tone: 'success' });
+  };
+
+  const handleSkipDebtDay = async (debt: Liability, day: string) => {
+    if (!uid) return;
+    try {
+      await api.skipDebtDay(uid, debt, day);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.net.skipped(debt.name), tone: 'success' });
+  };
+
+  /** Sets one monthly limit from a month on (0 takes it away). A transaction, so it needs a connection and says why when it has none. */
+  const handleSaveBudget = async (target: string, from: string, cents: number) => {
+    if (!uid) return;
+    try {
+      await api.saveBudget(uid, target, from, cents);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: cents > 0 ? t.review.saved : t.review.removed, tone: 'success' });
+  };
+
+  const handleMoveWallet = async (amount: number, move: WalletMove) => {
+    if (!uid) return;
+    await settleOrQueue(api.moveWallet(uid, amount, move, banks, wallet, { savings })).catch(refuse);
+    toast.show({ message: t.wallet.moved(formatMoney(amount)), tone: 'success' });
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
     if (!uid) return;
     try {
       await api.createSchedule(uid, schedule);
+      toast.show({ message: t.app.toast.autoDepositSaved, tone: 'success' });
     } catch (e) {
       // The sheet closes on success, so it cannot report this itself.
       fail(e);
@@ -420,16 +683,72 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
-    // Not awaited: addDoc settles only when the server confirms, so offline the
-    // sheet spun forever over a goal the phone had already saved. A refusal
-    // still surfaces through run.
-    if (uid) run(() => api.createBank(uid, newGoal));
+  const handleCreateBill = async (bill: api.NewBill) => {
+    if (!uid) return;
+    await settleOrQueue(api.createBill(uid, bill)).catch(refuse);
+    toast.show({ message: t.bills.saved, tone: 'success' });
+  };
+
+  const handleUpdateBill = async (id: string, patch: Partial<Bill>) => {
+    if (!uid) return;
+    await settleOrQueue(api.updateBill(uid, id, patch)).catch(refuse);
+    toast.show({ message: t.bills.saved, tone: 'success' });
+  };
+
+  /** A bill that changes each time was confirmed: this is a transaction, so it needs a connection and says why when it has none. */
+  const handleRecordBill = async (bill: Bill, day: string, amount: number) => {
+    if (!uid) return;
+    try {
+      await api.recordBillDay(uid, bill, day, amount);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.bills.recorded(bill.name, formatMoney(amount)), tone: 'success' });
+  };
+
+  const handleSkipBill = async (bill: Bill, day: string) => {
+    if (!uid) return;
+    try {
+      await api.skipBillDay(uid, bill, day);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.bills.skipped(bill.name), tone: 'success' });
+  };
+
+  const openCreateGoal = (prefill?: { name?: string; icon?: string }) => {
+    setGoalPrefill(prefill);
+    setShowCreateGoal(true);
+  };
+  const closeCreateGoal = () => {
     setShowCreateGoal(false);
+    setGoalPrefill(undefined);
+  };
+
+  const handleCreateGoal = async (newGoal: Partial<PiggyBank>) => {
+    if (!uid) return;
+    // The first goal takes every deposit; the page to land on is Home then,
+    // since the goals list has nothing else to show yet.
+    const first = activeBanks.length === 0;
+    closeCreateGoal();
     // A goal can be started from the investing side (a sale with nowhere to go);
     // the goals page belongs to saving, so its tab bar has to come with it.
     setMode('save');
-    setActiveTab(Tab.BANKS);
+    setActiveTab(first ? Tab.HOME : Tab.BANKS);
+    settleOrQueue(api.createBank(uid, newGoal, banks)).then(
+      () => toast.show({ message: t.app.toast.goalCreated, tone: 'success' }),
+      fail
+    );
+  };
+
+  const handleSeedSamples = () => {
+    if (!uid) return;
+    settleOrQueue(api.seedSampleBanks(uid)).then(
+      () => toast.show({ message: t.app.toast.samplesAdded, tone: 'success' }),
+      fail
+    );
   };
 
   const handleSaveSavings = (patch: Partial<SavingsSettings>) => {
@@ -441,7 +760,23 @@ const App: React.FC = () => {
   const handleArchiveBank = (id: string) => {
     if (!uid) return;
     if (schedules.some((s) => s.targetBankId === id)) setArchiving(id);
-    else run(() => api.archiveBank(uid, banks, id));
+    else archiveNow(id, () => api.archiveBank(uid, banks, id));
+  };
+
+  /** Archiving keeps everything, so taking it back is just restoring the goal. */
+  const archiveNow = (id: string, job: () => Promise<unknown>) => {
+    if (!uid) return;
+    const name = banks.find((b) => b.id === id)?.name ?? '';
+    settleOrQueue(job()).then(
+      () => {
+        toast.show({
+          message: t.app.toast.goalArchived(name),
+          tone: 'success',
+          action: { label: t.ui.undo, run: () => run(() => api.unarchiveBank(uid, id)) },
+        });
+      },
+      fail
+    );
   };
 
   const handleSavePrefs = (patch: Partial<NotificationPrefs>) => {
@@ -453,7 +788,13 @@ const App: React.FC = () => {
   };
 
   const handleSaveStrategy = (updated: PiggyBank[]) => {
-    if (uid) run(() => api.saveStrategy(uid, updated));
+    if (!uid) return;
+    settleOrQueue(api.saveStrategy(uid, updated)).then(
+      () => {
+        toast.show({ message: t.goals.strategySaved, tone: 'success' });
+      },
+      fail
+    );
   };
 
   const handleDeleteBank = (id: string, choice: GoalMoneyChoice | null, scheduleTarget?: string | null) => {
@@ -470,14 +811,135 @@ const App: React.FC = () => {
    */
   const [pendingDelete, setPendingDelete] = useState<{ id: string; takeBack?: GoneShareChoice } | null>(null);
 
+  /**
+   * A delete waits five seconds so it can be taken back: the row is hidden at
+   * once and the real delete is only written when the time is up. What the
+   * delete needs (goals, settings, the rows that covered a spent-ahead) is read
+   * when it runs, not when it was asked for.
+   */
+  const latest = useRef({ uid, banks, savings, activities });
+  latest.current = { uid, banks, savings, activities };
+  const [, bumpHidden] = useState(0);
+  type PendingDelete = { id: string; activity: Activity; takeBack?: GoneShareChoice };
+  const undoQueue = useRef<ReturnType<typeof createUndoQueue<PendingDelete>> | null>(null);
+  if (!undoQueue.current) {
+    undoQueue.current = createUndoQueue<PendingDelete>({
+      commit: async ({ activity, takeBack }) => {
+        const now = latest.current;
+        if (!now.uid) return;
+        // Deleting spending that was already covered puts that money back into
+        // the goals, so the strategy travels with it — and so do the deposits
+        // that covered it, which are the entries that get corrected.
+        const covering = activity.loanId ? coveringRows(activity.loanId, undefined, now.activities).rows : [];
+        await api.deleteActivity(now.uid, activity, now.banks, now.savings, covering, takeBack);
+      },
+      onRestore: (_item, error) => {
+        fail(error);
+        toast.show({ message: t.app.toast.deleteFailed, tone: 'error' });
+      },
+      onChange: () => bumpHidden((n) => n + 1),
+    });
+  }
+  // Leaving the page must not lose a delete that is still waiting.
+  useEffect(() => {
+    const queue = undoQueue.current!;
+    const flush = () => void queue.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+
+  type PendingRule = { id: string; rule: Schedule };
+  const scheduleQueue = useRef<ReturnType<typeof createUndoQueue<PendingRule>> | null>(null);
+  if (!scheduleQueue.current) {
+    scheduleQueue.current = createUndoQueue<PendingRule>({
+      commit: async ({ id }) => {
+        if (latest.current.uid) await api.deleteSchedule(latest.current.uid, id);
+      },
+      onRestore: (_item, error) => {
+        fail(error);
+        toast.show({ message: t.app.toast.deleteFailed, tone: 'error' });
+      },
+      onChange: () => bumpHidden((n) => n + 1),
+    });
+  }
+  useEffect(() => {
+    const queue = scheduleQueue.current!;
+    const flush = () => void queue.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+  type PendingBillDelete = { id: string; bill: Bill };
+  const billQueue = useRef<ReturnType<typeof createUndoQueue<PendingBillDelete>> | null>(null);
+  if (!billQueue.current) {
+    billQueue.current = createUndoQueue<PendingBillDelete>({
+      commit: async ({ id }) => {
+        if (latest.current.uid) await api.deleteBill(latest.current.uid, id);
+      },
+      onRestore: (_item, error) => {
+        fail(error);
+        toast.show({ message: t.app.toast.deleteFailed, tone: 'error' });
+      },
+      onChange: () => bumpHidden((n) => n + 1),
+    });
+  }
+  useEffect(() => {
+    const queue = billQueue.current!;
+    const flush = () => void queue.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+  const hiddenBills = billQueue.current.hiddenIds();
+  const visibleBills = useMemo(
+    () => (hiddenBills.size === 0 ? bills : bills.filter((x) => !hiddenBills.has(x.id))),
+    [bills, hiddenBills.size] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const hiddenRules = scheduleQueue.current.hiddenIds();
+  const visibleSchedules = useMemo(
+    () => (hiddenRules.size === 0 ? schedules : schedules.filter((x) => !hiddenRules.has(x.id))),
+    [schedules, hiddenRules.size] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const deleteNow = (activity: Activity, takeBack?: GoneShareChoice) => {
-    if (!uid) return;
-    // Deleting spending that was already covered puts that money back into
-    // the goals, so the strategy travels with it — and so do the deposits
-    // that covered it, which are the entries that get corrected.
-    const covering = activity.loanId ? coveringRows(activity.loanId, undefined, activities).rows : [];
-    run(() => api.deleteActivity(uid, activity, banks, savings, covering, takeBack));
+    undoQueue.current!.push({ id: activity.id, activity, takeBack }, t.app.toast.entryDeleted);
+    setEntryId(null);
+    toast.show({
+      message: t.app.toast.entryDeleted,
+      action: { label: t.ui.undo, run: () => undoQueue.current!.undo() },
+      durationMs: 5000,
+    });
   };
+
+  /** The rows the screens list: one waiting to be deleted is already gone from them. */
+  const hidden = undoQueue.current.hiddenIds();
+  const visibleActivities = useMemo(
+    () => (hidden.size === 0 ? activities : activities.filter((a) => !hidden.has(a.id))),
+    [activities, hidden.size] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const handleDeleteActivity = (id: string, takeBack?: GoneShareChoice) => {
     const activity = activities.find((a) => a.id === id);
@@ -508,9 +970,45 @@ const App: React.FC = () => {
     else fail(new Error(t.errors.recordGone));
   }, [pendingDelete, ledger, activities]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleEditActivity = (id: string, newAmount: number) => {
-    const activity = activities.find((a) => a.id === id);
-    if (uid && activity) run(() => api.editActivity(uid, activity, newAmount));
+  const selectedGoal = banks.find((b) => b.id === selectedGoalId);
+  // The screen on top decides the look. Sheets (money, entry, new goal) are not
+  // listed: they follow whatever is under them.
+  const topOverlay = showNetWorth
+    ? 'netWorth'
+    : showBudgets
+    ? 'budgets'
+    : reviewMonth
+      ? 'monthReview'
+      : selectedGoal
+    ? 'goalDetail'
+    : showAlerts
+      ? 'alerts'
+      : showMonthlyBuy
+        ? 'monthlyBuy'
+        : showStatements
+          ? 'statements'
+          : showProfile
+            ? 'profile'
+            : showAutoDeposits
+              ? 'autoDeposits'
+              : null;
+  // Every screen shares one scrolling column, so a new screen would open at wherever the last one was left.
+  useEffect(() => {
+    document.querySelector('main')?.scrollTo({ top: 0 });
+  }, [topOverlay, activeTab]);
+  // Home's savings half is a redesigned screen; its investing half is not yet.
+  // Everything before the app proper (setup, language, sign-in, invite, the first load) is the new look too.
+  const beforeApp = !isFirebaseConfigured || !languageChosen || authLoading || !user || isMember !== true;
+  useScreenLook({
+    tab: activeTab === Tab.HOME && mode === 'save' ? 'homeSave' : activeTab,
+    overlays: beforeApp ? ['auth'] : topOverlay ? [topOverlay] : [],
+  });
+
+  const entryActivity = entryId ? visibleActivities.find((a) => a.id === entryId) : undefined;
+
+  const handleSaveEntry = async (activity: Activity, edit: ActivityEdit) => {
+    if (!uid) return;
+    await api.updateActivity(uid, activity, edit, { banks, loans, savings, notBefore });
   };
 
   const renderContent = () => {
@@ -518,34 +1016,30 @@ const App: React.FC = () => {
 
     if (error) {
       return (
-        <div className="h-full flex flex-col items-center justify-center gap-3 px-10 text-center">
-          <span className="material-symbols-rounded text-red-400 text-4xl">cloud_off</span>
-          <p className="text-white font-bold">{t.app.couldNotReach}</p>
-          <p className="text-slate-500 text-xs font-medium leading-relaxed">{error}</p>
-          <button
-            onClick={retry}
-            className="mt-4 px-8 h-12 rounded-2xl bg-primary text-black font-black active:scale-95 transition-transform"
-          >
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center font-figtree text-ink">
+          <span className="grid size-14 place-items-center rounded-full bg-peach">
+            <Icon name="bell" size={26} />
+          </span>
+          <p className="text-[17px] font-extrabold">{t.app.couldNotReach}</p>
+          <p className="max-w-[34ch] text-[13px] font-medium leading-relaxed text-mute">{error}</p>
+          <Button full={false} className="mt-3" onClick={retry}>
             {t.app.tryAgain}
-          </button>
+          </Button>
         </div>
       );
     }
 
-    if (showCreateGoal) {
-      return <CreateGoal uid={uid!} onCancel={() => setShowCreateGoal(false)} onCreate={handleCreateGoal} />;
-    }
-
-    const selectedGoal = banks.find((b) => b.id === selectedGoalId);
     if (selectedGoal) {
       return (
         <GoalDetail
           uid={uid!}
           bank={selectedGoal}
           banks={banks}
-          activities={activities}
+          activities={visibleActivities}
           ledger={ledger}
-          onChangePhoto={(imageUrl) => api.updateBank(uid!, selectedGoal.id, { imageUrl })}
+          onChangePhoto={(imageUrl) => api.setBankPhoto(uid!, selectedGoal.id, imageUrl)}
+          onEditGoal={(edit) => api.updateBank(uid!, selectedGoal.id, edit)}
+          onOpenEntry={setEntryId}
           onBack={() => setSelectedGoalId(null)}
           onArchive={() => {
             handleArchiveBank(selectedGoal.id);
@@ -591,6 +1085,47 @@ const App: React.FC = () => {
       );
     }
 
+    if (showNetWorth) {
+      return (
+        <NetWorthPage
+          parts={netParts}
+          trend={netTrend}
+          change={netChange}
+          liabilities={liabilities}
+          activities={activities}
+          banks={activeBanks}
+          walletCents={toCents(wallet.balance)}
+          onBack={() => setShowNetWorth(false)}
+          onCreateDebt={handleCreateDebt}
+          onUpdateDebt={handleUpdateDebt}
+          onDeleteDebt={(id) => {
+            if (uid) void api.deleteLiability(uid, id).then(() => toast.show({ message: t.net.deleted, tone: 'success' }), fail);
+          }}
+          onSetBalance={handleSetBalance}
+          onPay={(debt, payment) => handleDebtPayment(debt, payment)}
+          onOpenEntry={(id) => setEntryId(id)}
+        />
+      );
+    }
+
+    if (showBudgets) {
+      return <BudgetPage activities={activities} budgets={budgets} onBack={() => setShowBudgets(false)} onSave={handleSaveBudget} />;
+    }
+
+    if (reviewMonth) {
+      return (
+        <MonthReview
+          activities={activities}
+          ledger={ledger}
+          budgets={budgets}
+          month={reviewMonth}
+          onBack={() => setReviewMonth(null)}
+          onOpenBudgets={() => setShowBudgets(true)}
+          onOpenEntry={(id) => setEntryId(id)}
+        />
+      );
+    }
+
     if (showStatements) {
       return (
         <Statements
@@ -614,6 +1149,7 @@ const App: React.FC = () => {
           activities={activities}
           streak={streak.run}
           schedules={schedules}
+          liveBills={bills.filter((b) => b.enabled).length}
           savings={savings}
           unreadAlerts={unread}
           onBack={() => setShowProfile(false)}
@@ -650,30 +1186,86 @@ const App: React.FC = () => {
 
     if (showAutoDeposits) {
       return (
-        <AutoDeposits
-          schedules={schedules}
+        <AutoPage
+          schedules={visibleSchedules}
+          bills={visibleBills}
           banks={banks}
-          onCancel={() => setShowAutoDeposits(false)}
-          onCreate={handleCreateSchedule}
-          onUpdate={(id, patch) => uid && run(() => api.updateSchedule(uid, id, patch))}
-          onToggle={(id, enabled) => uid && run(() => api.updateSchedule(uid, id, { enabled }))}
-          onDelete={(id) => uid && run(() => api.deleteSchedule(uid, id))}
+          activities={visibleActivities}
+          onBack={() => setShowAutoDeposits(false)}
+          onCreateSchedule={handleCreateSchedule}
+          onUpdateSchedule={(id, patch) =>
+            uid &&
+            settleOrQueue(api.updateSchedule(uid, id, patch)).then(
+              () => {
+                toast.show({ message: t.app.toast.autoDepositSaved, tone: 'success' });
+              },
+              fail
+            )
+          }
+          onToggleSchedule={(id, enabled) =>
+            uid &&
+            settleOrQueue(api.updateSchedule(uid, id, { enabled })).then(
+              () => {
+                toast.show({ message: enabled ? t.app.toast.autoDepositOn : t.app.toast.autoDepositOff, tone: 'success' });
+              },
+              fail
+            )
+          }
+          onDeleteSchedule={(id) => {
+            const rule = schedules.find((x) => x.id === id);
+            if (!rule) return;
+            scheduleQueue.current!.push({ id, rule }, t.app.toast.autoDepositDeleted);
+            toast.show({
+              message: t.app.toast.autoDepositDeleted,
+              action: { label: t.ui.undo, run: () => scheduleQueue.current!.undo() },
+              durationMs: 5000,
+            });
+          }}
+          onCreateBill={handleCreateBill}
+          onUpdateBill={handleUpdateBill}
+          onDeleteBill={(id) => {
+            const bill = bills.find((x) => x.id === id);
+            if (!bill) return;
+            billQueue.current!.push({ id, bill }, t.bills.deleted);
+            toast.show({
+              message: t.bills.deleted,
+              action: { label: t.ui.undo, run: () => billQueue.current!.undo() },
+              durationMs: 5000,
+            });
+          }}
         />
       );
     }
 
     switch (activeTab) {
       case Tab.HOME:
+        if (mode === 'save' && banks.length === 0 && activities.length === 0 && trades.length === 0) {
+          return <FirstRun onCreateGoal={openCreateGoal} onSeedSamples={handleSeedSamples} />;
+        }
         return (
           <Dashboard
+            uid={uid!}
+            liveFrom={ledger.liveFrom}
+            onOpenEntry={setEntryId}
             totalBalance={totalBalance}
             savingsToday={savingsToday}
             banks={activeBanks}
-            activities={activities}
+            activities={visibleActivities}
             loans={loans}
+            wallet={wallet}
+            bills={visibleBills}
+            budgets={budgets}
+            onOpenBudgets={() => setShowBudgets(true)}
+            liabilities={liabilities}
+            onConfirmDebt={handleDebtPayment}
+            onSkipDebt={handleSkipDebtDay}
+            onRecordBill={handleRecordBill}
+            onSkipBill={handleSkipBill}
+            onOpenAuto={() => setShowAutoDeposits(true)}
             onDeposit={handleDeposit}
             onWithdraw={handleWithdraw}
-            onBorrow={handleBorrow}
+            onMoveWallet={handleMoveWallet}
+            onAddGoal={() => openCreateGoal()}
             onViewAll={() => setActiveTab(Tab.BANKS)}
             onSelectGoal={setSelectedGoalId}
             onOpenProfile={() => setShowProfile(true)}
@@ -692,6 +1284,8 @@ const App: React.FC = () => {
             savings={savings}
             unreadAlerts={unread}
             quickAction={quickAction}
+            quickDraft={quickDraft ?? undefined}
+            onQuickDraftHandled={() => setQuickDraft(null)}
             onQuickActionHandled={() => setQuickAction(null)}
           />
         );
@@ -702,19 +1296,31 @@ const App: React.FC = () => {
             activities={activities}
             ledger={ledger}
             streak={streak.run}
+            budgets={budgets}
+            walletCents={toCents(wallet.balance)}
+            netWorth={{ totalCents: netParts.totalCents, changeCents: netChange }}
+            onOpenNetWorth={() => setShowNetWorth(true)}
+            onOpenReview={(month) => setReviewMonth(month)}
+            onOpenBudgets={() => setShowBudgets(true)}
             onOpenStrategy={() => setActiveTab(Tab.BANKS)}
             onOpenProfile={() => setShowProfile(true)}
             onOpenStatements={() => setShowStatements(true)}
+            onDeposit={() => {
+              if (banks.length === 0) return openCreateGoal();
+              setActiveTab(Tab.HOME);
+              setQuickAction('deposit');
+            }}
           />
         );
       case Tab.BANKS:
         return (
           <StrategyEditor
+            wallet={wallet}
             banks={activeBanks}
             onUpdateBanks={handleSaveStrategy}
             onDeleteBank={handleDeleteBank}
             onArchiveBank={handleArchiveBank}
-            onAddGoal={() => setShowCreateGoal(true)}
+            onAddGoal={() => openCreateGoal()}
             scheduleCount={schedules.filter((s) => s.enabled).length}
             schedules={schedules}
             onOpenAutoDeposits={() => setShowAutoDeposits(true)}
@@ -723,13 +1329,16 @@ const App: React.FC = () => {
       case Tab.LOG:
         return (
           <ActivityLog
-            activities={activities}
+            activities={visibleActivities}
             ledger={ledger}
             banks={banks}
-            onDeleteActivity={handleDeleteActivity}
-            onEditActivity={handleEditActivity}
-            onSetCategory={(id, category) => uid && run(() => api.setActivityCategory(uid, id, category))}
+            onOpenEntry={setEntryId}
             onOpenTrade={openTradeById}
+            onDeposit={() => {
+              if (banks.length === 0) return openCreateGoal();
+              setActiveTab(Tab.HOME);
+              setQuickAction('deposit');
+            }}
           />
         );
       case Tab.TRADES:
@@ -747,7 +1356,9 @@ const App: React.FC = () => {
             dividends={dividends}
             alertIds={alertIds}
             onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
-            onCreateGoal={() => setShowCreateGoal(true)}
+            onCreateGoal={() => openCreateGoal()}
+            onRecordBuy={() => openTrade({ mode: 'new', kind: 'buy' })}
+            quotes={quotes}
             onBack={() => setActiveTab(Tab.HOME)}
           />
         );
@@ -773,7 +1384,7 @@ const App: React.FC = () => {
           />
         );
       default:
-        return <div className="flex items-center justify-center h-full text-white/50">{t.app.comingSoon}</div>;
+        return <div className="flex h-full items-center justify-center text-mute">{t.app.comingSoon}</div>;
     }
   };
 
@@ -803,9 +1414,9 @@ const App: React.FC = () => {
           today's is not. */}
       {offline && !failure && (
         <div className="fixed inset-x-0 top-0 z-[55] px-4 pt-3 safe-pt pointer-events-none">
-          <div className="max-w-md mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
-            <span className="material-symbols-rounded text-amber-300 text-lg shrink-0">cloud_off</span>
-            <p className="text-amber-200 text-[11px] font-black">
+          <div className="mx-auto flex max-w-md items-center gap-2.5 rounded-2xl bg-sun px-4 py-2.5 shadow-lg">
+            <span className="material-symbols-rounded shrink-0 text-lg text-warn">cloud_off</span>
+            <p className="text-[12px] font-extrabold text-ink">
               {t.app.offline}
             </p>
           </div>
@@ -818,12 +1429,12 @@ const App: React.FC = () => {
         <div className="fixed inset-x-0 top-0 z-[60] px-4 pt-3 safe-pt pointer-events-none">
           <div
             role="alert"
-            className="max-w-md mx-auto rounded-2xl bg-red-500/15 border border-red-500/40 backdrop-blur px-4 py-3 flex items-start gap-3"
+            className="mx-auto flex max-w-md items-start gap-3 rounded-2xl bg-peach px-4 py-3 shadow-lg"
           >
-            <span className="material-symbols-rounded text-red-400 text-xl shrink-0">error</span>
+            <span className="material-symbols-rounded shrink-0 text-xl text-neg">error</span>
             <div className="min-w-0">
-              <p className="text-red-300 text-xs font-black">{t.app.didNotSave}</p>
-              <p className="text-red-200/80 text-[11px] font-bold mt-0.5 leading-relaxed">{failure}</p>
+              <p className="text-[13px] font-extrabold text-neg">{t.app.didNotSave}</p>
+              <p className="mt-0.5 text-[12px] font-bold leading-relaxed text-ink">{failure}</p>
             </div>
           </div>
         </div>
@@ -859,14 +1470,53 @@ const App: React.FC = () => {
           dividends={dividends}
           alertIds={alertIds}
           draft={tradeDraft}
+          quotes={quotes}
+          potCents={toCents(invest.potBalance ?? 0)}
+          dividendMarker={tradeDraft.mode === 'edit' ? creditedDividends.find((c) => c.id === tradeDraft.trade.id) ?? null : null}
+          onCorrectDividend={(tradeId, cents) => api.correctDividend(uid, tradeId, cents)}
+          onRemoveDividend={(tradeId) => api.removeDividend(uid, tradeId)}
           onClose={() => setTradeDraft(null)}
-          onDone={() => undefined}
+          onDone={(message) => {
+            toast.show({ message, tone: 'success' });
+          }}
           onEditBroker={() => setSetup({ step: 'broker', pending: null, editing: true })}
           onSyncError={fail}
           onCreateGoal={() => {
             setTradeDraft(null);
-            setShowCreateGoal(true);
+            openCreateGoal();
           }}
+        />
+      )}
+
+      {showCreateGoal && uid && !dataLoading && (
+        <CreateGoal
+          uid={uid}
+          prefill={goalPrefill}
+          isFirstGoal={activeBanks.length === 0}
+          onCancel={closeCreateGoal}
+          onCreate={handleCreateGoal}
+        />
+      )}
+
+      {entryActivity && uid && (
+        <EntrySheet
+          key={entryActivity.id}
+          activity={entryActivity}
+          banks={banks}
+          loans={loans}
+          savings={savings}
+          notBefore={notBefore}
+          potCents={toCents(invest.potBalance ?? 0)}
+          walletCents={toCents(wallet.balance)}
+          activities={activities}
+          onSave={(edit) => handleSaveEntry(entryActivity, edit)}
+          onSavePot={(edit) => api.editPotTransfer(uid, entryActivity, edit, { banks, savings, notBefore })}
+          onDelete={(takeBack) => handleDeleteActivity(entryActivity.id, takeBack)}
+          onDeletePot={async (returnTo?: PotReturn) => {
+            await api.deletePotTransfer(uid, entryActivity, { banks, savings, returnTo });
+            toast.show({ message: t.app.toast.potMoveDeleted, tone: 'success' });
+          }}
+          onClose={() => setEntryId(null)}
         />
       )}
 
@@ -892,13 +1542,24 @@ const App: React.FC = () => {
           banks={banks}
           potBalance={invest.potBalance ?? 0}
           savings={savings}
+          uid={uid}
           onConfirm={(target, cents) => {
             const direction = potSheet;
             setPotSheet(null);
-            run(async () => {
+            const job = (async () => {
               if (direction === 'in' && target) await api.transferToPot(uid, banks, target, cents);
               else if (direction === 'out') await api.transferFromPot(uid, banks, invest.potBalance ?? 0, target, cents, savings);
-            });
+            })();
+            const amount = formatMoney(fromCents(cents));
+            return settleOrQueue(job).then(
+              () => {
+                toast.show({ message: direction === 'in' ? t.app.toast.movedToInvesting(amount) : t.app.toast.movedBack(amount), tone: 'success' });
+              },
+              (e) => {
+                fail(e);
+                throw e;
+              }
+            );
           }}
           onClose={() => setPotSheet(null)}
         />
@@ -912,7 +1573,7 @@ const App: React.FC = () => {
             const id = archiving;
             const scheduleIds = schedules.filter((s) => s.targetBankId === id).map((s) => s.id);
             setArchiving(null);
-            run(() => api.archiveBank(uid, banks, id, { scheduleIds, target }));
+            archiveNow(id, () => api.archiveBank(uid, banks, id, { scheduleIds, target }));
           }}
           onClose={() => setArchiving(null)}
         />
@@ -933,57 +1594,46 @@ const App: React.FC = () => {
       )}
 
       {showQuickPick && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => setShowQuickPick(false)}
-        >
-          <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* The same button, two jobs: which one follows the card on Home. */}
-            <h3 className="text-white text-2xl font-black">
-              {mode === 'save' ? t.app.quick.moveMoney : t.app.quick.recordTrade}
-            </h3>
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              {(mode === 'save'
-                ? ([
-                    { key: 'deposit', label: t.app.quick.deposit, icon: 'south_west', tint: 'text-primary' },
-                    { key: 'withdraw', label: t.app.quick.spend, icon: 'north_east', tint: 'text-slate-400' },
-                  ] as const)
-                : ([
-                    { key: 'buy', label: t.app.quick.buy, icon: 'trending_up', tint: 'text-accent' },
-                    { key: 'sell', label: t.app.quick.sell, icon: 'trending_down', tint: 'text-slate-400' },
-                  ] as const)
-              ).map((option) => (
-                <button
-                  key={option.key}
-                  onClick={() => {
-                    setShowQuickPick(false);
-                    setSelectedGoalId(null);
-                    setShowProfile(false);
-                    setShowAlerts(false);
-                    if (option.key === 'buy' || option.key === 'sell') {
-                      openTrade({ mode: 'new', kind: option.key });
-                      return;
-                    }
-                    setActiveTab(Tab.HOME);
-                    setQuickAction(option.key);
-                  }}
-                  className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-[1.75rem] py-6 active:scale-95 transition-transform"
-                >
-                  <span className={`material-symbols-rounded text-3xl ${option.tint}`}>{option.icon}</span>
-                  <span className="text-white font-black">{option.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="text-slate-500 text-xs font-medium leading-relaxed mt-5">
-              {mode === 'save'
-                ? t.app.quick.saveHint
-                : t.app.quick.tradeHint}
-            </p>
+        // The same button, two jobs: which one follows the card on Home.
+        <Sheet title={mode === 'save' ? t.app.quick.moveMoney : t.app.quick.recordTrade} onClose={() => setShowQuickPick(false)}>
+          <div className="grid grid-cols-2 gap-3">
+            {(mode === 'save'
+              ? ([
+                  { key: 'deposit', label: t.app.quick.deposit, icon: 'dep', square: 'bg-mint' },
+                  { key: 'withdraw', label: t.app.quick.spend, icon: 'out', square: 'bg-peach' },
+                ] as const)
+              : ([
+                  { key: 'buy', label: t.app.quick.buy, icon: 'trend', square: 'bg-lav' },
+                  { key: 'sell', label: t.app.quick.sell, icon: 'minus', square: 'bg-peach' },
+                ] as const)
+            ).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => {
+                  setShowQuickPick(false);
+                  setSelectedGoalId(null);
+                  setShowProfile(false);
+                  setShowAlerts(false);
+                  if (option.key === 'buy' || option.key === 'sell') {
+                    openTrade({ mode: 'new', kind: option.key });
+                    return;
+                  }
+                  if (banks.length === 0) return openCreateGoal();
+                  setActiveTab(Tab.HOME);
+                  setQuickAction(option.key);
+                }}
+                className="flex flex-col items-center gap-2 rounded-3xl bg-card py-6 text-ink active:opacity-80"
+              >
+                <span className={`grid size-12 place-items-center rounded-2xl ${option.square}`}>
+                  <Icon name={option.icon} size={24} />
+                </span>
+                <span className="text-[15px] font-extrabold">{option.label}</span>
+              </button>
+            ))}
           </div>
-        </div>
+          <p className="mt-4 px-1 text-[12.5px] font-medium leading-relaxed text-mute">{mode === 'save' ? t.app.quick.saveHint : t.app.quick.tradeHint}</p>
+        </Sheet>
       )}
     </div>
   );
@@ -997,7 +1647,7 @@ const App: React.FC = () => {
 
   return shell(
     renderContent(),
-    !showCreateGoal && !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !dataLoading
+    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !reviewMonth && !showBudgets && !showNetWorth && !dataLoading
   );
 };
 

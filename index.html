@@ -5,7 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+    <meta name="color-scheme" content="light dark">
     <title>SavvyPiggy</title>
+    <script>
+      // Before first paint: the saved theme ('light' | 'dark'). 'system' or
+      // nothing saved leaves the attribute off so the phone's setting applies.
+      try {
+        var t = localStorage.getItem('savvypiggy.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.setAttribute('data-look', 'new');
+      } catch (e) {}
+    </script>
 </head>
 <body class="dark overflow-hidden">
     <div id="root"></div>

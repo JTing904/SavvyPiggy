@@ -4,6 +4,7 @@ import { totalFees } from './fees';
 import { fromCents, toCents } from './money';
 import { buildXlsx, type Cell } from './xlsx';
 import { categoryOf } from './categories';
+import { monthFigures } from './review';
 import { m, noteText } from '../i18n';
 
 /**
@@ -30,6 +31,8 @@ const typeLabels = (): Record<Activity['type'], string> => ({
   transfer: m().common.activity.transfer,
   toInvest: m().common.activity.toInvest,
   fromInvest: m().common.activity.fromInvest,
+  walletMove: m().common.activity.walletMove,
+  loanPayment: m().common.activity.loanPayment,
 });
 
 const tradeLabels = (): Record<Trade['kind'], string> => m().files.trade;
@@ -52,7 +55,7 @@ export const ledgerAmount = (a: Pick<Activity, 'type' | 'amount' | 'distribution
     const signed = a.distributions.reduce((sum, d) => sum + toCents(d.amount), 0);
     if (a.type === 'transfer' || signed < 0) return fromCents(signed);
   }
-  return a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' || a.type === 'toInvest' ? -a.amount : a.amount;
+  return a.type === 'withdraw' || a.type === 'borrow' || a.type === 'invest' || a.type === 'toInvest' || a.type === 'loanPayment' ? -a.amount : a.amount;
 };
 
 /**
@@ -140,6 +143,8 @@ export interface MonthSheetInput {
   /** Positions as they stood at the end of the month. */
   holdings: Holding[];
   quotes: Quotes;
+  /** Any day in the month. Given, the sheet opens with the month's review. */
+  month?: Date;
 }
 
 /**
@@ -155,12 +160,31 @@ export interface MonthSheetInput {
  * because it really is income from a holding and money that reached the goals.
  */
 export const monthRows = (
-  { label, activities, banks, trades, holdings, quotes }: MonthSheetInput,
+  { label, activities, banks, trades, holdings, quotes, month }: MonthSheetInput,
   now: Date = new Date()
 ): Cell[][] => {
   const f = m().files;
   const TRADE_LABEL = tradeLabels();
-  const rows: Cell[][] = [[f.sheetTitle, label], [], [f.savingsBlock]];
+  const rows: Cell[][] = [[f.sheetTitle, label]];
+
+  // The month's own figures, worked out the way the Report works them out, ahead of the lists they come from.
+  if (month) {
+    const rv = m().review;
+    const fig = monthFigures(activities, month, now);
+    rows.push(
+      [],
+      [rv.sheetName],
+      [rv.colIncome, money(fromCents(fig.incomeCents))],
+      [rv.colSpent, money(fromCents(fig.spentCents))],
+      [rv.colPutIn, money(fromCents(fig.putInCents))],
+      [rv.colTakenOut, money(fromCents(fig.takenOutCents))],
+      [rv.colSaved, money(fromCents(fig.savedCents))],
+      [rv.colRate, fig.rate],
+      [rv.colWallet, money(fromCents(fig.walletChangeCents))],
+      [rv.colBills, money(fromCents(fig.billsCents))]
+    );
+  }
+  rows.push([], [f.savingsBlock]);
 
   if (activities.length === 0) rows.push([f.noRecordsThisMonth]);
   else rows.push(...savingsRows(activities, banks));

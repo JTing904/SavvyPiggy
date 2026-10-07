@@ -38,9 +38,9 @@ export const alerts: typeof English = {
   reallocate: '重新分配',
   streakBody: (days) => `你已经连续 ${days} 天往钱罐里存钱了，继续保持！`,
   housekeepingBody: (months) =>
-    `应用每次打开都会读取你的全部记录，所以超过 ${months ?? ''} 个月的记录会被清理，让应用保持流畅。没有在那里列出过的记录都不会被删除。先到「报表 → 月结单」把那几个月保存下来，或者更改保留时长。你的余额不会受影响。`,
+    `应用每次打开都会读取你的全部记录，所以超过 ${months ?? ''} 个月的记录会被清理，让应用保持流畅。没有在那里列出、并保存过月结单的记录都不会被删除。先到「报表 → 月结单」把那几个月保存下来，或者更改保留时长。你的余额不会受影响。`,
   dividendBody: (units) =>
-    `按你在除权日持有的 ${units} 股计算，按公布的金额存进你的投资钱罐。请核对实际到账的金额——如果少了，把差额从投资钱罐转出。`,
+    `按你在除权日持有的 ${units} 股计算，按公布的金额存进你的投资资金。请核对实际到账的金额——如果少了，把差额从投资资金转出。`,
 
   dailySavingsReminder: '每日存钱提醒',
   everyEveningAt: '每晚 ',
@@ -54,7 +54,18 @@ export const alerts: typeof English = {
   emptyTitle: '这里还没有内容',
   emptyBody: '里程碑、自动存入的入账明细和连续天数，一发生就会出现在这里。',
 
-  deliveryPreferences: '通知设置',
+  deliveryPreferences: '提醒设置',
+  prefsCollapse: '收起',
+  prefsExpand: '修改',
+  prefsNone: '全部关闭',
+  prefsShortNames: {
+    receipts: '自动存入',
+    milestones: '里程碑',
+    reminder: (time: string) => `每日 ${time}`,
+    digest: '月报',
+    exDates: '除权日',
+    bills: '账单与还款',
+  },
   receiptsTitle: '自动存入的入账明细',
   receiptsHint: '每次规则完成一笔存入，这里就会出现一张卡片。',
   milestonesTitle: '里程碑和连续天数',
@@ -66,6 +77,8 @@ export const alerts: typeof English = {
   monthlyReport: '月报',
   monthlyReportHint: '每月 1 日 09:00，打开上个月的报表。',
   exDates: '除权日',
+  billReminders: '账单',
+  billRemindersHint: '每次不同的账单、或贷款还款到期当天，提醒你确认；钱包不够付明天的账单时，提前一天提醒。',
   exDatesHint: '你持有的股票除权前两天提醒你——这一天决定股息是不是你的。',
   footer:
     '提醒设在这部手机上，应用关着也会响。自动存入本身只在你打开应用时才会入账（SavvyPiggy 没有服务器），所以到期的规则会在 09:00 提醒你打开应用。',
@@ -79,6 +92,11 @@ export const alerts: typeof English = {
     digestBody: '看看上个月存入的钱去了哪里，存得有多快。',
     dueTitle: (amount) => `今天有一笔 ${amount} 的自动存入`,
     dueBody: '打开 SavvyPiggy，把它存进你的钱罐。',
+    billDueTitle: (name) => `${name} 今天到期`,
+    billDueBody: (amount) => `上次是 ${amount}。打开 SavvyPiggy 确认金额并记录。`,
+    billDueBodyNoAmount: '打开 SavvyPiggy 输入金额并记录。',
+    billShortTitle: '钱包可能不够付明天的账单',
+    billShortBody: (name, amount, held) => `明天要付 ${name} ${amount}，钱包里只有 ${held}。`,
     exTitle: (symbol) => `${symbol} 两天后除权`,
     exBodyHeld: (rate, units) => `每股 ${rate}。你持有 ${units} 股。`,
     exBodyNone: (rate) => `每股 ${rate}。在除权日之前买入才能拿到股息。`,

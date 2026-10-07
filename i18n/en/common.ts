@@ -33,9 +33,11 @@ export const common = {
     borrow: 'Spent ahead',
     invest: 'Invested',
     divest: 'Sale proceeds',
-    transfer: 'Moved in',
+    transfer: 'Between goals',
     toInvest: 'Moved to investing',
     fromInvest: 'Back from investing',
+    walletMove: 'Wallet move',
+    loanPayment: 'Debt payment',
   },
 
   /** Spending categories, by their stored key. */
@@ -51,6 +53,7 @@ export const common = {
     travel: 'Travel',
     learning: 'Learning',
     gifts: 'Gifts',
+    interest: 'Interest',
     other: 'Other',
   } as Record<string, string>,
 
@@ -60,7 +63,7 @@ export const common = {
   units: (n: string) => `${n} units`,
   goal: 'goal',
   goals: 'Goals',
-  autoSplit: 'Auto split',
+  autoSplit: 'Split by shares',
   notFromGoal: 'Not from a goal',
   spentAhead: 'Spent ahead',
 

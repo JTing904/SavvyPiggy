@@ -2,7 +2,12 @@ import React, { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { redeemInvite } from '../services/invites';
+import { canScanCodes, scanCode } from '../services/quickRead';
 import { useT } from '../contexts/LanguageContext';
+import { PiggyTile } from './PiggyMark';
+import { Button } from './ui/Button';
+import { Field } from './ui/Field';
+import { Icon } from './ui/Icon';
 
 const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
   const { logout } = useAuth();
@@ -11,13 +16,12 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code.trim() || busy) return;
+  const join = async (value: string) => {
+    if (!value.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await redeemInvite(user, code);
+      await redeemInvite(user, value);
       // The membership listener flips the app over; nothing to do here.
     } catch (err) {
       setError((err as Error).message || t.auth.redeemFailed);
@@ -25,55 +29,74 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void join(code);
+  };
+
+  // Scanning fills the box and joins in one go; there is nothing left to press.
+  const scan = async () => {
+    if (busy) return;
+    setError(null);
+    try {
+      const value = await scanCode();
+      if (!value) return;
+      setCode(value.trim().toUpperCase());
+      await join(value);
+    } catch {
+      setError(t.invite.scanFailed);
+    }
+  };
+
   return (
-    <div className="min-h-full flex flex-col justify-center px-6 py-12 safe-pt safe-pb">
-      <div className="w-full max-w-md mx-auto">
-        <div className="flex flex-col items-center mb-10">
-          <div className="size-20 rounded-[1.75rem] bg-primary/10 flex items-center justify-center mb-6">
-            <span className="material-symbols-rounded text-primary text-4xl">key</span>
-          </div>
-          <h1 className="text-white text-3xl font-black tracking-tight text-center">{t.auth.inviteOnly}</h1>
-          <p className="text-slate-500 font-medium mt-2 text-center leading-relaxed">
-            {t.auth.inviteIntro}
-          </p>
+    <div className="flex min-h-full flex-col justify-center px-5 py-12 safe-pt safe-pb font-figtree text-ink">
+      <div className="mx-auto w-full max-w-md">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <PiggyTile size={84} />
+          <h1 className="mt-5 text-[28px] font-extrabold leading-tight tracking-tight">{t.auth.inviteOnly}</h1>
+          <p className="mt-2 text-[14px] font-medium leading-relaxed text-mute">{t.auth.inviteIntro}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <Field
             autoFocus
+            label={t.auth.inviteCode}
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            className="w-full h-16 px-6 rounded-3xl bg-surface border border-white/5 text-xl font-black tracking-[0.2em] text-center text-white focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 placeholder:tracking-normal shadow-xl"
-            placeholder={t.auth.inviteCode}
+            onChange={(v) => setCode(v.toUpperCase())}
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
+            hint={canScanCodes() ? t.invite.scanHint : undefined}
+            suffix={
+              canScanCodes() && (
+                <button
+                  type="button"
+                  onClick={() => void scan()}
+                  aria-label={t.invite.scan}
+                  className="-mr-2 grid size-11 place-items-center rounded-[14px] bg-cta text-cta-fg active:opacity-80"
+                >
+                  <Icon name="scan" size={24} />
+                </button>
+              )
+            }
           />
 
           {error && (
-            <div className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4">
-              <span className="material-symbols-rounded text-red-400 text-lg">error</span>
-              <p className="text-red-300 text-xs font-bold leading-relaxed">{error}</p>
+            <div role="alert" className="rounded-3xl bg-peach px-5 py-4">
+              <p className="text-[13px] font-bold leading-relaxed text-neg">{error}</p>
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={!code.trim() || busy}
-            className={`w-full h-16 rounded-[2rem] font-black text-lg transition-all shadow-2xl ${
-              code.trim() && !busy
-                ? 'bg-primary text-black shadow-primary/20 active:scale-95'
-                : 'bg-white/5 text-slate-700 cursor-not-allowed'
-            }`}
-          >
+          <Button type="submit" disabled={!code.trim()} loading={busy}>
             {busy ? t.auth.checking : t.auth.unlockAccount}
-          </button>
+          </Button>
         </form>
 
-        <p className="text-center text-slate-600 text-xs font-medium mt-8 leading-relaxed">
-          {t.auth.signedInAs}<span className="text-slate-400 font-bold">{user.email ?? user.uid}</span>
+        <p className="mt-6 text-center text-[12.5px] font-medium leading-relaxed text-mute">
+          {t.auth.signedInAs}
+          <span className="font-bold text-ink">{user.email ?? user.uid}</span>
           <br />
-          <button onClick={() => void logout()} className="text-primary font-black mt-2">
+          <button type="button" onClick={() => void logout()} className="mt-1 min-h-11 px-2 font-extrabold text-ink">
             {t.auth.signOut}
           </button>
         </p>

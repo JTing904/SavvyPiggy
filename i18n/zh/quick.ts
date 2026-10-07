@@ -1,0 +1,45 @@
+import type { quick as English } from '../en/quick';
+
+export const quick: typeof English = {
+  lineLabel: '写一句话',
+  linePlaceholder: '例如：午餐 12.50 昨天',
+  examplesLabel: '试试这样写',
+  examples: ['午餐 12.50', 'grab 8', '薪水 3200', '红包 +50'],
+
+  spend: '开销',
+  income: '收入',
+  noCategory: '用途没选，记为其他',
+  fromWallet: '从钱包出',
+  fromGoal: (name) => `从 ${name} 出`,
+  toWallet: '放进钱包',
+  toGoal: (name) => `存进 ${name}`,
+  today: '今天',
+  noAmount: '没找到金额',
+  manyAmounts: '找到好几个金额，点你要的那个：',
+  tooOld: '那一天比 app 保留的记录还早，已当作今天。',
+  badDay: '没有这一天，已当作今天。',
+
+  dupTitle: '已经记过了？',
+  dupBody: (amount, category) => `这一天已经有一笔 ${amount} 的「${category}」开销。确定要再记一笔吗？`,
+  recordAgain: '再记一笔',
+
+  readPicture: '读图片',
+  fromCamera: '拍一张',
+  fromGallery: '从相册选',
+  reading: '正在读图片…',
+  readFailed: '读不出这张图片。换一张，或者写成一句话。',
+  readOnPhone: '图片只在这部手机上读，不上传，也不保存。',
+  readHeading: '从图片读到的',
+  readAmountFrom: (line) => `金额来自：${line}`,
+  readDateFrom: (text) => `日期：${text}`,
+  readMerchant: (name) => `付给：${name}`,
+  readNoAmount: '读不清楚金额。图片里有好几个数字，不确定哪个是你付的。',
+  readPick: '图片里读到的数字，点你付的那个：',
+  readZero: '图片显示付了 RM0.00。这可能是用点数、金币或优惠券付的。请填你实际花的钱，或者你确定要记 RM0 再记。',
+  readNoDate: '没读到日期，已当作今天。',
+  readOldDate: '图片里的日期比 app 保留的记录还早，已当作今天。',
+  readCategory: '用途没读出来。不选的话记为其他。',
+  readEmpty: '这张图片里没有读到文字。',
+
+  sharedIn: '从其他 app 收到的。先确认一下再记。',
+};

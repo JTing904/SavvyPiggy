@@ -1,0 +1,40 @@
+name: CI
+
+# Runs on every push and pull request: the type check, the unit tests, the
+# Firestore rules tests (against the emulator) and a production build.
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The Firestore emulator needs Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Firestore rules tests
+        run: npm run test:rules
+
+      # The Firebase settings come from .env.local, which is not in git, so the
+      # build here proves the code bundles, not that it is configured.
+      - name: Build
+        run: npm run build

@@ -1,27 +1,26 @@
 import React from 'react';
 import { useT } from '../contexts/LanguageContext';
+import { PiggyTile } from './PiggyMark';
 
 /** Shown when .env.local has no Firebase credentials yet. */
 const SetupNotice: React.FC = () => {
   const t = useT();
   return (
-    <div className="min-h-full flex flex-col justify-center px-6 py-12 safe-pt safe-pb">
-      <div className="w-full max-w-md mx-auto">
-        <div className="size-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mb-6">
-          <span className="material-symbols-rounded text-3xl">construction</span>
-        </div>
-        <h1 className="text-white text-3xl font-black tracking-tight">{t.auth.setupTitle}</h1>
-        <p className="text-slate-500 font-medium mt-2">
-          {t.auth.setupLead}<span className="text-primary font-bold">FIREBASE_SETUP.md</span>{t.auth.setupTail}
+    <div className="flex min-h-full flex-col justify-center px-5 py-12 safe-pt safe-pb font-figtree text-ink">
+      <div className="mx-auto w-full max-w-md">
+        <PiggyTile size={64} />
+        <h1 className="mt-5 text-[28px] font-extrabold tracking-tight">{t.auth.setupTitle}</h1>
+        <p className="mt-2 text-[14px] font-medium text-mute">
+          {t.auth.setupLead}
+          <span className="font-bold text-ink">FIREBASE_SETUP.md</span>
+          {t.auth.setupTail}
         </p>
 
-        <ol className="mt-8 space-y-3">
+        <ol className="mt-6 space-y-2.5">
           {t.auth.setupSteps.map((step, i) => (
-            <li key={step} className="flex items-start gap-4 bg-surface border border-white/5 rounded-3xl p-5">
-              <span className="size-7 shrink-0 rounded-full bg-primary/10 text-primary font-black text-xs flex items-center justify-center">
-                {i + 1}
-              </span>
-              <p className="text-slate-300 text-sm font-medium leading-relaxed">{step}</p>
+            <li key={step} className="flex items-start gap-4 rounded-3xl bg-card p-4">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-mint text-[12px] font-extrabold">{i + 1}</span>
+              <p className="text-[13.5px] font-medium leading-relaxed">{step}</p>
             </li>
           ))}
         </ol>

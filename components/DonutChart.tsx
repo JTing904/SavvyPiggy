@@ -30,7 +30,7 @@ export const SLICE_COLORS = [
   '#A3E635',
 ];
 
-const UNALLOCATED = 'rgba(255,255,255,0.08)';
+const UNALLOCATED = 'rgb(var(--line) / 0.1)';
 const GAP = 1.2; // percentage points of ring left blank between slices
 
 /**
@@ -71,7 +71,7 @@ const DonutChart: React.FC<DonutChartProps> = ({ slices, total, size = 168, thic
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={UNALLOCATED}
+          style={{ stroke: UNALLOCATED }}
           strokeWidth={thickness}
           opacity={arcs.length === 0 ? 1 : 0.35}
         />
@@ -82,7 +82,7 @@ const DonutChart: React.FC<DonutChartProps> = ({ slices, total, size = 168, thic
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke={arc.color}
+            style={{ stroke: arc.color }}
             strokeWidth={thickness}
             strokeDasharray={`${(arc.length / 100) * circumference} ${circumference}`}
             strokeDashoffset={-(arc.offset / 100) * circumference}
@@ -95,12 +95,12 @@ const DonutChart: React.FC<DonutChartProps> = ({ slices, total, size = 168, thic
           <>
             <p
               className={`text-3xl font-black tabular-nums leading-none ${
-                over ? 'text-red-400' : balanced ? 'text-primary' : 'text-white'
+                over ? 'text-neg' : balanced ? 'text-pos' : 'text-ink'
               }`}
             >
               {total}%
             </p>
-            <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mt-1">
+            <p className="mt-1 text-[11px] font-bold text-mute">
               {over ? t.report.donutOver : t.report.donutAllocated}
             </p>
           </>

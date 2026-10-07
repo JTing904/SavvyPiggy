@@ -2,6 +2,7 @@ import React from 'react';
 import { Tab } from '../types';
 import { useT } from '../contexts/LanguageContext';
 import type { Messages } from '../i18n';
+import { Icon } from './ui/Icon';
 
 /**
  * Which half of the app the bar is showing. Swiping the card on Home is what
@@ -20,61 +21,61 @@ interface NavigationProps {
 const TABS: Record<Mode, { tab: Tab; icon: string; label: keyof Messages['nav'] }[]> = {
   save: [
     { tab: Tab.HOME, icon: 'home', label: 'home' },
-    { tab: Tab.LOG, icon: 'history', label: 'history' },
-    { tab: Tab.BANKS, icon: 'account_balance_wallet', label: 'strategy' },
-    { tab: Tab.STATS, icon: 'monitoring', label: 'report' },
+    { tab: Tab.LOG, icon: 'hist', label: 'history' },
+    { tab: Tab.BANKS, icon: 'pie', label: 'strategy' },
+    { tab: Tab.STATS, icon: 'chart', label: 'report' },
   ],
   invest: [
     { tab: Tab.HOME, icon: 'home', label: 'home' },
-    { tab: Tab.TRADES, icon: 'receipt_long', label: 'trades' },
-    { tab: Tab.DIVIDENDS, icon: 'payments', label: 'dividends' },
-    { tab: Tab.GROWTH, icon: 'trending_up', label: 'growth' },
+    { tab: Tab.TRADES, icon: 'list', label: 'trades' },
+    { tab: Tab.DIVIDENDS, icon: 'coin', label: 'dividends' },
+    { tab: Tab.GROWTH, icon: 'trend', label: 'growth' },
   ],
 };
 
-/** The action button's colour and job both follow the mode. */
-const ACTION: Record<Mode, { tint: string; glow: string; label: keyof Messages['nav'] }> = {
-  save: { tint: 'bg-primary', glow: 'shadow-primary/40', label: 'depositOrSpend' },
-  invest: { tint: 'bg-accent', glow: 'shadow-accent/40', label: 'buyOrSell' },
+/** The action button's job follows the mode; its colour does not (ink in every mode). */
+const ACTION: Record<Mode, keyof Messages['nav']> = {
+  save: 'depositOrSpend',
+  invest: 'buyOrSell',
 };
 
 const Navigation: React.FC<NavigationProps> = ({ mode, activeTab, onTabChange, onQuickAction }) => {
   const t = useT();
   const tabs = TABS[mode];
-  const action = ACTION[mode];
-  const tint = mode === 'save' ? 'text-primary' : 'text-accent';
 
   // Every tab takes an equal share and is allowed to shrink, so four labels
   // plus the action button always fit a narrow phone instead of overflowing.
-  const renderTab = ({ tab, icon, label }: (typeof TABS)[Mode][number]) => (
-    <button
-      key={tab}
-      onClick={() => onTabChange(tab)}
-      className={`flex-1 min-w-0 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl transition-all ${
-        activeTab === tab ? tint : 'text-slate-500 hover:text-slate-300'
-      }`}
-    >
-      <span className={`material-symbols-rounded ${activeTab === tab ? 'fill-1' : ''}`}>{icon}</span>
-      <span className="w-full truncate text-center text-[9px] font-bold uppercase tracking-wide">
-        {t.nav[label]}
-      </span>
-    </button>
-  );
+  const renderTab = ({ tab, icon, label }: (typeof TABS)[Mode][number]) => {
+    const on = activeTab === tab;
+    return (
+      <button
+        key={tab}
+        type="button"
+        onClick={() => onTabChange(tab)}
+        aria-current={on ? 'page' : undefined}
+        className={`flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 ${on ? 'text-ink' : 'text-mute'} active:opacity-70`}
+      >
+        <Icon name={icon} size={22} strokeWidth={on ? 2.2 : 1.7} />
+        <span className="w-full truncate text-center text-[10.5px] font-extrabold">{t.nav[label]}</span>
+      </button>
+    );
+  };
 
   // Above the page: cards in the holdings stack carry their own z-index, and
   // without one here an expanded card paints straight over the bar.
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 pointer-events-none safe-pb">
-      <div className="max-w-md mx-auto pointer-events-auto">
-        <div className="flex items-center glass rounded-[2.5rem] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10">
+    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 safe-pb">
+      <div className="pointer-events-auto mx-auto max-w-md">
+        <div className="flex items-center rounded-[2rem] bg-card p-2 font-figtree shadow-[0_8px_28px_rgba(0,0,0,0.18)]">
           {tabs.slice(0, 2).map(renderTab)}
 
           <button
+            type="button"
             onClick={onQuickAction}
-            aria-label={t.nav[action.label]}
-            className={`shrink-0 mx-1 size-14 -mt-12 flex items-center justify-center rounded-full text-black shadow-2xl border-4 border-bg-dark active:scale-90 transition-all ${action.tint} ${action.glow}`}
+            aria-label={t.nav[ACTION[mode]]}
+            className="mx-1 -mt-9 grid size-14 shrink-0 place-items-center rounded-full bg-cta text-cta-fg shadow-[0_6px_16px_rgba(0,0,0,0.25)] active:scale-95"
           >
-            <span className="material-symbols-rounded text-3xl font-black">add</span>
+            <Icon name="plus" size={26} strokeWidth={2.4} />
           </button>
 
           {tabs.slice(2).map(renderTab)}

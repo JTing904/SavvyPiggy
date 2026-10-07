@@ -229,4 +229,13 @@ const entries = text
 eq('all 8 objects are addressed correctly', entries, [true, true, true, true, true, true, true, true]);
 eq('image bytes are embedded verbatim', text.includes('stream\n\xff\xd8\xff\xd9\nendstream'), true);
 
+// --- the month's review, when the month is given
+{
+  const withReview = monthRows({ label: 'September 2026', activities: ACTS, banks: BANKS, trades: [], holdings: [], quotes: {}, month: new Date(2026, 8, 1) });
+  eq('the review block comes right after the title', [withReview[2], withReview[3][0]], [['MONTHLY REVIEW'], 'Income']);
+  eq('and the savings block follows it', withReview.some((r) => r[0] === 'SAVINGS'), true);
+  const without = monthRows({ label: 'September 2026', activities: ACTS, banks: BANKS, trades: [], holdings: [], quotes: {} });
+  eq('without a month there is no review block', without.some((r) => r[0] === 'MONTHLY REVIEW'), false);
+}
+
 report();

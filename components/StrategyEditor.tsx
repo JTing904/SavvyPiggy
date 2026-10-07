@@ -1,15 +1,22 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { PiggyBank, Schedule } from '../types';
+import { safeGoalIcon } from '../services/goalIcons';
+import React, { useState } from 'react';
+import { PiggyBank, Schedule, type WalletSettings } from '../types';
 import { evenSplit, sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
-import DonutChart, { SLICE_COLORS } from './DonutChart';
+import { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useT } from '../contexts/LanguageContext';
 import MoveGoalMoneySheet from './MoveGoalMoneySheet';
 import { percentReached, toCents } from '../services/money';
 import type { GoalMoneyChoice } from '../services/ledger';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Icon } from './ui/Icon';
+import { NumberPad } from './ui/NumberPad';
+import { Sheet } from './ui/Sheet';
+import { Toggle } from './ui/Toggle';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
@@ -24,6 +31,7 @@ interface StrategyEditorProps {
   scheduleCount: number;
   schedules: Schedule[];
   onOpenAutoDeposits: () => void;
+  wallet: WalletSettings;
 }
 
 type Draft = Record<string, { splitPercentage: number; isLocked: boolean; autoSplit: boolean }>;
@@ -35,87 +43,65 @@ interface StepperProps {
   value: number;
   disabled: boolean;
   color: string;
+  /** Opens the sheet that types an exact share on the app's own pad. */
+  onType: () => void;
   onChange: (next: number) => void;
 }
 
 /**
  * Minus / number / plus. The buttons move in steps of five, snapping to the
  * next multiple so a hand-typed 33 becomes 35 rather than 38. Tapping the
- * number turns it into a field for exact values.
+ * number opens a pad for an exact value.
  */
-const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChange }) => {
+const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onType, onChange }) => {
   const t = useT();
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState('');
-  const input = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) {
-      input.current?.focus();
-      input.current?.select();
-    }
-  }, [editing]);
-
   const step = (dir: 1 | -1) => {
     const snapped = dir > 0 ? Math.floor(value / STEP) * STEP + STEP : Math.ceil(value / STEP) * STEP - STEP;
     onChange(clampPct(snapped));
   };
-
-  const commit = () => {
-    setEditing(false);
-    const parsed = parseInt(text, 10);
-    if (!Number.isNaN(parsed)) onChange(clampPct(parsed));
-  };
-
-  const btn =
-    'size-11 rounded-2xl flex items-center justify-center bg-white/5 text-white active:scale-90 transition-transform disabled:opacity-30 disabled:active:scale-100';
-
+  const btn = 'grid size-11 place-items-center rounded-xl bg-line/10 text-ink active:opacity-70 disabled:opacity-30';
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      <button disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label={t.goals.less}>
-        <span className="material-symbols-rounded">remove</span>
+    <div className="flex shrink-0 items-center gap-1">
+      <button type="button" disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label={t.goals.less}>
+        <Icon name="minus" size={16} />
       </button>
-
-      {editing ? (
-        <div className="w-[4.5rem] h-11 rounded-2xl bg-white/10 border border-primary flex items-center justify-center gap-0.5">
-          <input
-            ref={input}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            max={100}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commit();
-              if (e.key === 'Escape') setEditing(false);
-            }}
-            className="w-9 border-0 bg-transparent text-center text-xl font-black text-white leading-none focus:outline-none"
-          />
-          <span className="text-slate-500 text-sm font-bold leading-none">%</span>
-        </div>
-      ) : (
-        <button
-          disabled={disabled}
-          onClick={() => {
-            setText(String(value));
-            setEditing(true);
-          }}
-          className="w-[4.5rem] h-11 rounded-2xl bg-white/5 flex items-center justify-center active:scale-95 transition-transform disabled:opacity-30"
-          style={{ color: disabled ? undefined : color }}
-        >
-          <span className="flex items-baseline gap-0.5 leading-none">
-            <span className="text-xl font-black tabular-nums">{value}</span>
-            <span className="text-sm font-bold opacity-60">%</span>
-          </span>
-        </button>
-      )}
-
-      <button disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label={t.goals.more}>
-        <span className="material-symbols-rounded">add</span>
+      <button type="button" disabled={disabled} onClick={onType} className="min-h-11 min-w-[3.4rem] rounded-xl text-center text-[16px] font-extrabold tabular-nums active:opacity-70 disabled:opacity-60" style={{ color: disabled ? undefined : color }}>
+        {value}%
+      </button>
+      <button type="button" disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label={t.goals.more}>
+        <Icon name="plus" size={16} />
       </button>
     </div>
+  );
+};
+
+/** Typing a goal's share exactly, on the app's own pad. */
+const PercentSheet: React.FC<{ name: string; initial: number; onDone: (value: number) => void; onClose: () => void }> = ({ name, initial, onDone, onClose }) => {
+  const t = useT();
+  const [text, setText] = useState(String(initial));
+  const value = clampPct(Number(text) || 0);
+  return (
+    <Sheet
+      title={name}
+      z={60}
+      onClose={onClose}
+      footer={
+        <Button
+          onClick={() => {
+            onDone(value);
+            onClose();
+          }}
+        >
+          {t.common.save}
+        </Button>
+      }
+    >
+      <p className="px-1 text-center text-[54px] font-extrabold leading-none tracking-[-0.04em] tabular-nums">
+        {text === '' ? '0' : text}
+        <span className="text-[26px] text-mute">%</span>
+      </p>
+      <NumberPad className="mt-4" fieldKey={name} value={text} decimals={0} onChange={(v) => setText(v)} onDone={() => undefined} hideDone />
+    </Sheet>
   );
 };
 
@@ -128,6 +114,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   scheduleCount,
   schedules,
   onOpenAutoDeposits,
+  wallet,
 }) => {
   // Unsaved edits only. Everything else reads straight from Firestore, so
   // live updates can never be shadowed by stale local copies.
@@ -137,13 +124,21 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   /** The goal being deleted while it still holds money. */
   const [moving, setMoving] = useState<PiggyBank | null>(null);
   const [order, setOrder] = useSortOrder('savvypiggy.sort.strategy');
+  /** The goal whose lock / sit-out / delete controls are showing. */
+  const [openId, setOpenId] = useState<string | null>(null);
+  /** The goal whose share is being typed on the pad. */
+  const [typing, setTyping] = useState<string | null>(null);
 
   const localBanks = banks.map((b) => ({ ...b, ...draft[b.id] }));
   const inSplit = localBanks.filter((b) => b.autoSplit !== false);
   // Excluded goals do not take a share, so they do not count toward 100 either.
   const totalAllocation = inSplit.reduce((sum, b) => sum + b.splitPercentage, 0);
   const isValid = totalAllocation === 100;
-  const isDirty = Object.keys(draft).length > 0;
+  // Dirty means something really differs from what is saved: typing a goal's own value back in is not a change.
+  const isDirty = localBanks.some((b) => {
+    const saved = banks.find((x) => x.id === b.id);
+    return !!saved && (saved.splitPercentage !== b.splitPercentage || saved.isLocked !== b.isLocked || (saved.autoSplit !== false) !== (b.autoSplit !== false));
+  });
 
   // Colours follow creation order, which is how `banks` arrives, so a goal
   // keeps its colour no matter how the list is sorted.
@@ -191,7 +186,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
       tone: 'danger',
       confirmLabel: t.common.delete,
       detail: bank && {
-        icon: bank.icon,
+        icon: safeGoalIcon(bank.icon),
         label: bank.name,
         meta: t.goals.percentOfEachDeposit(bank.splitPercentage),
         amount: formatMoney(bank.currentAmount),
@@ -221,276 +216,170 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   );
 
   const sorted = sortBanks(localBanks, order);
-  const slices = inSplit.map((b) => ({ id: b.id, value: b.splitPercentage, color: colorOf(b.id) }));
+  const typingBank = typing ? localBanks.find((b) => b.id === typing) : undefined;
+  const dirtyOrInvalid = isDirty || !isValid;
 
   return (
-    <div className="flex flex-col min-h-full pb-[22rem] safe-pt">
-      <div className="px-6 pt-6 pb-2">
-        <h2 className="text-white text-3xl font-black tracking-tight">{t.goals.strategyTitle}</h2>
-        <p className="text-slate-500 text-sm font-medium mt-1">
-          {t.goals.strategySubtitle}
-        </p>
-      </div>
+    <div className={`flex min-h-full flex-col px-4 pt-3 safe-pt font-figtree text-ink ${dirtyOrInvalid ? 'pb-72' : 'pb-40'}`}>
+      <h1 className="px-1 pt-2 text-[30px] font-extrabold tracking-tight">{t.goals.strategyTitle}</h1>
+      <p className="mt-0.5 px-1 text-[13.5px] font-semibold text-mute">{t.goals.strategySubtitle}</p>
 
-      {/* The whole picture at a glance. */}
+      {/* One bar for the whole 100%: each goal's share of it, and whether it adds up. */}
       {localBanks.length > 0 && (
-        <div className="mt-4 px-6">
-          <div className="bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-5 shadow-xl">
-            <DonutChart slices={slices} total={totalAllocation} size={150} thickness={20} />
-            <div className="min-w-0 flex-1 space-y-2">
-              {inSplit.length === 0 ? (
-                <p className="text-slate-500 text-xs font-medium">{t.goals.everyGoalExcluded}</p>
-              ) : (
-                inSplit.map((b) => (
-                  <div key={b.id} className="flex items-center gap-2 min-w-0">
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(b.id) }}></span>
-                    <span className="text-slate-300 text-xs font-bold truncate flex-1">{b.name}</span>
-                    <span className="text-white text-xs font-black tabular-nums shrink-0">{b.splitPercentage}%</span>
-                  </div>
-                ))
-              )}
-              {totalAllocation < 100 && inSplit.length > 0 && (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="size-2.5 shrink-0 rounded-full bg-white/10"></span>
-                  <span className="text-slate-600 text-xs font-bold truncate flex-1">{t.goals.unassigned}</span>
-                  <span className="text-slate-500 text-xs font-black tabular-nums shrink-0">
-                    {100 - totalAllocation}%
-                  </span>
-                </div>
-              )}
-            </div>
+        <div className="mt-4 rounded-[28px] bg-hero p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[12.5px] font-bold">{t.report.donutAllocated}</p>
+            <span className={`rounded-full px-3 py-0.5 text-[12px] font-extrabold ${isValid ? 'bg-card text-pos' : 'bg-peach text-neg'}`}>
+              {isValid ? t.goals.balanced : totalAllocation > 100 ? t.goals.percentOver(totalAllocation - 100) : t.goals.percentLeft(100 - totalAllocation)}
+            </span>
+          </div>
+          <div className="mt-3 flex h-4 gap-0.5 overflow-hidden rounded-full bg-line/10" role="img" aria-label={`${totalAllocation}%`}>
+            {inSplit
+              .filter((b) => b.splitPercentage > 0)
+              .map((b) => (
+                <i key={b.id} className="block h-full transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${(b.splitPercentage / Math.max(100, totalAllocation)) * 100}%`, background: colorOf(b.id) }} />
+              ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+            {inSplit.length === 0 ? (
+              <p className="text-[13px] font-medium text-mute">{t.goals.everyGoalExcluded}</p>
+            ) : (
+              inSplit.map((b) => (
+                <span key={b.id} className="flex items-center gap-1.5 text-[12.5px] font-bold">
+                  <span className="size-2.5 rounded-full" style={{ background: colorOf(b.id) }} />
+                  {b.name} <b className="font-extrabold tabular-nums">{b.splitPercentage}%</b>
+                </span>
+              ))
+            )}
           </div>
         </div>
       )}
 
-      <div className="mt-4 px-6">
-        <button
-          onClick={onOpenAutoDeposits}
-          className="w-full bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-4 shadow-xl active:scale-[0.99] transition-transform text-left"
-        >
-          <div className="size-12 shrink-0 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
-            <span className="material-symbols-rounded text-2xl">event_repeat</span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-white font-bold">{t.goals.autoDeposits}</p>
-            <p className="text-slate-500 text-xs font-medium">
-              {scheduleCount === 0
-                ? t.goals.saveOnSchedule
-                : t.goals.activeSchedules(scheduleCount)}
-            </p>
-          </div>
-          <span className="material-symbols-rounded text-slate-600">chevron_right</span>
-        </button>
-      </div>
+      <button type="button" onClick={onOpenAutoDeposits} className="mt-3 flex w-full items-center gap-4 rounded-3xl bg-card p-4 text-left active:opacity-80">
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-mint">
+          <Icon name="repeat" size={22} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-bold">{t.goals.autoDeposits}</span>
+          <span className="block text-[12px] font-medium text-mute">{scheduleCount === 0 ? t.goals.saveOnSchedule : t.goals.activeSchedules(scheduleCount)}</span>
+        </span>
+        <Icon name="chev" size={18} className="text-mute" />
+      </button>
 
       {localBanks.length > 0 && (
-        <div className="mt-8 px-6 flex items-center justify-between gap-3">
-          <h3 className="text-white text-lg font-bold">{t.common.goals}</h3>
+        <div className="mb-2 mt-6 flex items-center justify-between gap-3 px-1">
+          <h2 className="text-[16px] font-extrabold">{t.common.goals}</h2>
           <SortMenu order={order} onChange={setOrder} />
         </div>
       )}
 
-      <div className="mt-4 px-6 space-y-4">
-        {localBanks.length === 0 ? (
-          <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
-            <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">account_balance_wallet</span>
-            <p className="text-slate-500 font-bold">{t.goals.noPiggyBanks}</p>
-            <p className="text-slate-600 text-xs mt-1">
-              {t.goals.goalIsWhere}
-            </p>
-            <button
-              onClick={onAddGoal}
-              className="h-12 px-6 rounded-2xl bg-primary text-black font-black text-sm mt-6 flex items-center gap-2 active:scale-95 transition-transform"
-            >
-              <span className="material-symbols-rounded text-xl">add_circle</span>
-              {t.goals.addFirstGoal}
-            </button>
-          </div>
-        ) : (
-          sorted.map((bank) => {
+      {localBanks.length === 0 ? (
+        <EmptyState icon="wallet" title={t.goals.noPiggyBanks} body={t.goals.goalIsWhere} action={{ label: t.goals.addFirstGoal, onClick: onAddGoal }} />
+      ) : (
+        <div className="divide-y divide-line/10 rounded-3xl bg-card px-4">
+          {sorted.map((bank) => {
             const inSplitNow = bank.autoSplit !== false;
             const color = colorOf(bank.id);
             const hasTarget = bank.targetAmount > 0;
             const overspent = toCents(bank.currentAmount) < 0;
-            const progress = hasTarget
-              ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
-              : 0;
+            const progress = hasTarget ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100)) : 0;
             const remaining = bank.targetAmount - bank.currentAmount;
+            const open = openId === bank.id;
 
             return (
-              <div key={bank.id} className="bg-surface border border-white/5 rounded-[2rem] p-5 space-y-4 shadow-xl">
-                {/* Name takes the slack and truncates; the controls never shrink. */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="size-12 shrink-0 rounded-2xl flex items-center justify-center"
-                      style={{ background: `${color}1A`, color }}
-                    >
-                      <span className="material-symbols-rounded text-2xl">{bank.icon}</span>
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-white font-bold truncate">{bank.name}</h4>
-                      <p className={`text-xs truncate ${overspent ? 'text-red-400' : 'text-slate-500'}`}>
-                        {formatMoney(bank.currentAmount, { decimals: 0 })}
-                        {hasTarget ? t.goals.ofTarget(formatMoney(bank.targetAmount, { decimals: 0 })) : t.goals.noLimitSuffix}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleDelete(bank.id)}
-                      className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 active:scale-90 transition-transform"
-                    >
-                      <span className="material-symbols-rounded text-xl">delete</span>
-                    </button>
-                    <button
-                      onClick={() => edit(bank, { isLocked: !bank.isLocked })}
-                      className={`size-10 rounded-full flex items-center justify-center transition-colors ${
-                        bank.isLocked ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-slate-500'
-                      }`}
-                    >
-                      <span className="material-symbols-rounded text-xl">{bank.isLocked ? 'lock' : 'lock_open'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                    {inSplitNow ? t.goals.split : t.goals.excluded}
-                  </p>
+              <div key={bank.id} className="py-3">
+                <div className="flex items-center gap-3">
+                  {/* Tapping the name opens the rarely-used controls; the share is changed on the right. */}
+                  <button type="button" onClick={() => setOpenId(open ? null : bank.id)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-70">
+                    <span className="grid size-11 shrink-0 place-items-center rounded-2xl" style={{ background: `${color}33` }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 22 }}>
+                        {safeGoalIcon(bank.icon)}
+                      </span>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[15.5px] font-bold">
+                        {bank.name}
+                        {bank.isLocked && <Icon name="lock" size={13} className="ml-1.5 inline text-mute" />}
+                      </span>
+                      <span className={`block truncate text-[12px] font-medium ${overspent ? 'text-neg' : 'text-mute'}`}>
+                        {inSplitNow ? formatMoney(bank.currentAmount, { decimals: 0 }) : t.goals.excluded}
+                        {inSplitNow && (hasTarget ? t.goals.ofTarget(formatMoney(bank.targetAmount, { decimals: 0 })) : t.goals.noLimitSuffix)}
+                      </span>
+                    </span>
+                  </button>
                   <PercentStepper
                     value={bank.splitPercentage}
                     disabled={bank.isLocked || !inSplitNow}
                     color={color}
+                    onType={() => setTyping(bank.id)}
                     onChange={(next) => edit(bank, { splitPercentage: next })}
                   />
                 </div>
 
                 {/* How far along the goal is, for context while deciding its share. */}
-                <div className="space-y-1.5">
-                  <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                    {overspent ? (
-                      <div className="h-full w-full rounded-full bg-red-500/30"></div>
-                    ) : hasTarget ? (
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${progress}%`, background: color }}
-                      ></div>
-                    ) : (
-                      <div className="h-full w-full rounded-full opacity-40" style={{ background: color }}></div>
-                    )}
+                {(hasTarget || overspent) && (
+                  <div className="ml-14 mt-2">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-line/10">
+                      {overspent ? <div className="h-full w-full rounded-full bg-neg/40" /> : <div className="h-full rounded-full transition-all duration-700 motion-reduce:transition-none" style={{ width: `${progress}%`, background: color }} />}
+                    </div>
+                    <p className="mt-1 text-[11.5px] font-semibold tabular-nums text-mute">
+                      {overspent ? t.goals.overspent : toCents(remaining) > 0 ? `${t.goals.goalFunded(percentReached(bank.currentAmount, bank.targetAmount))} · ${t.goals.remaining(formatMoney(remaining, { decimals: 0 }))}` : t.goals.targetReached}
+                    </p>
                   </div>
-                  <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
-                    <span className="text-slate-500">
-                      {overspent ? t.goals.overspent : hasTarget ? t.goals.goalFunded(percentReached(bank.currentAmount, bank.targetAmount)) : t.goals.openEnded}
-                    </span>
-                    {hasTarget && !overspent && (
-                      <span className="text-slate-500 tabular-nums">
-                        {toCents(remaining) > 0 ? t.goals.remaining(formatMoney(remaining, { decimals: 0 })) : t.goals.targetReached}
-                      </span>
-                    )}
-                  </div>
-                </div>
+                )}
 
-                {/* Off means this goal sits out of every deposit split entirely. */}
-                <button
-                  onClick={() => edit(bank, { autoSplit: !inSplitNow })}
-                  className="w-full flex items-center justify-between gap-3 pt-1"
-                >
-                  <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                    {inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff}
-                  </span>
-                  <div
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                      inSplitNow ? 'bg-primary/20' : 'bg-white/10'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block size-4 transform rounded-full transition-transform ${
-                        inSplitNow ? 'translate-x-6 bg-primary' : 'translate-x-1 bg-slate-600'
-                      }`}
-                    ></span>
+                {open && (
+                  <div className="ml-14 mt-3 divide-y divide-line/10 rounded-2xl bg-line/5 px-4">
+                    {/* Off means this goal sits out of every deposit split entirely. */}
+                    <div className="flex min-h-12 items-center justify-between gap-3">
+                      <span className="text-[14px] font-bold">{inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff}</span>
+                      <Toggle checked={inSplitNow} onChange={(on) => edit(bank, { autoSplit: on })} label={inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff} />
+                    </div>
+                    <div className="flex min-h-12 items-center justify-between gap-3">
+                      <span className="text-[14px] font-bold">{bank.isLocked ? t.goals.unlock : t.goals.lock}</span>
+                      <Toggle checked={bank.isLocked} onChange={(on) => edit(bank, { isLocked: on })} label={bank.isLocked ? t.goals.unlock : t.goals.lock} />
+                    </div>
+                    <button type="button" onClick={() => handleDelete(bank.id)} className="flex min-h-12 w-full items-center text-left text-[14px] font-bold text-neg active:opacity-60">
+                      {t.goals.deleteThisGoal}
+                    </button>
                   </div>
-                </button>
+                )}
               </div>
             );
-          })
-        )}
+          })}
+        </div>
+      )}
 
-        {localBanks.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <button
-              onClick={applyEven}
-              disabled={!even}
-              className="h-14 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
-            >
-              <span className="material-symbols-rounded text-primary text-xl">balance</span>
-              {t.goals.evenSplit(evenLabel)}
-            </button>
-            <button
-              onClick={onAddGoal}
-              className="h-14 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
-            >
-              <span className="material-symbols-rounded text-primary text-xl">add_circle</span>
-              {t.goals.addGoal}
-            </button>
-          </div>
-        )}
-      </div>
+      {localBanks.length > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <Button variant="ghost" onClick={applyEven} disabled={!even}>
+            {t.goals.evenSplit(evenLabel)}
+          </Button>
+          <Button variant="ghost" onClick={onAddGoal}>
+            <Icon name="plus" size={18} />
+            {t.goals.addGoal}
+          </Button>
+        </div>
+      )}
 
-      {/* Sits clear of the bottom navigation, which is fixed at bottom-0 too. */}
-      <div
-        className="fixed bottom-0 left-0 right-0 px-4 pointer-events-none"
-        style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
-      >
-        <div className="max-w-md mx-auto pointer-events-auto">
-          <div className="glass rounded-[2.5rem] p-5 space-y-4 border border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.goals.totalAllocation}</p>
-                <p className="text-2xl font-black tabular-nums">
-                  <span className={isValid ? 'text-primary' : 'text-red-400'}>{totalAllocation}%</span>
-                  <span className="text-slate-600 text-base"> / 100%</span>
-                </p>
+      {/* The save bar only exists while there is something to save, and sits just above the bottom bar. */}
+      {localBanks.length > 0 && dirtyOrInvalid && (
+        <div className="pointer-events-none fixed bottom-0 left-0 right-0 px-4" style={{ paddingBottom: 'calc(6.2rem + env(safe-area-inset-bottom))' }}>
+          <div className="pointer-events-auto mx-auto max-w-md">
+            <div className="flex items-center gap-3 rounded-[2rem] bg-card p-3 pl-5 shadow-[0_6px_28px_rgba(0,0,0,0.18)]">
+              <div className="min-w-0 flex-1">
+                <p className={`text-[20px] font-extrabold tabular-nums ${isValid ? 'text-pos' : 'text-neg'}`}>{totalAllocation}%</p>
+                <p className="truncate text-[12px] font-bold text-mute">{isValid ? t.goals.unsavedChanges : totalAllocation > 100 ? t.goals.percentOver(totalAllocation - 100) : t.goals.percentLeft(100 - totalAllocation)}</p>
               </div>
-              <div
-                className={`shrink-0 h-9 px-4 rounded-full flex items-center gap-1.5 text-xs font-black ${
-                  isValid
-                    ? 'bg-primary/10 text-primary'
-                    : 'bg-red-500/10 text-red-400'
-                }`}
-              >
-                <span className="material-symbols-rounded text-base">
-                  {isValid ? 'check_circle' : totalAllocation > 100 ? 'error' : 'pending'}
-                </span>
-                {isValid
-                  ? t.goals.balanced
-                  : totalAllocation > 100
-                    ? t.goals.percentOver(totalAllocation - 100)
-                    : t.goals.percentLeft(100 - totalAllocation)}
-              </div>
+              <Button full={false} className="px-7" onClick={handleSave} disabled={!isValid}>
+                {t.goals.saveStrategy}
+              </Button>
             </div>
-            <button
-              onClick={handleSave}
-              disabled={!isValid || localBanks.length === 0}
-              className={`w-full h-16 rounded-2xl font-black text-lg transition-all shadow-xl ${
-                isValid && localBanks.length > 0
-                  ? 'bg-primary text-black shadow-primary/20 active:scale-95'
-                  : 'bg-white/5 text-slate-600 cursor-not-allowed'
-              }`}
-            >
-              {localBanks.length === 0
-                ? t.goals.addAGoal
-                : !isValid
-                  ? t.goals.allocationMismatch
-                  : isDirty
-                    ? t.goals.saveStrategy
-                    : t.goals.strategySaved}
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
+      {typingBank && <PercentSheet name={typingBank.name} initial={typingBank.splitPercentage} onDone={(v) => edit(typingBank, { splitPercentage: v })} onClose={() => setTyping(null)} />}
       {moveSheet}
     </div>
   );

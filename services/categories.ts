@@ -35,6 +35,7 @@ export const CATEGORIES: Category[] = [
   { key: 'travel', label: 'Travel', icon: 'flight', tint: 'text-cyan-300' },
   { key: 'learning', label: 'Learning', icon: 'school', tint: 'text-indigo-300' },
   { key: 'gifts', label: 'Gifts', icon: 'redeem', tint: 'text-fuchsia-300' },
+  { key: 'interest', label: 'Interest', icon: 'percent', tint: 'text-orange-200' },
   { key: UNCATEGORISED, label: 'Other', icon: 'more_horiz', tint: 'text-slate-400' },
 ];
 

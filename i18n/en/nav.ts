@@ -1,7 +1,7 @@
 export const nav = {
   home: 'Home',
   history: 'History',
-  strategy: 'Strategy',
+  strategy: 'Split',
   report: 'Report',
   trades: 'Trades',
   dividends: 'Dividends',
