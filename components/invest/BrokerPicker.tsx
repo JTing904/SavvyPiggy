@@ -3,7 +3,10 @@ import { BROKERS, CUSTOM_BROKER_ID, type BrokerageRule } from '../../services/fe
 import { formatMoney } from '../../services/money';
 import type { Messages } from '../../i18n';
 import { useT } from '../../contexts/LanguageContext';
-import { useBackHandler } from '../../hooks/useBackHandler';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Icon } from '../ui/Icon';
+import { Sheet } from '../ui/Sheet';
 
 interface BrokerPickerProps {
   brokerId: string | null;
@@ -113,31 +116,6 @@ export const inputsFromRule = (rule: BrokerageRule | null): CustomInputs => {
 
 /* -------------------------------------------------------------- component */
 
-const Field: React.FC<{
-  label: string;
-  hint?: string;
-  value: string;
-  onChange: (v: string) => void;
-  invalid: boolean;
-}> = ({ label, hint, value, onChange, invalid }) => (
-  <div className="min-w-0">
-    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 leading-relaxed">
-      {label}
-      {hint && <span className="normal-case tracking-normal text-slate-600"> · {hint}</span>}
-    </p>
-    <input
-      type="text"
-      inputMode="decimal"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder="0"
-      className={`w-full h-12 px-4 rounded-2xl bg-white/5 border text-white text-base font-black focus:outline-none placeholder:text-slate-700 transition-colors ${
-        invalid ? 'border-red-400/60' : 'border-white/10 focus:border-primary/50'
-      }`}
-    />
-  </div>
-);
-
 /**
  * Which broker someone uses, so every trade's fees can be filled in from its
  * published rates. Picking a listed broker takes effect at once; a broker that
@@ -146,7 +124,6 @@ const Field: React.FC<{
 const BrokerPicker: React.FC<BrokerPickerProps> = ({ brokerId, customRule, firstTime, onPick, onClose }) => {
   const t = useT();
   const s = t.setup;
-  useBackHandler(true, onClose);
 
   const isCustom = brokerId === CUSTOM_BROKER_ID;
   const [formOpen, setFormOpen] = useState(isCustom);
@@ -165,121 +142,88 @@ const BrokerPicker: React.FC<BrokerPickerProps> = ({ brokerId, customRule, first
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-bg-dark veil-in">
-      <div className="h-full max-w-md mx-auto flex flex-col safe-pt">
-        <div className="flex items-center px-6 py-4 gap-4">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-white text-2xl font-black tracking-tight">
-              {firstTime ? s.brokerFirstTitle : s.brokerTitle}
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label={t.common.close}
-            className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-          >
-            <span className="material-symbols-rounded text-xl">close</span>
-          </button>
-        </div>
+    <Sheet title={firstTime ? s.brokerFirstTitle : s.brokerTitle} onClose={onClose} height="tall">
+      <p className="px-1 text-[13.5px] font-medium leading-relaxed text-mute">{firstTime ? s.brokerFirstHint : s.brokerHint}</p>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-10">
-          <p className="text-slate-400 text-sm font-medium leading-relaxed">
-            {firstTime ? s.brokerFirstHint : s.brokerHint}
-          </p>
-
-          <div className="mt-5 space-y-2">
-            {BROKERS.map((broker) => {
-              const on = broker.id === brokerId;
-              return (
-                <button
-                  key={broker.id}
-                  type="button"
-                  onClick={() => onPick(broker.id, null)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left active:scale-[0.98] transition-all ${
-                    on ? 'bg-primary/10 border-primary/40' : 'bg-white/5 border-white/10'
-                  }`}
-                >
-                  <span
-                    className="size-9 shrink-0 rounded-xl flex items-center justify-center text-white text-xs font-black"
-                    style={{ background: broker.color }}
-                  >
-                    {broker.short}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-black truncate">{broker.name}</p>
-                    <p className="text-slate-500 text-[11px] font-bold mt-0.5 leading-snug">
-                      {ruleSummary(broker.rule, s)}
-                    </p>
-                  </div>
-                  {on && <span className="material-symbols-rounded text-primary fill-1 shrink-0">check_circle</span>}
-                </button>
-              );
-            })}
-
-            <div
-              className={`rounded-2xl border transition-all ${
-                isCustom ? 'bg-primary/10 border-primary/40' : 'bg-white/5 border-white/10'
-              }`}
+      <div className="mt-4 space-y-2">
+        {BROKERS.map((broker) => {
+          const on = broker.id === brokerId;
+          return (
+            <button
+              key={broker.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onPick(broker.id, null)}
+              className={`flex min-h-16 w-full items-center gap-3 rounded-3xl bg-card p-3.5 text-left active:opacity-80 ${on ? 'outline outline-2 outline-ink' : ''}`}
             >
-              <button
-                type="button"
-                onClick={() => setFormOpen((open) => !open)}
-                aria-expanded={formOpen}
-                className="w-full flex items-center gap-3 p-3 text-left active:scale-[0.98] transition-transform"
-              >
-                <span className="size-9 shrink-0 rounded-xl flex items-center justify-center bg-white/5 border border-dashed border-white/20 text-slate-400">
-                  <span className="material-symbols-rounded text-lg">edit</span>
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl text-[12px] font-extrabold text-white" style={{ background: broker.color }}>
+                {broker.short}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-bold">{broker.name}</span>
+                <span className="block text-[12px] font-medium leading-snug text-mute">{ruleSummary(broker.rule, s)}</span>
+              </span>
+              {on && (
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-cta text-cta-fg">
+                  <Icon name="check" size={14} strokeWidth={2.4} />
+                  <span className="sr-only">{t.ui.selected}</span>
                 </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-black truncate">{isCustom ? s.customName : s.notListed}</p>
-                  <p className="text-slate-500 text-[11px] font-bold mt-0.5 leading-snug">
-                    {isCustom && customRule ? ruleSummary(customRule, s) : s.notListedHint}
-                  </p>
-                </div>
-                {isCustom ? (
-                  <span className="material-symbols-rounded text-primary fill-1 shrink-0">check_circle</span>
-                ) : (
-                  <span className="material-symbols-rounded text-slate-600 shrink-0">
-                    {formOpen ? 'expand_less' : 'expand_more'}
-                  </span>
-                )}
-              </button>
-
-              {formOpen && (
-                <div className="px-3 pb-3 space-y-3">
-                  <Field label={s.percentLabel} value={inputs.percent} onChange={set('percent')} invalid={error === 'percent'} />
-                  <Field
-                    label={s.minimumLabel}
-                    hint={s.optional}
-                    value={inputs.minimum}
-                    onChange={set('minimum')}
-                    invalid={error === 'minimum' || error === 'both'}
-                  />
-                  <Field
-                    label={s.flatLabel}
-                    hint={s.optional}
-                    value={inputs.flat}
-                    onChange={set('flat')}
-                    invalid={error === 'flat' || error === 'both'}
-                  />
-                  {error && <p className="text-red-400 text-xs font-bold">{s.customError[error]}</p>}
-                  <button
-                    type="button"
-                    onClick={submit}
-                    className="w-full h-12 rounded-full bg-primary text-black font-black active:scale-95 transition-transform"
-                  >
-                    {s.useTheseRates}
-                  </button>
-                </div>
               )}
-            </div>
-          </div>
+            </button>
+          );
+        })}
 
-          <p className="text-slate-600 text-[11px] font-bold mt-5 leading-relaxed">{s.brokerNote}</p>
-          <div className="safe-pb" />
+        <div className={`rounded-3xl bg-card ${isCustom ? 'outline outline-2 outline-ink' : ''}`}>
+          <button
+            type="button"
+            onClick={() => setFormOpen((open) => !open)}
+            aria-expanded={formOpen}
+            className="flex min-h-16 w-full items-center gap-3 p-3.5 text-left active:opacity-80"
+          >
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-line/10">
+              <Icon name="pencil" size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px] font-bold">{isCustom ? s.customName : s.notListed}</span>
+              <span className="block text-[12px] font-medium leading-snug text-mute">{isCustom && customRule ? ruleSummary(customRule, s) : s.notListedHint}</span>
+            </span>
+            {isCustom ? (
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-cta text-cta-fg">
+                <Icon name="check" size={14} strokeWidth={2.4} />
+              </span>
+            ) : (
+              <Icon name="chev" size={18} className={`text-mute ${formOpen ? '-rotate-90' : 'rotate-90'}`} />
+            )}
+          </button>
+
+          {formOpen && (
+            <div className="space-y-3 px-3.5 pb-4">
+              <Field label={s.percentLabel} value={inputs.percent} onChange={set('percent')} inputMode="decimal" placeholder="0" error={error === 'percent' ? s.customError.percent : undefined} />
+              <Field
+                label={`${s.minimumLabel} · ${s.optional}`}
+                value={inputs.minimum}
+                onChange={set('minimum')}
+                inputMode="decimal"
+                placeholder="0"
+                error={error === 'minimum' ? s.customError.minimum : undefined}
+              />
+              <Field
+                label={`${s.flatLabel} · ${s.optional}`}
+                value={inputs.flat}
+                onChange={set('flat')}
+                inputMode="decimal"
+                placeholder="0"
+                error={error === 'flat' ? s.customError.flat : undefined}
+              />
+              {error === 'both' && <p className="px-1 text-[12.5px] font-bold text-neg">{s.customError.both}</p>}
+              <Button onClick={submit}>{s.useTheseRates}</Button>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+
+      <p className="mt-5 px-1 text-[12px] font-medium leading-relaxed text-mute">{s.brokerNote}</p>
+    </Sheet>
   );
 };
 

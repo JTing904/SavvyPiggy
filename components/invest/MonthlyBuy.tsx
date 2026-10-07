@@ -9,6 +9,8 @@ import { useBackHandler } from '../../hooks/useBackHandler';
 import { useT } from '../../contexts/LanguageContext';
 import { dateLocale } from '../../i18n';
 import WatchlistSheet from './WatchlistSheet';
+import { Button } from '../ui/Button';
+import { Icon } from '../ui/Icon';
 import {
   STYLE_COLORS,
   activeStyles,
@@ -43,11 +45,11 @@ interface MonthlyBuyProps {
 }
 
 const Dot: React.FC<{ style: Style; className?: string }> = ({ style, className = '' }) => (
-  <span className={`inline-block size-2 rounded-full shrink-0 ${className}`} style={{ background: STYLE_COLORS[style] }} />
+  <span className={`inline-block size-2 shrink-0 rounded-full ${className}`} style={{ background: STYLE_COLORS[style] }} />
 );
 
 const MixBar: React.FC<{ mix: Record<Style, number>; className?: string }> = ({ mix, className = '' }) => (
-  <div className={`flex h-2.5 rounded-full overflow-hidden bg-white/5 ${className}`}>
+  <div className={`flex h-2.5 overflow-hidden rounded-full bg-line/10 ${className}`}>
     {STYLES.map((s) => (
       <i key={s} className="block h-full" style={{ width: `${mix[s]}%`, background: STYLE_COLORS[s] }} />
     ))}
@@ -62,15 +64,7 @@ const MixBar: React.FC<{ mix: Record<Style, number>; className?: string }> = ({ 
  * Buy sheet with the counter filled in; the person types units and price from
  * their contract note, and the money comes out of the investment pot there.
  */
-const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
-  uid,
-  trades,
-  invest,
-  quotes,
-  onBack,
-  onRecordBuy,
-  onEditStyle,
-}) => {
+const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, onBack, onRecordBuy, onEditStyle }) => {
   const t = useT();
   const p = t.plan;
   const [editingList, setEditingList] = useState(false);
@@ -121,41 +115,33 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
       .filter((r): r is typeof r & { text: string } => r.text !== null);
     const second = ranked[1];
     return (
-      <div className="mt-4 rounded-[2rem] bg-surface border border-white/5 p-5">
-        <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{p.bestMatch(monthName)}</p>
-            <div className="flex items-center gap-2 mt-1 min-w-0">
-              <h3 className="text-white text-2xl font-black tracking-tight truncate">{nameOf(pick.symbol)}</h3>
-              <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/5 text-slate-400">
-                {p.tag[type]}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
-              {activeStyles(mix).map((s) => (
-                <span key={s} className="inline-flex items-center gap-1.5 text-slate-300 text-xs font-bold">
-                  <Dot style={s} />
-                  {p.styles[s]} <b className="text-white font-black tabular-nums">{pct(pick.chance[s], 0)}</b>
-                </span>
-              ))}
-            </div>
-          </div>
+      <div className="mt-3 rounded-[28px] bg-sun p-5">
+        <p className="text-[12.5px] font-bold">{p.bestMatch(monthName)}</p>
+        <div className="mt-1 flex min-w-0 items-center gap-2">
+          <h3 className="truncate text-[30px] font-extrabold leading-tight tracking-[-0.03em]">{nameOf(pick.symbol)}</h3>
+          <span className="shrink-0 rounded-full bg-line/10 px-2.5 py-0.5 text-[11px] font-extrabold">{p.tag[type]}</span>
+        </div>
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+          {activeStyles(mix).map((s) => (
+            <span key={s} className="inline-flex items-center gap-1.5 text-[13px] font-bold">
+              <Dot style={s} />
+              {p.styles[s]} <b className="font-extrabold tabular-nums">{pct(pick.chance[s], 0)}</b>
+            </span>
+          ))}
         </div>
 
         {(forIt.length > 0 || against.length > 0) && (
           <div className="mt-4 space-y-3">
             {forIt.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{p.countsFor}</p>
+                <p className="text-[12px] font-bold opacity-70">{p.countsFor}</p>
                 {forIt.map((r) => (
-                  <div key={r.feature} className="flex gap-2 text-slate-300 text-xs font-bold leading-snug">
-                    <span className="material-symbols-rounded text-[16px] shrink-0" style={{ color: STYLE_COLORS[r.styles[0]] }}>
-                      add_circle
-                    </span>
+                  <div key={r.feature} className="flex gap-2 text-[13.5px] font-semibold leading-snug">
+                    <Icon name="plus" size={16} className="mt-0.5" />
                     <span className="min-w-0">
                       {r.text}
                       {r.styles.length > 1 && (
-                        <span className="inline-flex gap-1 ml-1.5 align-middle">
+                        <span className="ml-1.5 inline-flex gap-1 align-middle">
                           {r.styles.map((s) => (
                             <Dot key={s} style={s} />
                           ))}
@@ -168,13 +154,13 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
             )}
             {against.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{p.countsAgainst}</p>
+                <p className="text-[12px] font-bold opacity-70">{p.countsAgainst}</p>
                 {against.map((r) => (
-                  <div key={r.feature} className="flex gap-2 text-slate-300 text-xs font-bold leading-snug">
-                    <span className="material-symbols-rounded text-[16px] text-slate-500 shrink-0">do_not_disturb_on</span>
+                  <div key={r.feature} className="flex gap-2 text-[13.5px] font-semibold leading-snug">
+                    <Icon name="minus" size={16} className="mt-0.5" />
                     <span className="min-w-0">
                       {r.text}
-                      <span className="inline-flex gap-1 ml-1.5 align-middle">
+                      <span className="ml-1.5 inline-flex gap-1 align-middle">
                         {r.styles.map((s) => (
                           <Dot key={s} style={s} />
                         ))}
@@ -188,20 +174,16 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
         )}
 
         {second && isTie(ranked) && (
-          <div className="flex gap-2 mt-3 px-3 py-2.5 rounded-2xl bg-white/5 text-slate-300 text-[11px] font-bold leading-relaxed">
-            <span className="material-symbols-rounded text-base text-slate-400 shrink-0">balance</span>
+          <div className="mt-3 flex gap-2 rounded-2xl bg-line/10 px-3 py-2.5 text-[12.5px] font-semibold leading-relaxed">
+            <Icon name="swap" size={16} className="mt-0.5" />
             <span>{p.tie(nameOf(second.symbol))}</span>
           </div>
         )}
 
-        <button
-          onClick={() => onRecordBuy({ symbol: pick.symbol, name: nameOf(pick.symbol) })}
-          className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black flex items-center justify-center gap-2 active:scale-95 transition-transform"
-        >
-          <span className="material-symbols-rounded text-xl">add_shopping_cart</span>
+        <Button className="mt-5" onClick={() => onRecordBuy({ symbol: pick.symbol, name: nameOf(pick.symbol) })}>
           {p.buyThis(nameOf(pick.symbol))}
-        </button>
-        <p className="text-slate-500 text-[11px] font-bold mt-2 text-center leading-relaxed">{p.buyThisHint}</p>
+        </Button>
+        <p className="mt-2 text-center text-[12px] font-medium leading-relaxed opacity-75">{p.buyThisHint}</p>
       </div>
     );
   };
@@ -209,48 +191,41 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
   const renderStatus = () => {
     if (symbols.length === 0) {
       return (
-        <div className="mt-4 rounded-[2rem] glass p-6 text-center">
-          <span className="material-symbols-rounded text-slate-600 text-5xl">playlist_add</span>
-          <p className="text-white font-black mt-3">{p.emptyListTitle}</p>
-          <p className="text-slate-500 text-xs font-bold mt-1.5 leading-relaxed">{p.emptyListBody}</p>
-          <button
-            onClick={() => setEditingList(true)}
-            className="w-full h-12 mt-5 rounded-full bg-accent text-black font-black active:scale-95 transition-transform"
-          >
+        <div className="mt-3 rounded-3xl bg-card p-6 text-center">
+          <span className="mx-auto mb-3 grid size-14 place-items-center rounded-full bg-mint">
+            <Icon name="list" size={26} />
+          </span>
+          <p className="text-[17px] font-extrabold">{p.emptyListTitle}</p>
+          <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-mute">{p.emptyListBody}</p>
+          <Button className="mt-5" onClick={() => setEditingList(true)}>
             {p.addCounters}
-          </button>
+          </Button>
         </div>
       );
     }
     if (symbols.length < 2) {
       return (
-        <div className="mt-4 rounded-[2rem] glass p-5">
-          <div className="flex gap-2 text-slate-300 text-xs font-bold leading-relaxed">
-            <span className="material-symbols-rounded text-base text-slate-500 shrink-0">playlist_add</span>
+        <div className="mt-3 rounded-3xl bg-card p-5">
+          <div className="flex gap-2 text-[13px] font-semibold leading-relaxed">
+            <Icon name="list" size={18} className="mt-0.5" />
             <span>{p.oneMore}</span>
           </div>
-          <button
-            onClick={() => setEditingList(true)}
-            className="w-full h-12 mt-4 rounded-full glass border border-white/10 text-accent font-black active:scale-95 transition-transform"
-          >
+          <Button variant="ghost" className="mt-4 bg-line/10" onClick={() => setEditingList(true)}>
             {p.addCounters}
-          </button>
+          </Button>
         </div>
       );
     }
     if (advisor.status === 'unavailable') {
       return (
-        <div className="mt-4 rounded-[2rem] glass p-5">
-          <div className="flex gap-2 text-slate-300 text-xs font-bold leading-relaxed">
-            <span className="material-symbols-rounded text-base text-slate-500 shrink-0">cloud_off</span>
+        <div className="mt-3 rounded-3xl bg-card p-5">
+          <div className="flex gap-2 text-[13px] font-semibold leading-relaxed">
+            <Icon name="bell" size={18} className="mt-0.5" />
             <span>{p.unavailable}</span>
           </div>
-          <button
-            onClick={() => setPaused(true)}
-            className="w-full h-12 mt-4 rounded-full glass border border-white/10 text-accent font-black active:scale-95 transition-transform"
-          >
+          <Button variant="ghost" className="mt-4 bg-line/10" onClick={() => setPaused(true)}>
             {p.tryAgain}
-          </button>
+          </Button>
         </div>
       );
     }
@@ -261,17 +236,16 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
           : advisor.progress
             ? p.loadingProgress(advisor.progress.done, advisor.progress.total)
             : p.loading;
-      const share =
-        advisor.status === 'training' ? 1 : advisor.progress ? advisor.progress.done / Math.max(1, advisor.progress.total) : 0;
+      const share = advisor.status === 'training' ? 1 : advisor.progress ? advisor.progress.done / Math.max(1, advisor.progress.total) : 0;
       return (
-        <div className="mt-4 rounded-[2rem] glass p-5">
-          <div className="flex gap-2 items-start text-slate-300 text-xs font-bold leading-relaxed">
-            <span className="material-symbols-rounded text-base text-accent shrink-0 animate-spin">progress_activity</span>
+        <div className="mt-3 rounded-3xl bg-card p-5">
+          <div className="flex items-start gap-2 text-[13px] font-semibold leading-relaxed">
+            <Icon name="hist" size={18} className="mt-0.5 animate-pulse motion-reduce:animate-none" />
             <span className="tabular-nums">{text}</span>
           </div>
-          <div className="h-1.5 mt-3 rounded-full bg-white/5 overflow-hidden">
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line/10">
             <div
-              className={`h-full rounded-full bg-accent/70 transition-all duration-500 ${advisor.status === 'training' ? 'animate-pulse' : ''}`}
+              className={`h-full rounded-full bg-ink/60 transition-all duration-500 ${advisor.status === 'training' ? 'animate-pulse motion-reduce:animate-none' : ''}`}
               style={{ width: `${Math.round(share * 100)}%` }}
             />
           </div>
@@ -279,7 +253,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
       );
     }
     if (!pick) {
-      return <p className="mt-4 rounded-[2rem] glass p-5 text-slate-400 text-xs font-bold leading-relaxed">{p.noScores}</p>;
+      return <p className="mt-3 rounded-3xl bg-card p-5 text-[13px] font-medium leading-relaxed text-mute">{p.noScores}</p>;
     }
     return renderPick();
   };
@@ -296,31 +270,27 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
     const names = (list: Style[]) => list.map((s) => p.styles[s]).join(p.and);
     const monthText = (key: string) => monthDate(key).toLocaleDateString(dateLocale('en-GB'), { month: 'short', year: 'numeric' });
     return (
-      <div className="mt-5 rounded-3xl border border-amber-400/20 bg-amber-400/5 p-4">
-        <div className="flex items-center gap-2 text-amber-300 text-[13px] font-black">
-          <span className="material-symbols-rounded text-lg">history</span>
+      <div className="mt-5 rounded-3xl bg-card p-5">
+        <div className="flex items-center gap-2 text-[14.5px] font-extrabold">
+          <Icon name="hist" size={18} />
           {p.recordTitle}
         </div>
-        <div className="mt-3 space-y-2.5">
+        <div className="mt-3 space-y-3">
           {STYLES.map((s) => {
             const r = records?.[s] ?? null;
             const worse = r !== null && !beatsRandom(r);
             return (
               <div key={s} className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="flex items-center gap-1.5 text-white text-xs font-black">
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 text-[13.5px] font-extrabold">
                     <Dot style={s} />
                     <span className="truncate">
                       {p.styles[s]} · {mix[s]}%
                     </span>
                   </p>
-                  <p className="text-slate-500 text-[10px] font-bold mt-0.5 pl-3.5">{p.recordWhat[s]}</p>
+                  <p className="mt-0.5 pl-3.5 text-[11.5px] font-medium text-mute">{p.recordWhat[s]}</p>
                 </div>
-                <p
-                  className={`shrink-0 max-w-[55%] text-right text-[11px] font-black tabular-nums leading-snug ${
-                    r === null ? 'text-slate-500' : worse ? 'text-slate-400' : 'text-white'
-                  }`}
-                >
+                <p className={`max-w-[55%] shrink-0 text-right text-[12px] font-bold tabular-nums leading-snug ${r === null || worse ? 'text-mute' : ''}`}>
                   {r === null ? p.noRecord : p.rightRandom(pct(r.hitRate, 0), pct(r.randomRate, 0))}
                 </p>
               </div>
@@ -328,13 +298,13 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
           })}
         </div>
         {span && (
-          <p className="mt-3 text-slate-300 text-[11px] font-semibold leading-relaxed">
+          <p className="mt-3 text-[12px] font-medium leading-relaxed text-mute">
             {p.recordTested(monthText(span.from), monthText(span.to))}
             {beat.length > 0 && ` ${p.recordBeat(names(beat), beat.length)}`}
             {notBeat.length > 0 && (
               <>
                 {' '}
-                <b className="text-white">{p.recordNotBeat(names(notBeat), notBeat.length)}</b>
+                <b className="text-ink">{p.recordNotBeat(names(notBeat), notBeat.length)}</b>
               </>
             )}
           </p>
@@ -349,40 +319,40 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
     const rest = symbols.filter((s) => !scored.has(s));
     return (
       <>
-        <div className="flex items-center mt-6">
-          <p className="flex-1 text-slate-500 text-[10px] font-black uppercase tracking-widest">{p.ranked}</p>
-          <button onClick={() => setEditingList(true)} className="text-accent text-[13px] font-black px-1 py-1">
+        <div className="mb-2 mt-6 flex items-center px-1">
+          <h2 className="flex-1 text-[15px] font-extrabold">{p.ranked}</h2>
+          <button type="button" onClick={() => setEditingList(true)} className="min-h-11 px-1 text-[13.5px] font-extrabold">
             {t.common.edit}
           </button>
         </div>
-        <div className="mt-2 space-y-4">
+        <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
           {ranked.map((r, i) => (
-            <div key={r.symbol}>
-              <div className="flex items-baseline gap-2 text-[13px] font-black">
-                <span className="w-4 shrink-0 text-slate-600 text-[11px]">{i + 1}</span>
-                <span className="flex-1 min-w-0 truncate text-white">{nameOf(r.symbol)}</span>
-                <span className={`shrink-0 tabular-nums ${i === 0 ? 'text-accent' : 'text-slate-300'}`}>{r.match}</span>
+            <div key={r.symbol} className="py-3">
+              <div className="flex items-baseline gap-2 text-[15px] font-extrabold">
+                <span className="w-4 shrink-0 text-[12px] font-bold text-mute">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate">{nameOf(r.symbol)}</span>
+                <span className={`shrink-0 tabular-nums ${i === 0 ? 'text-pos' : ''}`}>{r.match}</span>
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-1.5 ml-6">
+              <div className="ml-6 mt-2 grid grid-cols-3 gap-2">
                 {STYLES.map((s) => (
                   <div key={s} className="min-w-0">
-                    <div className="h-1 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-line/10">
                       <div className="h-full rounded-full" style={{ width: `${Math.round(r.chance[s] * 100)}%`, background: STYLE_COLORS[s] }} />
                     </div>
-                    <p className="text-slate-500 text-[10px] font-bold mt-1 truncate">
-                      <span className="text-slate-300 tabular-nums">{pct(r.chance[s], 0)}</span> {p.styles[s]}
+                    <p className="mt-1 truncate text-[11px] font-bold text-mute">
+                      <span className="tabular-nums text-ink">{pct(r.chance[s], 0)}</span> {p.styles[s]}
                     </p>
                   </div>
                 ))}
               </div>
-              <p className="text-slate-500 text-[10px] font-bold mt-1 ml-6 tabular-nums">{factsText(p, r.x)}</p>
+              <p className="ml-6 mt-1 text-[11.5px] font-medium tabular-nums text-mute">{factsText(p, r.x)}</p>
             </div>
           ))}
           {rest.map((symbol) => (
-            <div key={symbol} className="flex items-baseline gap-2 text-[13px] font-black">
-              <span className="w-4 shrink-0 text-slate-700 text-[11px]">–</span>
-              <span className="min-w-0 truncate text-slate-400">{nameOf(symbol)}</span>
-              {ready && <span className="flex-1 min-w-0 truncate text-right text-slate-600 text-[10px] font-bold">{p.notScored}</span>}
+            <div key={symbol} className="flex items-baseline gap-2 py-3 text-[14px] font-bold">
+              <span className="w-4 shrink-0 text-[12px] text-mute">–</span>
+              <span className="min-w-0 truncate text-mute">{nameOf(symbol)}</span>
+              {ready && <span className="min-w-0 flex-1 truncate text-right text-[11px] font-medium text-mute">{p.notScored}</span>}
             </div>
           ))}
         </div>
@@ -391,45 +361,38 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[45] bg-bg-dark flex justify-center">
-      <div className="w-full max-w-md h-full flex flex-col safe-pt">
-        <div className="flex items-center px-6 py-4 gap-3 shrink-0">
-          <button
-            onClick={onBack}
-            aria-label={t.common.back}
-            className="size-10 shrink-0 rounded-full glass flex items-center justify-center text-slate-300 active:scale-90 transition-transform"
-          >
-            <span className="material-symbols-rounded text-xl">arrow_back_ios_new</span>
+    <div className="fixed inset-0 z-[45] flex justify-center bg-page font-figtree text-ink">
+      <div className="flex h-full w-full max-w-md flex-col safe-pt">
+        <div className="flex shrink-0 items-center gap-3 px-4 pb-1 pt-3">
+          <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 shrink-0 place-items-center rounded-full bg-card active:opacity-80">
+            <Icon name="back" size={20} />
           </button>
-          <h2 className="flex-1 min-w-0 truncate text-white text-2xl font-black tracking-tight">{p.title}</h2>
         </div>
+        <h1 className="shrink-0 truncate px-5 text-[30px] font-extrabold tracking-tight">{p.title}</h1>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-16 safe-pb">
+        <div className="no-scrollbar flex-1 overflow-y-auto px-4 pb-16 safe-pb">
           {/* Style */}
           {!invest.style || !mix ? (
-            <div className="rounded-[2rem] bg-accent/5 border border-accent/25 p-5">
-              <p className="text-accent text-[10px] font-black uppercase tracking-widest">{p.yourStyle}</p>
-              <p className="text-white font-black mt-1.5">{p.setStyleTitle}</p>
-              <p className="text-slate-400 text-xs font-bold mt-1 leading-relaxed">{p.setStyleBody}</p>
-              <button
-                onClick={onEditStyle}
-                className="w-full h-12 mt-4 rounded-full bg-accent text-black font-black active:scale-95 transition-transform"
-              >
+            <div className="mt-3 rounded-3xl bg-sun p-5">
+              <p className="text-[12.5px] font-bold">{p.yourStyle}</p>
+              <p className="mt-1.5 text-[17px] font-extrabold">{p.setStyleTitle}</p>
+              <p className="mt-1 text-[13px] font-medium leading-relaxed opacity-80">{p.setStyleBody}</p>
+              <Button className="mt-4" onClick={onEditStyle}>
                 {p.setStyle}
-              </button>
+              </Button>
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10">
-                <div className="flex-1 min-w-0">
+              <div className="mt-3 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
+                <div className="min-w-0 flex-1">
                   <MixBar mix={mix} />
-                  <p className="mt-1.5 text-slate-300 text-[11px] font-black leading-snug">
+                  <p className="mt-1.5 text-[12px] font-bold leading-snug">
                     {activeStyles(mix)
                       .map((s) => `${p.styles[s]} ${mix[s]}`)
                       .join(' · ')}
                   </p>
                 </div>
-                <button onClick={onEditStyle} className="shrink-0 text-accent text-[13px] font-black px-1 py-1">
+                <button type="button" onClick={onEditStyle} className="min-h-11 shrink-0 px-1 text-[13.5px] font-extrabold">
                   {t.common.edit}
                 </button>
               </div>
@@ -440,19 +403,11 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({
             </>
           )}
 
-          <p className="mt-5 text-center text-slate-600 text-[10px] font-semibold leading-relaxed">{p.disclaimer}</p>
+          <p className="mt-5 px-3 text-center text-[11.5px] font-medium leading-relaxed text-mute">{p.disclaimer}</p>
         </div>
       </div>
 
-      {editingList && (
-        <WatchlistSheet
-          uid={uid}
-          watchlist={invest.watchlist}
-          trades={trades}
-          quotes={merged}
-          onClose={() => setEditingList(false)}
-        />
-      )}
+      {editingList && <WatchlistSheet uid={uid} watchlist={invest.watchlist} trades={trades} quotes={merged} onClose={() => setEditingList(false)} />}
     </div>
   );
 };

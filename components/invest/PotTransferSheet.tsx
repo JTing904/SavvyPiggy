@@ -5,14 +5,15 @@ import { isArchived, isInSplit, planDeposit } from '../../services/ledger';
 import { cleanFeeInput } from '../../services/fees';
 import { loadLastChoices, saveLastChoices, usableChoices, withChoice } from '../../services/lastChoices';
 import { formatMoney, fromCents, toCents } from '../../services/money';
-import { useBackHandler } from '../../hooks/useBackHandler';
 import { useT } from '../../contexts/LanguageContext';
 import { ChoiceRow } from './RefundSheet';
+import { Button } from '../ui/Button';
+import { Sheet } from '../ui/Sheet';
 
-const Line: React.FC<{ label: string; value: string; tone: string }> = ({ label, value, tone }) => (
-  <div className={`flex items-baseline gap-3 text-[13px] ${tone}`}>
-    <span className="flex-1 min-w-0 font-bold truncate">{label}</span>
-    <span className="font-black shrink-0 text-right">{value}</span>
+const Line: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="flex items-baseline gap-3 py-1 text-[13.5px]">
+    <span className="min-w-0 flex-1 truncate font-medium text-mute">{label}</span>
+    <span className="shrink-0 text-right font-bold tabular-nums">{value}</span>
   </div>
 );
 
@@ -38,8 +39,6 @@ const PotTransferSheet: React.FC<{
 }> = ({ direction, banks, potBalance, savings, onConfirm, onClose, uid }) => {
   const t = useT();
   const w = t.invest.potCard;
-  useBackHandler(true, onClose);
-
   const goals = banks.filter((b) => !isArchived(b));
   const canSplit = direction === 'out' && goals.some(isInSplit);
   /**
@@ -104,132 +103,89 @@ const PotTransferSheet: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/85 veil-in" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md mx-auto bg-surface sheet-rise rounded-t-[2rem] border-t border-white/10 px-6 pt-4 pb-8 max-h-[90%] overflow-y-auto no-scrollbar safe-pb"
-      >
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
-        <h3 className="text-white text-xl font-black tracking-tight">{direction === 'in' ? w.inTitle : w.outTitle}</h3>
-        <p className="text-slate-400 text-[12px] font-bold mt-1.5 leading-relaxed">{direction === 'in' ? w.inHint : w.outHint}</p>
-
-        {direction === 'in' && (
-          <>
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-5 mb-2">{w.fromGoal}</p>
-            <div className="space-y-2">
-              {goals.map((b) => (
-                <ChoiceRow
-                  key={b.id}
-                  icon={safeGoalIcon(b.icon)}
-                  label={b.name}
-                  value={money(toCents(b.currentAmount))}
-                  on={target === b.id}
-                  onClick={() => setTarget(b.id)}
-                />
-              ))}
-              {goals.length === 0 && <p className="text-slate-500 text-xs font-bold">{w.noGoals}</p>}
-            </div>
-          </>
-        )}
-
-        <label htmlFor="pot-amount" className="block text-slate-500 text-[10px] font-black uppercase tracking-widest mt-5 mb-2">
-          {w.amount}
-        </label>
-        <div className="flex items-center gap-2 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-accent/50 transition-colors">
-          <span className="text-slate-500 font-black shrink-0">RM</span>
-          <input
-            id="pot-amount"
-            ref={amountRef}
-            autoFocus={target !== undefined}
-            type="text"
-            inputMode="decimal"
-            value={text}
-            onChange={(e) => setText(cleanFeeInput(e.target.value))}
-            placeholder="0.00"
-            className="w-full min-w-0 border-0 bg-transparent text-white text-lg font-black focus:outline-none placeholder:text-slate-700"
-          />
-        </div>
-        {quick !== null && quick > 0 && (
+    <Sheet
+      title={direction === 'in' ? w.inTitle : w.outTitle}
+      z={60}
+      onClose={onClose}
+      footer={
+        <div className="space-y-2">
           <button
             type="button"
-            onClick={() => setText(fromCents(quick).toFixed(2))}
-            className="mt-2 h-8 px-3 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-[11px] font-black active:scale-95 transition-transform"
+            onClick={confirm}
+            disabled={!ready}
+            className={`inline-flex min-h-12 w-full items-center justify-center rounded-full px-6 text-[15.5px] font-extrabold text-cta-fg disabled:opacity-40 active:opacity-80 ${direction === 'in' ? 'bg-info' : 'bg-cta'}`}
           >
-            {w.all(money(quick))}
+            {cents > 0 ? (direction === 'in' ? w.inConfirm(money(cents)) : w.outConfirm(money(cents))) : direction === 'in' ? w.moveIn : w.moveOut}
           </button>
-        )}
-        {over && (
-          <p className="text-red-400 text-[11px] font-bold mt-2">
-            {direction === 'in' ? t.errors.potFromShort(source?.name ?? '') : t.errors.potShort}
-          </p>
-        )}
+          <Button variant="ghost" onClick={onClose}>
+            {t.common.cancel}
+          </Button>
+        </div>
+      }
+    >
+      <p className="px-1 text-[13.5px] font-medium leading-relaxed text-mute">{direction === 'in' ? w.inHint : w.outHint}</p>
 
-        {direction === 'out' && (
-          <>
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-5 mb-2">{w.intoWhere}</p>
-            <div className="space-y-2">
-              {goals.map((b) => (
-                <ChoiceRow
-                  key={b.id}
-                  icon={safeGoalIcon(b.icon)}
-                  label={b.name}
-                  value={money(toCents(b.currentAmount))}
-                  on={target === b.id}
-                  onClick={() => setTarget(b.id)}
-                />
-              ))}
-              {canSplit && (
-                <ChoiceRow
-                  icon="call_split"
-                  tone="split"
-                  label={t.common.autoSplit}
-                  sub={w.splitSub}
-                  on={target === null}
-                  onClick={() => setTarget(null)}
-                />
-              )}
-              {goals.length === 0 && <p className="text-slate-500 text-xs font-bold">{w.noGoals}</p>}
-            </div>
-          </>
-        )}
-
-        {ready && (
-          <div className="mt-5 rounded-2xl bg-white/5 p-4 space-y-2">
-            {direction === 'in' && source && (
-              <Line label={source.name} value={`${money(toCents(source.currentAmount))} → ${money(toCents(source.currentAmount) - cents)}`} tone="text-slate-300" />
-            )}
-            {landing.map((m) => {
-              const bank = goals.find((b) => b.id === m.bankId);
-              const now = toCents(bank?.currentAmount ?? 0);
-              return <Line key={m.bankId} label={bank?.name ?? ''} value={`${money(now)} → ${money(now + m.cents)}`} tone="text-primary" />;
-            })}
-            <Line
-              label={t.invest.pot}
-              value={`${money(potCents)} → ${money(direction === 'in' ? potCents + cents : potCents - cents)}`}
-              tone="text-accent"
-            />
+      {direction === 'in' && (
+        <>
+          <p className="mb-2 mt-4 px-1 text-[12.5px] font-bold text-mute">{w.fromGoal}</p>
+          <div className="space-y-2">
+            {goals.map((b) => (
+              <ChoiceRow key={b.id} icon={safeGoalIcon(b.icon)} label={b.name} value={money(toCents(b.currentAmount))} on={target === b.id} onClick={() => setTarget(b.id)} />
+            ))}
+            {goals.length === 0 && <p className="px-1 text-[13px] font-medium text-mute">{w.noGoals}</p>}
           </div>
-        )}
+        </>
+      )}
 
-        <button
-          type="button"
-          onClick={confirm}
-          disabled={!ready}
-          className={`w-full h-14 mt-6 rounded-full font-black disabled:opacity-30 active:scale-95 transition-all ${
-            direction === 'in' ? 'bg-accent text-black' : 'bg-primary text-black'
-          }`}
-        >
-          {cents > 0 ? (direction === 'in' ? w.inConfirm(money(cents)) : w.outConfirm(money(cents))) : direction === 'in' ? w.moveIn : w.moveOut}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full h-12 mt-3 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
-        >
-          {t.common.cancel}
-        </button>
+      <label htmlFor="pot-amount" className="mb-2 mt-4 block px-1 text-[12.5px] font-bold text-mute">
+        {w.amount}
+      </label>
+      <div className="flex min-h-14 items-center gap-2 rounded-[18px] bg-field px-4 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
+        <span className="shrink-0 font-bold text-mute">RM</span>
+        <input
+          id="pot-amount"
+          ref={amountRef}
+          autoFocus={target !== undefined}
+          type="text"
+          inputMode="decimal"
+          value={text}
+          onChange={(e) => setText(cleanFeeInput(e.target.value))}
+          placeholder="0.00"
+          className="min-h-6 w-full min-w-0 border-0 bg-transparent p-0 text-[20px] font-extrabold text-ink placeholder:text-mute focus:ring-0"
+        />
       </div>
-    </div>
+      {quick !== null && quick > 0 && (
+        <button type="button" onClick={() => setText(fromCents(quick).toFixed(2))} className="mt-2 min-h-11 rounded-full bg-line/10 px-4 text-[13px] font-extrabold active:opacity-70">
+          {w.all(money(quick))}
+        </button>
+      )}
+      {over && <p className="mt-2 px-1 text-[12.5px] font-bold text-neg">{direction === 'in' ? t.errors.potFromShort(source?.name ?? '') : t.errors.potShort}</p>}
+
+      {direction === 'out' && (
+        <>
+          <p className="mb-2 mt-4 px-1 text-[12.5px] font-bold text-mute">{w.intoWhere}</p>
+          <div className="space-y-2">
+            {goals.map((b) => (
+              <ChoiceRow key={b.id} icon={safeGoalIcon(b.icon)} label={b.name} value={money(toCents(b.currentAmount))} on={target === b.id} onClick={() => setTarget(b.id)} />
+            ))}
+            {canSplit && <ChoiceRow icon="call_split" tone="split" label={t.common.autoSplit} sub={w.splitSub} on={target === null} onClick={() => setTarget(null)} />}
+            {goals.length === 0 && <p className="px-1 text-[13px] font-medium text-mute">{w.noGoals}</p>}
+          </div>
+        </>
+      )}
+
+      {ready && (
+        <div className="mt-4 rounded-3xl bg-lav p-4">
+          {direction === 'in' && source && <Line label={source.name} value={`${money(toCents(source.currentAmount))} → ${money(toCents(source.currentAmount) - cents)}`} />}
+          {landing.map((m) => {
+            const bank = goals.find((b) => b.id === m.bankId);
+            const now = toCents(bank?.currentAmount ?? 0);
+            return <Line key={m.bankId} label={bank?.name ?? ''} value={`${money(now)} → ${money(now + m.cents)}`} />;
+          })}
+          <Line label={t.invest.pot} value={`${money(potCents)} → ${money(direction === 'in' ? potCents + cents : potCents - cents)}`} />
+        </div>
+      )}
+    </Sheet>
   );
 };
 

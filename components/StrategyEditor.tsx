@@ -11,6 +11,10 @@ import { useT } from '../contexts/LanguageContext';
 import MoveGoalMoneySheet from './MoveGoalMoneySheet';
 import { percentReached, toCents } from '../services/money';
 import type { GoalMoneyChoice } from '../services/ledger';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Icon } from './ui/Icon';
+import { Toggle } from './ui/Toggle';
 
 interface StrategyEditorProps {
   banks: PiggyBank[];
@@ -69,17 +73,16 @@ const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChan
     if (!Number.isNaN(parsed)) onChange(clampPct(parsed));
   };
 
-  const btn =
-    'size-11 rounded-2xl flex items-center justify-center bg-white/5 text-white active:scale-90 transition-transform disabled:opacity-30 disabled:active:scale-100';
+  const btn = 'grid size-11 place-items-center rounded-2xl bg-line/10 text-ink active:opacity-70 disabled:opacity-30';
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      <button disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label={t.goals.less}>
-        <span className="material-symbols-rounded">remove</span>
+    <div className="flex shrink-0 items-center gap-2">
+      <button type="button" disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label={t.goals.less}>
+        <Icon name="minus" size={18} />
       </button>
 
       {editing ? (
-        <div className="w-[4.5rem] h-11 rounded-2xl bg-white/10 border border-primary flex items-center justify-center gap-0.5">
+        <div className="flex h-11 w-[4.5rem] items-center justify-center gap-0.5 rounded-2xl bg-field outline outline-2 outline-ink">
           <input
             ref={input}
             type="number"
@@ -93,29 +96,30 @@ const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onChan
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="w-9 border-0 bg-transparent text-center text-xl font-black text-white leading-none focus:outline-none"
+            className="w-9 border-0 bg-transparent p-0 text-center text-[20px] font-extrabold leading-none text-ink focus:ring-0"
           />
-          <span className="text-slate-500 text-sm font-bold leading-none">%</span>
+          <span className="text-[14px] font-bold leading-none text-mute">%</span>
         </div>
       ) : (
         <button
+          type="button"
           disabled={disabled}
           onClick={() => {
             setText(String(value));
             setEditing(true);
           }}
-          className="w-[4.5rem] h-11 rounded-2xl bg-white/5 flex items-center justify-center active:scale-95 transition-transform disabled:opacity-30"
+          className="flex h-11 w-[4.5rem] items-center justify-center rounded-2xl bg-line/5 active:opacity-70 disabled:opacity-40"
           style={{ color: disabled ? undefined : color }}
         >
           <span className="flex items-baseline gap-0.5 leading-none">
-            <span className="text-xl font-black tabular-nums">{value}</span>
-            <span className="text-sm font-bold opacity-60">%</span>
+            <span className="text-[20px] font-extrabold tabular-nums">{value}</span>
+            <span className="text-[14px] font-bold opacity-60">%</span>
           </span>
         </button>
       )}
 
-      <button disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label={t.goals.more}>
-        <span className="material-symbols-rounded">add</span>
+      <button type="button" disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label={t.goals.more}>
+        <Icon name="plus" size={18} />
       </button>
     </div>
   );
@@ -227,194 +231,131 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   const slices = inSplit.map((b) => ({ id: b.id, value: b.splitPercentage, color: colorOf(b.id) }));
 
   return (
-    <div className="flex flex-col min-h-full pb-[22rem] safe-pt">
-      <div className="px-6 pt-6 pb-2">
-        <h2 className="text-white text-3xl font-black tracking-tight">{t.goals.strategyTitle}</h2>
-        <p className="text-slate-500 text-sm font-medium mt-1">
-          {t.goals.strategySubtitle}
-        </p>
-      </div>
+    <div className="flex min-h-full flex-col px-4 pb-[22rem] pt-3 safe-pt font-figtree text-ink">
+      <h1 className="px-1 pt-2 text-[30px] font-extrabold tracking-tight">{t.goals.strategyTitle}</h1>
+      <p className="mt-0.5 px-1 text-[13.5px] font-semibold text-mute">{t.goals.strategySubtitle}</p>
 
       {/* The whole picture at a glance. */}
       {localBanks.length > 0 && (
-        <div className="mt-4 px-6">
-          <div className="bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-5 shadow-xl">
-            <DonutChart slices={slices} total={totalAllocation} size={150} thickness={20} />
-            <div className="min-w-0 flex-1 space-y-2">
-              {inSplit.length === 0 ? (
-                <p className="text-slate-500 text-xs font-medium">{t.goals.everyGoalExcluded}</p>
-              ) : (
-                inSplit.map((b) => (
-                  <div key={b.id} className="flex items-center gap-2 min-w-0">
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(b.id) }}></span>
-                    <span className="text-slate-300 text-xs font-bold truncate flex-1">{b.name}</span>
-                    <span className="text-white text-xs font-black tabular-nums shrink-0">{b.splitPercentage}%</span>
-                  </div>
-                ))
-              )}
-              {totalAllocation < 100 && inSplit.length > 0 && (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="size-2.5 shrink-0 rounded-full bg-white/10"></span>
-                  <span className="text-slate-600 text-xs font-bold truncate flex-1">{t.goals.unassigned}</span>
-                  <span className="text-slate-500 text-xs font-black tabular-nums shrink-0">
-                    {100 - totalAllocation}%
-                  </span>
+        <div className="mt-4 flex items-center gap-5 rounded-3xl bg-card p-5">
+          <DonutChart slices={slices} total={totalAllocation} size={150} thickness={20} />
+          <div className="min-w-0 flex-1 space-y-2">
+            {inSplit.length === 0 ? (
+              <p className="text-[13px] font-medium text-mute">{t.goals.everyGoalExcluded}</p>
+            ) : (
+              inSplit.map((b) => (
+                <div key={b.id} className="flex min-w-0 items-center gap-2">
+                  <span className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(b.id) }}></span>
+                  <span className="flex-1 truncate text-[13px] font-bold">{b.name}</span>
+                  <span className="shrink-0 text-[13px] font-extrabold tabular-nums">{b.splitPercentage}%</span>
                 </div>
-              )}
-            </div>
+              ))
+            )}
+            {totalAllocation < 100 && inSplit.length > 0 && (
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="size-2.5 shrink-0 rounded-full bg-line/20"></span>
+                <span className="flex-1 truncate text-[13px] font-medium text-mute">{t.goals.unassigned}</span>
+                <span className="shrink-0 text-[13px] font-bold tabular-nums text-mute">{100 - totalAllocation}%</span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      <div className="mt-4 px-6">
-        <button
-          onClick={onOpenAutoDeposits}
-          className="w-full bg-surface border border-white/5 rounded-[2rem] p-5 flex items-center gap-4 shadow-xl active:scale-[0.99] transition-transform text-left"
-        >
-          <div className="size-12 shrink-0 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
-            <span className="material-symbols-rounded text-2xl">event_repeat</span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-white font-bold">{t.goals.autoDeposits}</p>
-            <p className="text-slate-500 text-xs font-medium">
-              {scheduleCount === 0
-                ? t.goals.saveOnSchedule
-                : t.goals.activeSchedules(scheduleCount)}
-            </p>
-          </div>
-          <span className="material-symbols-rounded text-slate-600">chevron_right</span>
-        </button>
-      </div>
+      <button type="button" onClick={onOpenAutoDeposits} className="mt-3 flex w-full items-center gap-4 rounded-3xl bg-card p-4 text-left active:opacity-80">
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-mint">
+          <Icon name="repeat" size={22} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-bold">{t.goals.autoDeposits}</span>
+          <span className="block text-[12px] font-medium text-mute">{scheduleCount === 0 ? t.goals.saveOnSchedule : t.goals.activeSchedules(scheduleCount)}</span>
+        </span>
+        <Icon name="chev" size={18} className="text-mute" />
+      </button>
 
       {localBanks.length > 0 && (
-        <div className="mt-8 px-6 flex items-center justify-between gap-3">
-          <h3 className="text-white text-lg font-bold">{t.common.goals}</h3>
+        <div className="mb-2 mt-6 flex items-center justify-between gap-3 px-1">
+          <h2 className="text-[16px] font-extrabold">{t.common.goals}</h2>
           <SortMenu order={order} onChange={setOrder} />
         </div>
       )}
 
-      <div className="mt-4 px-6 space-y-4">
+      <div className="mt-2 space-y-3">
         {localBanks.length === 0 ? (
-          <div className="bg-surface border border-dashed border-white/10 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
-            <span className="material-symbols-rounded text-4xl text-slate-700 mb-4">account_balance_wallet</span>
-            <p className="text-slate-500 font-bold">{t.goals.noPiggyBanks}</p>
-            <p className="text-slate-600 text-xs mt-1">
-              {t.goals.goalIsWhere}
-            </p>
-            <button
-              onClick={onAddGoal}
-              className="h-12 px-6 rounded-2xl bg-primary text-black font-black text-sm mt-6 flex items-center gap-2 active:scale-95 transition-transform"
-            >
-              <span className="material-symbols-rounded text-xl">add_circle</span>
-              {t.goals.addFirstGoal}
-            </button>
-          </div>
+          <EmptyState icon="wallet" title={t.goals.noPiggyBanks} body={t.goals.goalIsWhere} action={{ label: t.goals.addFirstGoal, onClick: onAddGoal }} />
         ) : (
           sorted.map((bank) => {
             const inSplitNow = bank.autoSplit !== false;
             const color = colorOf(bank.id);
             const hasTarget = bank.targetAmount > 0;
             const overspent = toCents(bank.currentAmount) < 0;
-            const progress = hasTarget
-              ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
-              : 0;
+            const progress = hasTarget ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100)) : 0;
             const remaining = bank.targetAmount - bank.currentAmount;
 
             return (
-              <div key={bank.id} className="bg-surface border border-white/5 rounded-[2rem] p-5 space-y-4 shadow-xl">
+              <div key={bank.id} className="space-y-4 rounded-3xl bg-card p-5">
                 {/* Name takes the slack and truncates; the controls never shrink. */}
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="size-12 shrink-0 rounded-2xl flex items-center justify-center"
-                      style={{ background: `${color}1A`, color }}
-                    >
-                      <span className="material-symbols-rounded text-2xl">{safeGoalIcon(bank.icon)}</span>
-                    </div>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid size-12 shrink-0 place-items-center rounded-2xl" style={{ background: `${color}33`, color: 'rgb(var(--ink))' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 24 }}>
+                        {safeGoalIcon(bank.icon)}
+                      </span>
+                    </span>
                     <div className="min-w-0">
-                      <h4 className="text-white font-bold truncate">{bank.name}</h4>
-                      <p className={`text-xs truncate ${overspent ? 'text-red-400' : 'text-slate-500'}`}>
+                      <h3 className="truncate text-[16px] font-bold">{bank.name}</h3>
+                      <p className={`truncate text-[12.5px] font-medium ${overspent ? 'text-neg' : 'text-mute'}`}>
                         {formatMoney(bank.currentAmount, { decimals: 0 })}
                         {hasTarget ? t.goals.ofTarget(formatMoney(bank.targetAmount, { decimals: 0 })) : t.goals.noLimitSuffix}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleDelete(bank.id)}
-                      className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 active:scale-90 transition-transform"
-                    >
-                      <span className="material-symbols-rounded text-xl">delete</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button type="button" onClick={() => handleDelete(bank.id)} aria-label={t.common.delete} className="grid size-11 place-items-center rounded-full bg-peach text-neg active:opacity-70">
+                      <span className="material-symbols-rounded" style={{ fontSize: 20 }}>
+                        delete
+                      </span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => edit(bank, { isLocked: !bank.isLocked })}
-                      className={`size-10 rounded-full flex items-center justify-center transition-colors ${
-                        bank.isLocked ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-slate-500'
-                      }`}
+                      aria-pressed={bank.isLocked}
+                      className={`grid size-11 place-items-center rounded-full active:opacity-70 ${bank.isLocked ? 'bg-sun' : 'bg-line/10 text-mute'}`}
                     >
-                      <span className="material-symbols-rounded text-xl">{bank.isLocked ? 'lock' : 'lock_open'}</span>
+                      <Icon name="lock" size={18} />
                     </button>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                    {inSplitNow ? t.goals.split : t.goals.excluded}
-                  </p>
-                  <PercentStepper
-                    value={bank.splitPercentage}
-                    disabled={bank.isLocked || !inSplitNow}
-                    color={color}
-                    onChange={(next) => edit(bank, { splitPercentage: next })}
-                  />
+                  <p className="text-[12.5px] font-bold text-mute">{inSplitNow ? t.goals.split : t.goals.excluded}</p>
+                  <PercentStepper value={bank.splitPercentage} disabled={bank.isLocked || !inSplitNow} color={color} onChange={(next) => edit(bank, { splitPercentage: next })} />
                 </div>
 
                 {/* How far along the goal is, for context while deciding its share. */}
                 <div className="space-y-1.5">
-                  <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-line/10">
                     {overspent ? (
-                      <div className="h-full w-full rounded-full bg-red-500/30"></div>
+                      <div className="h-full w-full rounded-full bg-neg/40"></div>
                     ) : hasTarget ? (
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${progress}%`, background: color }}
-                      ></div>
+                      <div className="h-full rounded-full transition-all duration-700 motion-reduce:transition-none" style={{ width: `${progress}%`, background: color }}></div>
                     ) : (
                       <div className="h-full w-full rounded-full opacity-40" style={{ background: color }}></div>
                     )}
                   </div>
-                  <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
-                    <span className="text-slate-500">
-                      {overspent ? t.goals.overspent : hasTarget ? t.goals.goalFunded(percentReached(bank.currentAmount, bank.targetAmount)) : t.goals.openEnded}
-                    </span>
+                  <div className="flex items-center justify-between gap-3 text-[11.5px] font-semibold">
+                    <span className="text-mute">{overspent ? t.goals.overspent : hasTarget ? t.goals.goalFunded(percentReached(bank.currentAmount, bank.targetAmount)) : t.goals.openEnded}</span>
                     {hasTarget && !overspent && (
-                      <span className="text-slate-500 tabular-nums">
-                        {toCents(remaining) > 0 ? t.goals.remaining(formatMoney(remaining, { decimals: 0 })) : t.goals.targetReached}
-                      </span>
+                      <span className="tabular-nums text-mute">{toCents(remaining) > 0 ? t.goals.remaining(formatMoney(remaining, { decimals: 0 })) : t.goals.targetReached}</span>
                     )}
                   </div>
                 </div>
 
                 {/* Off means this goal sits out of every deposit split entirely. */}
-                <button
-                  onClick={() => edit(bank, { autoSplit: !inSplitNow })}
-                  className="w-full flex items-center justify-between gap-3 pt-1"
-                >
-                  <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                    {inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff}
-                  </span>
-                  <div
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                      inSplitNow ? 'bg-primary/20' : 'bg-white/10'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block size-4 transform rounded-full transition-transform ${
-                        inSplitNow ? 'translate-x-6 bg-primary' : 'translate-x-1 bg-slate-600'
-                      }`}
-                    ></span>
-                  </div>
-                </button>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[12.5px] font-bold text-mute">{inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff}</span>
+                  <Toggle checked={inSplitNow} onChange={(on) => edit(bank, { autoSplit: on })} label={inSplitNow ? t.goals.autoSplitOn : t.goals.autoSplitOff} />
+                </div>
               </div>
             );
           })
@@ -422,74 +363,36 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
         {localBanks.length > 0 && (
           <div className="grid grid-cols-2 gap-3 pt-1">
-            <button
-              onClick={applyEven}
-              disabled={!even}
-              className="h-14 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
-            >
-              <span className="material-symbols-rounded text-primary text-xl">balance</span>
+            <Button variant="ghost" onClick={applyEven} disabled={!even}>
               {t.goals.evenSplit(evenLabel)}
-            </button>
-            <button
-              onClick={onAddGoal}
-              className="h-14 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
-            >
-              <span className="material-symbols-rounded text-primary text-xl">add_circle</span>
+            </Button>
+            <Button variant="ghost" onClick={onAddGoal}>
+              <Icon name="plus" size={18} />
               {t.goals.addGoal}
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {/* Sits clear of the bottom navigation, which is fixed at bottom-0 too. */}
-      <div
-        className="fixed bottom-0 left-0 right-0 px-4 pointer-events-none"
-        style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
-      >
-        <div className="max-w-md mx-auto pointer-events-auto">
-          <div className="glass rounded-[2.5rem] p-5 space-y-4 border border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+      <div className="pointer-events-none fixed bottom-0 left-0 right-0 px-4" style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
+        <div className="pointer-events-auto mx-auto max-w-md">
+          <div className="space-y-3 rounded-[2rem] bg-card p-5 shadow-[0_-6px_28px_rgba(0,0,0,0.14)]">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{t.goals.totalAllocation}</p>
-                <p className="text-2xl font-black tabular-nums">
-                  <span className={isValid ? 'text-primary' : 'text-red-400'}>{totalAllocation}%</span>
-                  <span className="text-slate-600 text-base"> / 100%</span>
+                <p className="text-[12.5px] font-bold text-mute">{t.goals.totalAllocation}</p>
+                <p className="text-[26px] font-extrabold tabular-nums">
+                  <span className={isValid ? 'text-pos' : 'text-neg'}>{totalAllocation}%</span>
+                  <span className="text-[16px] font-bold text-mute"> / 100%</span>
                 </p>
               </div>
-              <div
-                className={`shrink-0 h-9 px-4 rounded-full flex items-center gap-1.5 text-xs font-black ${
-                  isValid
-                    ? 'bg-primary/10 text-primary'
-                    : 'bg-red-500/10 text-red-400'
-                }`}
-              >
-                <span className="material-symbols-rounded text-base">
-                  {isValid ? 'check_circle' : totalAllocation > 100 ? 'error' : 'pending'}
-                </span>
-                {isValid
-                  ? t.goals.balanced
-                  : totalAllocation > 100
-                    ? t.goals.percentOver(totalAllocation - 100)
-                    : t.goals.percentLeft(100 - totalAllocation)}
+              <div className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-[12.5px] font-extrabold ${isValid ? 'bg-mint text-pos' : 'bg-peach text-neg'}`}>
+                {isValid ? t.goals.balanced : totalAllocation > 100 ? t.goals.percentOver(totalAllocation - 100) : t.goals.percentLeft(100 - totalAllocation)}
               </div>
             </div>
-            <button
-              onClick={handleSave}
-              disabled={!isValid || localBanks.length === 0}
-              className={`w-full h-16 rounded-2xl font-black text-lg transition-all shadow-xl ${
-                isValid && localBanks.length > 0
-                  ? 'bg-primary text-black shadow-primary/20 active:scale-95'
-                  : 'bg-white/5 text-slate-600 cursor-not-allowed'
-              }`}
-            >
-              {localBanks.length === 0
-                ? t.goals.addAGoal
-                : !isValid
-                  ? t.goals.allocationMismatch
-                  : isDirty
-                    ? t.goals.saveStrategy
-                    : t.goals.strategySaved}
-            </button>
+            <Button onClick={handleSave} disabled={!isValid || localBanks.length === 0}>
+              {localBanks.length === 0 ? t.goals.addAGoal : !isValid ? t.goals.allocationMismatch : isDirty ? t.goals.saveStrategy : t.goals.strategySaved}
+            </Button>
           </div>
         </div>
       </div>

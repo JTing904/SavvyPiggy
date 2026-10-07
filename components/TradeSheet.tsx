@@ -39,7 +39,6 @@ import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt
 import { isInSplit, type GoneShareChoice } from '../services/ledger';
 import { newShortSale, type ShortSale } from '../services/tradeCheck';
 import { fromInputDate, toInputDate } from '../services/calendar';
-import { useBackHandler } from '../hooks/useBackHandler';
 import { useConfirm } from '../contexts/ConfirmContext';
 import DateField from './DateField';
 import RefundSheet, { ChoiceRow } from './invest/RefundSheet';
@@ -47,6 +46,8 @@ import FeeMismatchSheet from './invest/FeeMismatchSheet';
 import GoneShareSheet from './GoneShareSheet';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
+import { Icon } from './ui/Icon';
+import { Sheet } from './ui/Sheet';
 
 /**
  * What the sheet has been opened to do. Recording a trade and correcting one
@@ -130,10 +131,10 @@ const Field: React.FC<{
   /** Whole numbers want the digit pad; the default for a number is the one with a point. */
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
 }> = ({ label, value, onChange, type = 'number', prefix, autoFocus, inputMode }) => (
-  <div className="flex-1 min-w-0">
-    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 truncate">{label}</p>
-    <div className="flex items-center gap-2 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
-      {prefix && <span className="text-slate-500 font-black shrink-0">{prefix}</span>}
+  <label className="block min-w-0 flex-1">
+    <span className="mb-1.5 block truncate px-1 text-[12.5px] font-bold text-mute">{label}</span>
+    <span className="flex min-h-14 items-center gap-2 rounded-[18px] bg-field px-4 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
+      {prefix && <span className="shrink-0 font-bold text-mute">{prefix}</span>}
       <input
         autoFocus={autoFocus}
         type={type}
@@ -141,16 +142,16 @@ const Field: React.FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={type === 'number' ? '0' : undefined}
-        className="w-full min-w-0 border-0 bg-transparent text-white text-lg font-black focus:outline-none placeholder:text-slate-700"
+        className="min-h-6 w-full min-w-0 border-0 bg-transparent p-0 text-[20px] font-extrabold text-ink placeholder:text-mute focus:ring-0"
       />
-    </div>
-  </div>
+    </span>
+  </label>
 );
 
 const Line: React.FC<{ label: string; value: string; strong?: boolean; tone?: string }> = ({ label, value, strong, tone }) => (
-  <div className={`flex items-baseline gap-3 ${strong ? 'text-sm' : 'text-[13px]'}`}>
-    <span className={`flex-1 min-w-0 font-bold ${strong ? 'text-white' : tone ?? 'text-slate-400'}`}>{label}</span>
-    <span className={`font-black shrink-0 text-right ${tone ?? 'text-white'}`}>{value}</span>
+  <div className={`flex items-baseline gap-3 py-0.5 ${strong ? 'text-[15px]' : 'text-[13.5px]'}`}>
+    <span className={`min-w-0 flex-1 ${strong ? 'font-extrabold' : 'font-medium text-mute'}`}>{label}</span>
+    <span className={`shrink-0 text-right tabular-nums ${strong ? 'text-[18px] font-extrabold' : 'font-bold'} ${tone ?? ''}`}>{value}</span>
   </div>
 );
 
@@ -315,7 +316,6 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const [takeBackAsk, setTakeBackAsk] = useState<{ removing: boolean } | null>(null);
   const [mismatch, setMismatch] = useState<FeeMismatch | null>(null);
 
-  useBackHandler(true, onClose);
 
   const needsCounter = !symbol;
   /** You can only sell what you hold, so a sale picks from the positions. */
@@ -695,7 +695,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       confirmLabel: t.common.delete,
       detail: {
         icon: editing.kind === 'sell' ? 'trending_down' : 'trending_up',
-        tint: editing.kind === 'sell' ? 'bg-slate-500/10 text-slate-400' : 'bg-accent/10 text-accent',
+        tint: editing.kind === 'sell' ? 'bg-peach text-ink' : 'bg-lav text-ink',
         label: `${LABEL[editing.kind]} · ${editing.name || editing.symbol}`,
         meta: `${t.common.units(editing.units.toLocaleString('en-US'))} · ${new Date(editing.tradedAt).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short', year: 'numeric' })}`,
         amount: money(tradeTotalCents(editing)),
@@ -780,11 +780,11 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     return (
       <>
         {plan.dividendCents !== 0 && (
-          <Line label={t.invest.dividendsAdjusted} value={money(plan.dividendCents, { signed: true })} tone="text-amber-300" />
+          <Line label={t.invest.dividendsAdjusted} value={money(plan.dividendCents, { signed: true })} tone="text-warn" />
         )}
         {savingsLines()}
         {!showsPot && plan.potDelta !== 0 && (
-          <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />
+          <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-info" />
         )}
       </>
     );
@@ -793,14 +793,14 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const savingsLines = () => {
     if (!plan) return null;
     if (choice.mode === 'pot' || (plan.potDelta !== 0 && Object.keys(plan.bankDeltas).length === 0)) {
-      return <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-accent" />;
+      return <Line label={t.invest.potAfter} value={`${money(potCents)} → ${money(potCents + plan.potDelta)}`} tone="text-info" />;
     }
     const draftRow = plan.activity.write === 'create' || plan.activity.write === 'update' ? plan.activity.draft : null;
     if (choice.mode === 'split' && draftRow) {
       const repaid = toCents(draftRow.repaid);
       return (
-        <div className="pl-3 border-l border-white/10 space-y-2">
-          {repaid > 0 && <Line label={t.invest.coversSpentAhead} value={money(repaid)} tone="text-amber-400" />}
+        <div className="space-y-1 border-l-2 border-line/10 pl-3">
+          {repaid > 0 && <Line label={t.invest.coversSpentAhead} value={money(repaid)} tone="text-warn" />}
           {draftRow.distributions.map((d) => (
             <Line
               key={d.bankId}
@@ -820,59 +820,48 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
       const bank = banks.find((b) => b.id === id);
       const now = toCents(bank?.currentAmount ?? 0);
       return (
-        <Line key={id} label={t.invest.goalAfter(bankName(id))} value={`${money(now)} → ${money(now + (plan.bankDeltas[id] ?? 0))}`} tone="text-accent" />
+        <Line key={id} label={t.invest.goalAfter(bankName(id))} value={`${money(now)} → ${money(now + (plan.bankDeltas[id] ?? 0))}`} tone="text-info" />
       );
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/85 veil-in" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md mx-auto bg-surface sheet-rise rounded-t-[2rem] border-t border-white/10 px-6 pt-4 pb-8 max-h-[90%] overflow-y-auto no-scrollbar safe-pb"
-      >
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
-
-        <div className="flex items-start gap-2">
-          <h3 className="flex-1 min-w-0 text-white text-xl font-black break-words">
-            {title}
-            {name && ` · ${name}`}
-          </h3>
+    <>
+      <Sheet title={`${title}${name ? ` · ${name}` : ''}`} onClose={onClose} height="tall">
+        <div className="mt-1 flex items-start gap-2">
+          <p className="min-w-0 flex-1 px-1 text-[13px] font-medium leading-relaxed text-mute">
+            {kind === 'dividend'
+              ? editing?.money?.mode === 'pot' ? t.invest.dividendIntro : t.invest.dividendIntroLegacy
+              : editing
+              ? t.invest.editIntro
+              : prefilled
+                ? t.invest.prefilledIntro
+                : kind === 'buy'
+                  ? t.invest.buyIntro
+                  : t.invest.sellIntro}
+          </p>
           {symbol && kind !== 'dividend' && (
             <button
               type="button"
               onClick={toggleType}
               title={t.invest.securityTypeHint}
               aria-label={`${t.invest.securityType[securityType]} · ${t.invest.securityTypeHint}`}
-              className={`shrink-0 mt-1 flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full border tracking-wider active:scale-95 transition-all ${
-                isReit ? 'bg-accent/15 border-accent/40 text-accent' : 'bg-white/5 border-white/15 text-slate-300'
-              }`}
+              className={`flex min-h-9 shrink-0 items-center gap-1 rounded-full px-3 text-[11.5px] font-extrabold active:opacity-70 ${isReit ? 'bg-lav' : 'bg-line/10'}`}
             >
               {t.invest.securityType[securityType]}
-              <span className="material-symbols-rounded text-[13px]">swap_horiz</span>
+              <Icon name="swap" size={13} />
             </button>
           )}
         </div>
-        <p className="text-slate-500 text-[11px] font-bold mt-1 leading-relaxed">
-          {kind === 'dividend'
-            ? editing?.money?.mode === 'pot' ? t.invest.dividendIntro : t.invest.dividendIntroLegacy
-            : editing
-            ? t.invest.editIntro
-            : prefilled
-              ? t.invest.prefilledIntro
-              : kind === 'buy'
-                ? t.invest.buyIntro
-                : t.invest.sellIntro}
-        </p>
 
         {/* A dividend was not typed in by anyone, so there is nothing here to
             re-type. It is shown as the receipt it is. */}
         {kind === 'dividend' ? (
           <div className="mt-5">
-            <div className="rounded-2xl bg-white/5 p-4 space-y-2.5">
+            <div className="space-y-1.5 rounded-3xl bg-card p-4">
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">{t.invest.paidOn}</span>
-                <span className="text-white font-black">
+                <span className="flex-1 font-medium text-mute">{t.invest.paidOn}</span>
+                <span className="font-extrabold">
                   {new Date(tradedAt).toLocaleDateString(dateLocale('en-GB'), {
                     day: 'numeric',
                     month: 'short',
@@ -881,33 +870,33 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 </span>
               </div>
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">{t.invest.unitsOnExDate}</span>
-                <span className="text-white font-black">{unitsIn.toLocaleString('en-US')}</span>
+                <span className="flex-1 font-medium text-mute">{t.invest.unitsOnExDate}</span>
+                <span className="font-extrabold">{unitsIn.toLocaleString('en-US')}</span>
               </div>
               <div className="flex text-[13px]">
-                <span className="flex-1 text-slate-400 font-bold">{t.invest.perUnit}</span>
-                <span className="text-white font-black">
+                <span className="flex-1 font-medium text-mute">{t.invest.perUnit}</span>
+                <span className="font-extrabold">
                   RM{((editing?.perUnitPoints ?? 0) / 10_000).toFixed(4)}
                 </span>
               </div>
-              <div className="h-px bg-white/10" />
+              <div className="my-2 h-px bg-line/10" />
               <div className="flex items-center">
-                <span className="flex-1 text-accent font-black text-sm">
+                <span className="flex-1 text-[14px] font-extrabold text-pos">
                   {editing?.money?.mode === 'pot' ? t.invest.paidIntoPot : t.invest.paidIntoGoals}
                   {dividendCorrected && (
-                    <span className="ml-2 align-middle text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-400/40 bg-amber-400/10 text-amber-300 tracking-wider">
+                    <span className="ml-2 rounded-full bg-sun px-2 py-0.5 align-middle text-[10.5px] font-extrabold text-ink">
                       {t.invest.dividendCorrected}
                     </span>
                   )}
                 </span>
-                <span className="text-accent font-black text-lg">
+                <span className="text-[18px] font-extrabold text-pos">
                   {money(editing ? tradeCents(editing) : 0)}
                 </span>
               </div>
             </div>
             {dividendMode === 'view' && (
               <>
-                <p className="text-slate-500 text-[11px] font-bold mt-4 leading-relaxed">
+                <p className="text-[12px] font-medium text-mute mt-4 leading-relaxed">
                   {editing?.money?.mode !== 'pot'
                     ? t.invest.dividendReceiptNoteLegacy
                     : dividendCorrected
@@ -922,7 +911,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                           setProblem(null);
                           setDividendMode('correct');
                         }}
-                        className="w-full h-12 rounded-full bg-primary text-black font-black active:scale-95 transition-all"
+                        className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-cta px-6 text-[15px] font-extrabold text-cta-fg active:opacity-80"
                       >
                         {t.invest.correctAmount}
                       </button>
@@ -933,7 +922,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                           setProblem(null);
                           setDividendMode('remove');
                         }}
-                        className="w-full h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black active:scale-95 transition-transform"
+                        className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-peach px-6 text-[15px] font-extrabold text-neg active:opacity-80"
                       >
                         {t.invest.removeDividend}
                       </button>
@@ -942,7 +931,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 )}
                 <button
                   onClick={onClose}
-                  className="w-full h-14 mt-5 rounded-full glass border border-white/10 text-white font-black active:scale-95 transition-transform"
+                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-card px-6 text-[15.5px] font-extrabold text-ink active:opacity-80"
                 >
                   {t.common.close}
                 </button>
@@ -951,7 +940,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
 
             {dividendMode === 'correct' && (
               <div className="mt-5">
-                <p className="text-slate-500 text-[11px] font-bold leading-relaxed">{t.invest.correctAmountHint}</p>
+                <p className="text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.correctAmountHint}</p>
                 <div className="flex mt-4">
                   <Field
                     label={t.invest.amountReceived}
@@ -962,7 +951,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                   />
                 </div>
                 {correctionPlan && correctionPlan.deltaCents !== 0 && (
-                  <div className="mt-4 rounded-2xl bg-white/5 p-4">
+                  <div className="mt-4 rounded-3xl bg-lav p-4">
                     <Line
                       label={t.invest.potMoves(
                         money(potCents),
@@ -970,18 +959,18 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                         money(correctionPlan.deltaCents, { signed: true })
                       )}
                       value=""
-                      tone="text-accent"
+                      tone="text-info"
                     />
                   </div>
                 )}
                 {correction && 'problem' in correction && amountText.trim() !== '' && (
-                  <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{dividendProblemText(correction, t)}</p>
+                  <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{dividendProblemText(correction, t)}</p>
                 )}
-                {problem && <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>}
+                {problem && <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{problem}</p>}
                 <button
                   onClick={() => void saveCorrection()}
                   disabled={!correctionPlan || correctionPlan.deltaCents === 0 || busy}
-                  className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
+                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-cta px-6 text-[15.5px] font-extrabold text-cta-fg disabled:opacity-40 active:opacity-80"
                 >
                   {t.invest.saveCorrection}
                 </button>
@@ -992,7 +981,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     setDividendMode('view');
                   }}
                   disabled={busy}
-                  className="w-full h-12 mt-3 rounded-full glass border border-white/10 text-white font-black disabled:opacity-30 active:scale-95 transition-transform"
+                  className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-card px-6 text-[15px] font-extrabold text-ink disabled:opacity-40 active:opacity-80"
                 >
                   {t.common.back}
                 </button>
@@ -1001,17 +990,17 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
 
             {dividendMode === 'remove' && (
               <div className="mt-5">
-                <p className="text-slate-300 text-[12px] font-bold leading-relaxed">
+                <p className="text-[13px] font-medium leading-relaxed">
                   {t.invest.removeDividendBody(money(editing ? tradeCents(editing) : 0))}
                 </p>
                 {removal && 'problem' in removal && (
-                  <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{dividendProblemText(removal, t)}</p>
+                  <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{dividendProblemText(removal, t)}</p>
                 )}
-                {problem && <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>}
+                {problem && <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{problem}</p>}
                 <button
                   onClick={() => void confirmRemoval()}
                   disabled={!removal || 'problem' in removal || busy}
-                  className="w-full h-14 mt-5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black disabled:opacity-30 active:scale-95 transition-transform"
+                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-peach px-6 text-[15.5px] font-extrabold text-neg disabled:opacity-40 active:opacity-80"
                 >
                   {t.invest.removeDividendConfirm}
                 </button>
@@ -1021,7 +1010,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     setDividendMode('view');
                   }}
                   disabled={busy}
-                  className="w-full h-12 mt-3 rounded-full glass border border-white/10 text-white font-black disabled:opacity-30 active:scale-95 transition-transform"
+                  className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-card px-6 text-[15px] font-extrabold text-ink disabled:opacity-40 active:opacity-80"
                 >
                   {t.common.back}
                 </button>
@@ -1030,15 +1019,15 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
           </div>
         ) : needsCounter && kind === 'sell' ? (
           <div className="mt-5">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3">
+            <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">
               {t.invest.whichCounter}
             </p>
             {held.length === 0 ? (
-              <p className="text-slate-500 text-xs font-bold leading-relaxed">
+              <p className="text-[13px] font-medium leading-relaxed text-mute">
                 {t.invest.nothingToSell}
               </p>
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
                 {held.map((holding) => (
                   <button
                     key={holding.id}
@@ -1046,15 +1035,15 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                       setSymbol(holding.symbol);
                       setName(holding.name);
                     }}
-                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 text-left active:scale-95 transition-transform"
+                    className="flex min-h-14 w-full items-center gap-3 py-2.5 text-left active:opacity-70"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-white font-black text-sm truncate">{holding.name}</p>
-                      <p className="text-slate-500 text-[11px] font-bold">
+                      <p className="truncate text-[15px] font-bold">{holding.name}</p>
+                      <p className="text-[12px] font-medium text-mute">
                         {t.common.units(holding.units.toLocaleString('en-US'))} · {holding.symbol}
                       </p>
                     </div>
-                    <span className="material-symbols-rounded text-slate-600">chevron_right</span>
+                    <Icon name="chev" size={18} className="text-mute" />
                   </button>
                 ))}
               </div>
@@ -1062,24 +1051,24 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
           </div>
         ) : needsCounter ? (
           <div className="mt-5">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">{t.invest.counter}</p>
-            <div className="flex items-center gap-3 h-14 px-4 rounded-2xl bg-white/5 border border-white/10 focus-within:border-primary/50 transition-colors">
-              <span className="material-symbols-rounded text-slate-500">search</span>
+            <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">{t.invest.counter}</p>
+            <div className="flex min-h-14 items-center gap-3 rounded-[18px] bg-field px-4 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
+              <Icon name="ser" size={18} className="text-mute" />
               <input
                 autoFocus
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
                 placeholder={t.invest.searchPlaceholder}
-                className="w-full border-0 bg-transparent text-white font-bold focus:outline-none placeholder:text-slate-700"
+                className="min-h-6 w-full border-0 bg-transparent p-0 text-[16px] font-bold text-ink placeholder:text-mute focus:ring-0"
               />
             </div>
-            {searching && <p className="text-slate-500 text-xs font-bold mt-3">{t.invest.searching}</p>}
+            {searching && <p className="mt-3 px-1 text-[12.5px] font-semibold text-mute">{t.invest.searching}</p>}
             {!searching && term.trim().length >= 2 && hits.length === 0 && (
-              <p className="text-slate-500 text-xs font-bold mt-3 leading-relaxed">
+              <p className="mt-3 px-1 text-[12.5px] font-semibold text-mute leading-relaxed">
                 {t.invest.noMatch}
               </p>
             )}
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
               {hits.map((hit) => (
                 <button
                   key={hit.symbol}
@@ -1087,13 +1076,13 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     setSymbol(normalizeSymbol(hit.symbol));
                     setName(hit.name);
                   }}
-                  className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 text-left active:scale-95 transition-transform"
+                  className="flex min-h-14 w-full items-center gap-3 py-2.5 text-left active:opacity-70"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-white font-black text-sm truncate">{hit.name}</p>
-                    <p className="text-slate-500 text-[11px] font-bold">{hit.symbol}</p>
+                    <p className="truncate text-[15px] font-bold">{hit.name}</p>
+                    <p className="text-[12px] font-medium text-mute">{hit.symbol}</p>
                   </div>
-                  <span className="material-symbols-rounded text-slate-600">add</span>
+                  <Icon name="plus" size={18} className="text-mute" />
                 </button>
               ))}
             </div>
@@ -1116,8 +1105,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             </div>
             {/* A suggestion to tap, never a silent fill: a last price is not what the order filled at. */}
             {priceHint && (
-              <div className="mt-2.5 flex items-center gap-3 rounded-2xl bg-white/5 border border-white/10 px-3.5 py-2.5">
-                <p className="flex-1 min-w-0 text-slate-400 text-[11px] font-bold leading-relaxed">
+              <div className="mt-2.5 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
+                <p className="flex-1 min-w-0 text-[12.5px] font-medium leading-relaxed text-mute">
                   {t.invest.lastPrice(`RM${priceHint.text}`, agoText(priceHint.ago))}
                 </p>
                 <button
@@ -1127,22 +1116,22 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     setPrice(next.text);
                     setPriceFromHint(next.fromHint);
                   }}
-                  className="shrink-0 h-9 px-3 rounded-xl bg-accent/15 border border-accent/40 text-accent text-[11px] font-black active:scale-95 transition-transform"
+                  className="min-h-11 shrink-0 rounded-full bg-cta px-4 text-[12px] font-extrabold text-cta-fg active:opacity-80"
                 >
                   {t.invest.useLastPrice(`RM${priceHint.text}`)}
                 </button>
               </div>
             )}
             {priceFromHint && price.trim() !== '' && (
-              <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.priceFromLast}</p>
+              <p className="text-[12.5px] font-bold text-warn mt-2.5 leading-relaxed">{t.invest.priceFromLast}</p>
             )}
 
             {/* Fees, filled in from the broker's rates until someone types over one. */}
             <div className="mt-5">
               <div className="flex items-center gap-2 mb-2">
-                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest shrink-0">{t.invest.fees}</p>
+                <p className="shrink-0 px-1 text-[12.5px] font-bold text-mute">{t.invest.fees}</p>
                 {broker && (
-                  <p className={`flex-1 min-w-0 truncate text-[11px] font-bold ${anyEdited ? 'text-amber-400' : 'text-slate-500'}`}>
+                  <p className={`flex-1 min-w-0 truncate text-[11px] font-bold ${anyEdited ? 'text-warn' : 'text-mute'}`}>
                     {anyEdited ? t.invest.feesEdited : ratesName}
                   </p>
                 )}
@@ -1151,7 +1140,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                   <button
                     type="button"
                     onClick={onEditBroker}
-                    className="shrink-0 text-accent text-[11px] font-black active:scale-95 transition-transform"
+                    className="shrink-0 min-h-11 shrink-0 px-1 text-[12.5px] font-extrabold active:opacity-60"
                   >
                     {t.invest.changeBroker}
                   </button>
@@ -1160,12 +1149,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               <div className={`grid gap-2 ${isReit ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 {feeKeys.map((key) => (
                   <label key={key} className="min-w-0 block">
-                    <span className="block text-slate-500 text-[9px] font-black uppercase tracking-wider mb-1 truncate">
+                    <span className="mb-1 block truncate px-1 text-[11.5px] font-bold text-mute">
                       {t.invest.feeBox[key]}
                     </span>
                     <span
-                      className={`flex items-center h-11 px-2.5 rounded-xl bg-white/5 border transition-colors ${
-                        broker && edited[key] ? 'border-amber-400/60' : 'border-white/10 focus-within:border-primary/50'
+                      className={`flex min-h-12 items-center rounded-2xl bg-field px-2.5 outline-2 focus-within:outline ${
+                        broker && edited[key] ? 'outline outline-2 outline-warn' : ''
                       }`}
                     >
                       <input
@@ -1177,19 +1166,19 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                         onChange={(e) => typeFee(key, e.target.value)}
                         onFocus={(e) => e.target.select()}
                         placeholder="0.00"
-                        className="w-full min-w-0 border-0 bg-transparent text-white text-sm font-black focus:outline-none placeholder:text-slate-700"
+                        className="min-h-6 w-full min-w-0 border-0 bg-transparent p-0 text-[15px] font-extrabold text-ink placeholder:text-mute focus:ring-0"
                       />
                     </span>
                   </label>
                 ))}
               </div>
               {!broker && (
-                <div className="mt-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
-                  <p className="text-amber-200/90 text-[11px] font-bold leading-relaxed">{t.invest.noBroker}</p>
+                <div className="mt-2.5 rounded-3xl bg-sun px-4 py-3">
+                  <p className="text-[12.5px] font-semibold leading-relaxed">{t.invest.noBroker}</p>
                   <button
                     type="button"
                     onClick={onEditBroker}
-                    className="mt-1.5 text-accent text-xs font-black active:scale-95 transition-transform"
+                    className="mt-1.5 min-h-11 text-[13px] font-extrabold underline active:opacity-60"
                   >
                     {t.invest.chooseBroker}
                   </button>
@@ -1199,7 +1188,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
 
             {/* Where the money comes from, or where it goes. */}
             <div className="mt-5">
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">
+              <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">
                 {kind === 'buy' ? t.invest.paidFrom : t.invest.depositTo}
               </p>
               <div className="space-y-2">
@@ -1246,19 +1235,19 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 )}
               </div>
               {!picked && (
-                <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWherePaidFrom}</p>
+                <p className="text-[12.5px] font-bold text-warn mt-2.5 leading-relaxed">{t.invest.chooseWherePaidFrom}</p>
               )}
               {picked && needsChoice && hasDestination && (
-                <p className="text-amber-300/90 text-[11px] font-bold mt-2.5 leading-relaxed">{t.invest.chooseWhereSaleGoes}</p>
+                <p className="text-[12.5px] font-bold text-warn mt-2.5 leading-relaxed">{t.invest.chooseWhereSaleGoes}</p>
               )}
               {picked && needsChoice && !hasDestination && (
-                <div className="mt-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-3">
-                  <p className="text-amber-200/90 text-[11px] font-bold leading-relaxed">{t.invest.noGoalForSale}</p>
+                <div className="mt-2.5 rounded-3xl bg-sun px-4 py-3">
+                  <p className="text-[12.5px] font-semibold leading-relaxed">{t.invest.noGoalForSale}</p>
                   {onCreateGoal && (
                     <button
                       type="button"
                       onClick={onCreateGoal}
-                      className="mt-1.5 text-accent text-xs font-black active:scale-95 transition-transform"
+                      className="mt-1.5 min-h-11 text-[13px] font-extrabold underline active:opacity-60"
                     >
                       {t.invest.createGoal}
                     </button>
@@ -1268,13 +1257,13 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             </div>
 
             {outcome && ready && (
-              <div className="mt-5 rounded-2xl bg-white/5 p-4 space-y-2.5">
+              <div className="mt-5 space-y-1 rounded-3xl bg-card p-4">
                 <Line label={kind === 'buy' ? t.invest.thisTrade : t.invest.sale} value={money(tradeValue)} />
                 <Line label={t.invest.fees} value={money(totalFees(fees))} />
-                <div className="h-px bg-white/10" />
+                <div className="my-2 h-px bg-line/10" />
                 <Line label={kind === 'buy' ? t.invest.totalPaid : t.invest.totalReceived} value={money(totalCents)} strong />
                 {moneyLines()}
-                <div className="h-px bg-white/10" />
+                <div className="my-2 h-px bg-line/10" />
                 <Line
                   label={t.invest.afterThis(name || symbol)}
                   value={t.invest.unitsChange(
@@ -1287,31 +1276,31 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                   value={outcome.after.units > 0 ? `RM${(averageCostCents(outcome.after) / 100).toFixed(4)}` : '—'}
                 />
                 {kind === 'sell' && outcome.after.units === outcome.before.units && unitsIn > 0 && (
-                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">
+                  <p className="text-[12.5px] font-bold text-warn leading-relaxed">
                     {t.invest.saleChangesNothing}
                   </p>
                 )}
                 {/* Until a source is picked, the hint above already says this. */}
                 {preview?.refundPending && picked && (
-                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.refundLater}</p>
+                  <p className="text-[12.5px] font-bold text-warn leading-relaxed">{t.invest.refundLater}</p>
                 )}
                 {preview?.takeBackPending && (
-                  <p className="text-amber-300/90 text-[11px] font-bold leading-relaxed">{t.invest.takeBackLater}</p>
+                  <p className="text-[12.5px] font-bold text-warn leading-relaxed">{t.invest.takeBackLater}</p>
                 )}
               </div>
             )}
 
-            {blocked && <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{blocked}</p>}
+            {blocked && <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{blocked}</p>}
             {problem && problem !== blocked && (
-              <p className="text-red-400 text-xs font-bold mt-4 leading-relaxed">{problem}</p>
+              <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{problem}</p>
             )}
 
-            {!creditedLoaded && <p className="text-slate-500 text-xs font-bold mt-4 leading-relaxed">{t.invest.dividendsLoading}</p>}
+            {!creditedLoaded && <p className="mt-4 px-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.dividendsLoading}</p>}
 
             <button
               onClick={() => void save()}
               disabled={!canSave}
-              className="w-full h-14 mt-5 rounded-full bg-primary text-black font-black disabled:opacity-30 active:scale-95 transition-all"
+              className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-cta px-6 text-[15.5px] font-extrabold text-cta-fg disabled:opacity-40 active:opacity-80"
             >
               {editing ? t.common.saveChanges : t.invest.record[kind]}
             </button>
@@ -1320,17 +1309,17 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               <button
                 onClick={() => void remove()}
                 disabled={busy || !creditedLoaded}
-                className="w-full h-12 mt-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 font-black disabled:opacity-30 active:scale-95 transition-transform"
+                className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-peach px-6 text-[15px] font-extrabold text-neg disabled:opacity-40 active:opacity-80"
               >
                 {t.invest.deleteTrade}
               </button>
             )}
           </>
         )}
-      </div>
+      </Sheet>
 
       {refundAsk && (
-        <div onClick={(e) => e.stopPropagation()}>
+        <>
           <RefundSheet
             amountCents={refundAsk.cents}
             banks={banks}
@@ -1341,11 +1330,11 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             onChoose={(refund) => void (refundAsk.removing ? removeWith(refund) : save(refund))}
             onClose={() => setRefundAsk(null)}
           />
-        </div>
+        </>
       )}
 
       {takeBackAsk && previous && (
-        <div onClick={(e) => e.stopPropagation()}>
+        <>
           <GoneShareSheet
             distributions={
               previous.activity?.distributions ??
@@ -1361,20 +1350,20 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             onChoose={(takeBack) => void (takeBackAsk.removing ? removeWith(undefined, takeBack) : save(undefined, takeBack))}
             onClose={() => setTakeBackAsk(null)}
           />
-        </div>
+        </>
       )}
 
       {mismatch && (
-        <div onClick={(e) => e.stopPropagation()}>
+        <>
           <FeeMismatchSheet
             mismatch={mismatch}
             invest={invest}
             onUpdate={() => answerMismatch(true)}
             onNotNow={() => answerMismatch(false)}
           />
-        </div>
+        </>
       )}
-    </div>
+    </>
   );
 };
 

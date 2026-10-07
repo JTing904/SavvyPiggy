@@ -65,6 +65,9 @@ import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
 import { useTradeRow } from './hooks/useTradeRow';
 import { OlderRecordsSheet } from './components/OlderRecordsNotice';
+import { Button } from './components/ui/Button';
+import { Icon } from './components/ui/Icon';
+import { Sheet } from './components/ui/Sheet';
 import { Splash } from './components/Splash';
 import { checkPermission, onNotificationOpen, requestPermission, syncNotifications } from './services/notifications';
 
@@ -989,16 +992,15 @@ const App: React.FC = () => {
 
     if (error) {
       return (
-        <div className="h-full flex flex-col items-center justify-center gap-3 px-10 text-center">
-          <span className="material-symbols-rounded text-red-400 text-4xl">cloud_off</span>
-          <p className="text-white font-bold">{t.app.couldNotReach}</p>
-          <p className="text-slate-500 text-xs font-medium leading-relaxed">{error}</p>
-          <button
-            onClick={retry}
-            className="mt-4 px-8 h-12 rounded-2xl bg-primary text-black font-black active:scale-95 transition-transform"
-          >
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center font-figtree text-ink">
+          <span className="grid size-14 place-items-center rounded-full bg-peach">
+            <Icon name="bell" size={26} />
+          </span>
+          <p className="text-[17px] font-extrabold">{t.app.couldNotReach}</p>
+          <p className="max-w-[34ch] text-[13px] font-medium leading-relaxed text-mute">{error}</p>
+          <Button full={false} className="mt-3" onClick={retry}>
             {t.app.tryAgain}
-          </button>
+          </Button>
         </div>
       );
     }
@@ -1358,7 +1360,7 @@ const App: React.FC = () => {
           />
         );
       default:
-        return <div className="flex items-center justify-center h-full text-white/50">{t.app.comingSoon}</div>;
+        return <div className="flex h-full items-center justify-center text-mute">{t.app.comingSoon}</div>;
     }
   };
 
@@ -1568,58 +1570,46 @@ const App: React.FC = () => {
       )}
 
       {showQuickPick && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/85 veil-in"
-          onClick={() => setShowQuickPick(false)}
-        >
-          <div
-            className="w-full max-w-md bg-surface rounded-t-[3rem] sm:rounded-[3rem] sm:mb-6 shadow-2xl sheet-rise p-7 safe-pb max-h-[90dvh] overflow-y-auto no-scrollbar"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* The same button, two jobs: which one follows the card on Home. */}
-            <h3 className="text-white text-2xl font-black">
-              {mode === 'save' ? t.app.quick.moveMoney : t.app.quick.recordTrade}
-            </h3>
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              {(mode === 'save'
-                ? ([
-                    { key: 'deposit', label: t.app.quick.deposit, icon: 'south_west', tint: 'text-primary' },
-                    { key: 'withdraw', label: t.app.quick.spend, icon: 'north_east', tint: 'text-slate-400' },
-                  ] as const)
-                : ([
-                    { key: 'buy', label: t.app.quick.buy, icon: 'trending_up', tint: 'text-accent' },
-                    { key: 'sell', label: t.app.quick.sell, icon: 'trending_down', tint: 'text-slate-400' },
-                  ] as const)
-              ).map((option) => (
-                <button
-                  key={option.key}
-                  onClick={() => {
-                    setShowQuickPick(false);
-                    setSelectedGoalId(null);
-                    setShowProfile(false);
-                    setShowAlerts(false);
-                    if (option.key === 'buy' || option.key === 'sell') {
-                      openTrade({ mode: 'new', kind: option.key });
-                      return;
-                    }
-                    if (banks.length === 0) return openCreateGoal();
-                    setActiveTab(Tab.HOME);
-                    setQuickAction(option.key);
-                  }}
-                  className="flex flex-col items-center gap-2 bg-white/5 border border-white/10 rounded-[1.75rem] py-6 active:scale-95 transition-transform"
-                >
-                  <span className={`material-symbols-rounded text-3xl ${option.tint}`}>{option.icon}</span>
-                  <span className="text-white font-black">{option.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="text-slate-500 text-xs font-medium leading-relaxed mt-5">
-              {mode === 'save'
-                ? t.app.quick.saveHint
-                : t.app.quick.tradeHint}
-            </p>
+        // The same button, two jobs: which one follows the card on Home.
+        <Sheet title={mode === 'save' ? t.app.quick.moveMoney : t.app.quick.recordTrade} onClose={() => setShowQuickPick(false)}>
+          <div className="grid grid-cols-2 gap-3">
+            {(mode === 'save'
+              ? ([
+                  { key: 'deposit', label: t.app.quick.deposit, icon: 'dep', square: 'bg-mint' },
+                  { key: 'withdraw', label: t.app.quick.spend, icon: 'out', square: 'bg-peach' },
+                ] as const)
+              : ([
+                  { key: 'buy', label: t.app.quick.buy, icon: 'trend', square: 'bg-lav' },
+                  { key: 'sell', label: t.app.quick.sell, icon: 'minus', square: 'bg-peach' },
+                ] as const)
+            ).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => {
+                  setShowQuickPick(false);
+                  setSelectedGoalId(null);
+                  setShowProfile(false);
+                  setShowAlerts(false);
+                  if (option.key === 'buy' || option.key === 'sell') {
+                    openTrade({ mode: 'new', kind: option.key });
+                    return;
+                  }
+                  if (banks.length === 0) return openCreateGoal();
+                  setActiveTab(Tab.HOME);
+                  setQuickAction(option.key);
+                }}
+                className="flex flex-col items-center gap-2 rounded-3xl bg-card py-6 text-ink active:opacity-80"
+              >
+                <span className={`grid size-12 place-items-center rounded-2xl ${option.square}`}>
+                  <Icon name={option.icon} size={24} />
+                </span>
+                <span className="text-[15px] font-extrabold">{option.label}</span>
+              </button>
+            ))}
           </div>
-        </div>
+          <p className="mt-4 px-1 text-[12.5px] font-medium leading-relaxed text-mute">{mode === 'save' ? t.app.quick.saveHint : t.app.quick.tradeHint}</p>
+        </Sheet>
       )}
     </div>
   );
