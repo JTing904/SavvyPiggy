@@ -1,9 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import type { Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import type { Activity, Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
 import { isArchived } from '../services/ledger';
 import { formatMoney, fromCents, toCents } from '../services/money';
 import { amountToCents, typedFromCents } from '../services/keypad';
-import { CATEGORIES, UNCATEGORISED } from '../services/categories';
+import { CATEGORIES, categoryOf, UNCATEGORISED } from '../services/categories';
+import { findDuplicate, parseQuick } from '../services/quickParse';
+import { canReadPictures, pickPicture, readPicture, type QuickDraft } from '../services/quickRead';
+import type { ReceiptRead } from '../services/receipt';
 import { loadLastChoices, saveLastChoices, usableChoices, withChoice, type ChoicePatch } from '../services/lastChoices';
 import { atFromPicked, defaultIncomeChoice, defaultSpendSource, WALLET, type IncomeChoice } from '../services/moneySheet';
 import { planIncome, walletCents, type IncomeTarget } from '../services/wallet';
@@ -32,6 +35,10 @@ interface MoneySheetProps {
   loans: Loan[];
   savings: SavingsSettings;
   wallet: WalletSettings;
+  /** What is on the books, to warn before the same spending is recorded twice. */
+  activities: Activity[];
+  /** A line of text or a picture to start from (written, shared in from another app). */
+  draft?: QuickDraft;
   /** Whose remembered choices to use. */
   uid: string;
   /** The earliest day an entry can be dated: the start of the history the app keeps. */
@@ -84,6 +91,8 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   loans,
   savings,
   wallet,
+  activities,
+  draft,
   uid,
   liveFrom,
   onDeposit,
@@ -107,6 +116,74 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   const [day, setDay] = useState(() => toInputDate(Date.now()));
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  // Quick entry: a line of text, or a picture. Either one fills the fields below, which stay editable.
+  const q = t.quick;
+  const [line, setLine] = useState(draft?.text ?? '');
+  const [reading, setReading] = useState(false);
+  const [readInfo, setReadInfo] = useState<ReceiptRead | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  /** Amounts to choose from, when the line or the picture has several and does not say which. */
+  const [options, setOptions] = useState<number[]>([]);
+  const [repeatAsked, setRepeatAsked] = useState(false);
+
+  const parsed = useMemo(
+    () =>
+      line.trim()
+        ? parseQuick(line, { goals: goals.map((g) => ({ id: g.id, name: g.name })), now: new Date(), liveFrom })
+        : null,
+    [line, goals, liveFrom]
+  );
+  useEffect(() => {
+    if (!parsed) return;
+    setReadInfo(null);
+    setReadError(null);
+    setTab(parsed.kind === 'income' ? 'deposit' : 'spend');
+    setText(parsed.cents !== null ? typedFromCents(parsed.cents) : '');
+    setOptions(parsed.issues.includes('manyAmounts') ? parsed.amounts : []);
+    setCategory(parsed.category ?? UNCATEGORISED);
+    setNote(parsed.note);
+    setDay(parsed.day ? toInputDate(parsed.day.getTime()) : toInputDate(Date.now()));
+    // Where it comes from or goes to: the goal the line names, otherwise the wallet, and the sheet says so.
+    if (parsed.kind === 'income') setChoice(parsed.goalId ?? WALLET);
+    else setSource(parsed.goalId ?? WALLET);
+  }, [parsed]);
+
+  const applyRead = (r: ReceiptRead) => {
+    setLine('');
+    setReadInfo(r);
+    setOptions(r.cents === null ? r.candidates : []);
+    setTab(r.income ? 'deposit' : 'spend');
+    setText(r.cents !== null ? typedFromCents(r.cents) : '');
+    setCategory(UNCATEGORISED);
+    setNote(r.merchant ?? '');
+    const earliest = new Date(liveFrom.getFullYear(), liveFrom.getMonth(), liveFrom.getDate()).getTime();
+    setDay(r.day && r.day.getTime() >= earliest ? toInputDate(r.day.getTime()) : toInputDate(Date.now()));
+  };
+  const readFrom = async (uri: string) => {
+    setReading(true);
+    setReadError(null);
+    setReadInfo(null);
+    try {
+      applyRead(await readPicture(uri));
+    } catch {
+      setReadError(q.readFailed);
+    } finally {
+      setReading(false);
+    }
+  };
+  const pick = async (source: 'camera' | 'gallery') => {
+    setReadError(null);
+    try {
+      const uri = await pickPicture(source);
+      if (uri) await readFrom(uri);
+    } catch {
+      setReadError(q.readFailed);
+    }
+  };
+  useEffect(() => {
+    if (draft?.imageUri) void readFrom(draft.imageUri);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cents = amountToCents(text);
   const held = walletCents(wallet);
@@ -167,8 +244,15 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     saveLastChoices(uid, withChoice(loadLastChoices(uid), patch));
   };
 
+  // The same spending twice is asked about once; any change to it asks again.
+  useEffect(() => setRepeatAsked(false), [cents, category, day, tab, source]);
+
   const confirm = async () => {
     if (!ready || busy) return;
+    if (!deposit && !repeatAsked && findDuplicate(activities, { cents, category, day: pickedDay }, new Date())) {
+      setRepeatAsked(true);
+      return;
+    }
     setBusy(true);
     setFailed(false);
     const value = fromCents(cents);
@@ -191,12 +275,115 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   const footer = (
     <Button variant={deposit ? 'primary' : 'danger'} disabled={!ready} loading={busy} onClick={confirm}>
-      {label}
+      {repeatAsked ? q.recordAgain : label}
     </Button>
   );
 
   return (
     <Sheet title={w.title} onClose={onClose} footer={footer} height="tall">
+      <Field label={q.lineLabel} value={line} onChange={setLine} placeholder={q.linePlaceholder} autoComplete="off" enterKeyHint="done" />
+
+      {parsed && (
+        <>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <span className="rounded-full bg-card px-3 py-1.5 text-[13px] font-bold">{parsed.kind === 'income' ? q.income : q.spend}</span>
+            {parsed.kind !== 'income' && (
+              <span className={`rounded-full px-3 py-1.5 text-[13px] font-bold ${parsed.category ? 'bg-card' : 'bg-sun'}`}>
+                {parsed.category ? categoryOf(parsed.category).label : q.noCategory}
+              </span>
+            )}
+            <span
+              className={`rounded-full px-3 py-1.5 text-[13px] font-extrabold ${parsed.cents !== null ? 'bg-cta text-cta-fg' : 'bg-sun'}`}
+            >
+              {parsed.cents !== null ? formatMoney(fromCents(parsed.cents)) : q.noAmount}
+            </span>
+            <span className="rounded-full bg-card px-3 py-1.5 text-[13px] font-bold">
+              {parsed.kind === 'income'
+                ? choice === WALLET
+                  ? q.toWallet
+                  : choice === 'split'
+                    ? w.allToGoals
+                    : q.toGoal(goals.find((g) => g.id === choice)?.name ?? '')
+                : source === WALLET || source === undefined
+                  ? q.fromWallet
+                  : q.fromGoal(goals.find((g) => g.id === source)?.name ?? '')}
+            </span>
+            <span className="rounded-full bg-card px-3 py-1.5 text-[13px] font-bold">{pastDay ? readableDate(day) : q.today}</span>
+          </div>
+          {parsed.issues.includes('tooOld') && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{q.tooOld}</p>}
+          {parsed.issues.includes('badDay') && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{q.badDay}</p>}
+        </>
+      )}
+
+      {options.length > 0 && (
+        <>
+          <p className="mb-2 mt-3 px-0.5 text-[12.5px] font-bold text-mute">{readInfo ? q.readPick : q.manyAmounts}</p>
+          <div role="group" aria-label={q.manyAmounts} className="flex flex-wrap gap-2">
+            {options.map((c) => (
+              <Chip key={c} selected={cents === c} onClick={() => setText(typedFromCents(c))}>
+                {money(c)}
+              </Chip>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!parsed && !readInfo && !reading && !line && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <span className="px-0.5 text-[12px] font-bold text-mute">{q.examplesLabel}</span>
+          {q.examples.map((example) => (
+            <button
+              key={example}
+              type="button"
+              onClick={() => setLine(example)}
+              className="min-h-9 rounded-full bg-line/10 px-3 text-[13px] font-bold active:opacity-70"
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {canReadPictures() && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip className="inline-flex items-center" onClick={() => void pick('camera')}>
+            <Icon name="camera" size={16} className="mr-1.5" />
+            {q.fromCamera}
+          </Chip>
+          <Chip className="inline-flex items-center" onClick={() => void pick('gallery')}>
+            <Icon name="image" size={16} className="mr-1.5" />
+            {q.fromGallery}
+          </Chip>
+        </div>
+      )}
+      {reading && <p className="mt-3 px-0.5 text-[13px] font-semibold text-mute">{q.reading}</p>}
+      {readError && <p className="mt-3 rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{readError}</p>}
+      {readInfo && (
+        <div className="mt-3 rounded-3xl bg-card px-4 py-3 text-[13px] font-medium leading-relaxed">
+          <p className="text-[12.5px] font-extrabold">{q.readHeading}</p>
+          {readInfo.evidence.amount && <p className="mt-1 text-mute">{q.readAmountFrom(readInfo.evidence.amount)}</p>}
+          {readInfo.evidence.date && <p className="text-mute">{q.readDateFrom(readInfo.evidence.date)}</p>}
+          {readInfo.merchant && <p className="text-mute">{q.readMerchant(readInfo.merchant)}</p>}
+          {!readInfo.day && <p className="text-mute">{q.readNoDate}</p>}
+          {readInfo.cents === null && !readInfo.zeroPaid && readInfo.candidates.length > 0 && (
+            <p className="mt-2 rounded-2xl bg-sun px-3 py-2 font-semibold text-ink">{q.readNoAmount}</p>
+          )}
+          {readInfo.zeroPaid && <p className="mt-2 rounded-2xl bg-sun px-3 py-2 font-semibold text-ink">{q.readZero}</p>}
+          {readInfo.cents === null && !readInfo.zeroPaid && readInfo.candidates.length === 0 && !readInfo.day && !readInfo.merchant && (
+            <p className="mt-2 rounded-2xl bg-sun px-3 py-2 font-semibold text-ink">{q.readEmpty}</p>
+          )}
+          {!deposit && category === UNCATEGORISED && <p className="mt-2 text-mute">{q.readCategory}</p>}
+          <p className="mt-2 text-[11.5px] text-mute">{q.readOnPhone}</p>
+        </div>
+      )}
+      {repeatAsked && (
+        <div className="mt-3 rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold leading-snug text-ink">
+          <p className="font-extrabold">{q.dupTitle}</p>
+          <p className="mt-0.5">{q.dupBody(money(cents), categoryOf(category).label)}</p>
+        </div>
+      )}
+
+      <div className="mt-4" />
       <Segmented<Tab>
         ariaLabel={w.tabs}
         value={tab}

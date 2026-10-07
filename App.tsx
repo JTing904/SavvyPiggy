@@ -37,6 +37,7 @@ import { usePiggyData } from './hooks/usePiggyData';
 import { useMembership } from './hooks/useMembership';
 import { useBackHandler } from './hooks/useBackHandler';
 import { useScreenLook } from './hooks/useScreenLook';
+import { clearShared, onShared, takeShared, type QuickDraft, type Shared } from './services/quickRead';
 import { useToast } from './contexts/ToastContext';
 import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
@@ -359,6 +360,36 @@ const App: React.FC = () => {
     const trade = trades.find((t) => t.id === tradeId);
     if (trade) setTradeDraft({ mode: 'edit', trade });
   };
+  // A picture or some text shared from another app lands on the record sheet, filled in and waiting to be checked.
+  const [quickDraft, setQuickDraft] = useState<QuickDraft | null>(null);
+  useEffect(() => {
+    if (!uid || dataLoading) return;
+    const takeIn = (shared: Shared) => {
+      if (shared.kind === 'none') return;
+      void clearShared();
+      setShowProfile(false);
+      setShowAlerts(false);
+      setShowStatements(false);
+      setShowAutoDeposits(false);
+      setShowMonthlyBuy(false);
+      setShowBudgets(false);
+      setReviewMonth(null);
+      setSelectedGoalId(null);
+      setEntryId(null);
+      setMode('save');
+      setActiveTab(Tab.HOME);
+      setQuickDraft({ at: Date.now(), ...(shared.kind === 'text' ? { text: shared.text } : { imageUri: shared.uri }) });
+      toast.show({ message: t.quick.sharedIn, tone: 'success' });
+    };
+    let live = true;
+    void takeShared().then((shared) => live && takeIn(shared));
+    const stop = onShared(takeIn);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [uid, dataLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useBackHandler(true, () => {
     if (showBudgets) setShowBudgets(false);
     else if (reviewMonth) setReviewMonth(null);
@@ -1111,6 +1142,8 @@ const App: React.FC = () => {
             savings={savings}
             unreadAlerts={unread}
             quickAction={quickAction}
+            quickDraft={quickDraft ?? undefined}
+            onQuickDraftHandled={() => setQuickDraft(null)}
             onQuickActionHandled={() => setQuickAction(null)}
           />
         );

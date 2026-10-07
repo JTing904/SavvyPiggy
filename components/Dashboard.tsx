@@ -20,6 +20,7 @@ import PickCard from './invest/PickCard';
 import PotCard from './invest/PotCard';
 import type { Mode as NavMode } from './Navigation';
 import MoneySheet from './MoneySheet';
+import type { QuickDraft } from '../services/quickRead';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, deviceDateLocale, noteText, type Messages } from '../i18n';
 
@@ -91,6 +92,8 @@ interface DashboardProps {
   unreadAlerts: number;
   /** Set from the nav's round button; cleared once the sheet is open. */
   quickAction: 'deposit' | 'withdraw' | null;
+  quickDraft?: QuickDraft;
+  onQuickDraftHandled?: () => void;
   onQuickActionHandled: () => void;
   /** For this month's pick card; without it (or the opener) the card is not shown. */
   investSettings?: InvestSettings;
@@ -690,6 +693,7 @@ const LegacyHome: React.FC<DashboardProps> = ({
           loans={loans}
           savings={savings}
           wallet={wallet}
+          activities={activities}
           uid={uid}
           liveFrom={liveFrom}
           onDeposit={onDeposit}
@@ -738,6 +742,8 @@ const Dashboard: React.FC<DashboardProps> = (props) =>
       onOpenTrade={props.onOpenTrade}
       quickAction={props.quickAction}
       onQuickActionHandled={props.onQuickActionHandled}
+      quickDraft={props.quickDraft}
+      onQuickDraftHandled={props.onQuickDraftHandled}
     />
   ) : (
     <LegacyHome {...props} />

@@ -19,7 +19,7 @@ export const app = {
     buy: 'Buy',
     sell: 'Sell',
     saveHint:
-      'Spending without picking a goal is recorded as spent ahead — your next deposits cover it before anything reaches your goals.',
+      'Spending comes out of the wallet unless you pick a goal. On the next screen you can also write a line, or read a picture, to fill it in faster.',
     tradeHint:
       'Every trade keeps the day it was done. That date is what decides which dividends are yours, so enter the day you dealt, not the day you typed it in.',
   },

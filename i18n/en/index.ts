@@ -24,5 +24,6 @@ import { firstRun } from './firstRun';
 import { wallet } from './wallet';
 import { bills } from './bills';
 import { review } from './review';
+import { quick } from './quick';
 
-export const en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review };
+export const en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick };

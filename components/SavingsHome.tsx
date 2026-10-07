@@ -17,6 +17,7 @@ import { useT } from '../contexts/LanguageContext';
 import type { Mode as NavMode } from './Navigation';
 import Avatar from './Avatar';
 import MoneySheet from './MoneySheet';
+import type { QuickDraft } from '../services/quickRead';
 import WalletMoveSheet from './WalletMoveSheet';
 import ConfirmBillSheet from './ConfirmBillSheet';
 import { EntryRow } from './history/EntryRow';
@@ -63,6 +64,9 @@ interface SavingsHomeProps {
   onOpenTrade?: (tradeId: string) => void;
   /** Set from the nav's round button; cleared once the sheet is open. */
   quickAction: 'deposit' | 'withdraw' | null;
+  /** A line or a picture handed in (shared from another app): opens the record sheet with it. */
+  quickDraft?: QuickDraft;
+  onQuickDraftHandled?: () => void;
   onQuickActionHandled: () => void;
 }
 
@@ -110,6 +114,8 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   onOpenTrade,
   quickAction,
   onQuickActionHandled,
+  quickDraft,
+  onQuickDraftHandled,
 }) => {
   const { user } = useAuth();
   const t = useT();
@@ -147,6 +153,15 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
     setSheet(quickAction === 'deposit' ? 'deposit' : 'spend');
     onQuickActionHandled();
   }, [quickAction]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Something shared from another app: the sheet opens with it filled in, to be checked before it is recorded.
+  const [draftIn, setDraftIn] = useState<QuickDraft | undefined>(undefined);
+  useEffect(() => {
+    if (!quickDraft) return;
+    setDraftIn(quickDraft);
+    setSheet('spend');
+    onQuickDraftHandled?.();
+  }, [quickDraft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A swipe left goes to investing, as it always did.
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -368,11 +383,16 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
           loans={loans}
           savings={savings}
           wallet={wallet}
+          activities={activities}
+          draft={draftIn}
           uid={uid}
           liveFrom={liveFrom}
           onDeposit={onDeposit}
           onWithdraw={onWithdraw}
-          onClose={() => setSheet(null)}
+          onClose={() => {
+            setSheet(null);
+            setDraftIn(undefined);
+          }}
         />
       )}
       {confirming && (
