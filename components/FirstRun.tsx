@@ -1,6 +1,7 @@
 import React from 'react';
 import { useT } from '../contexts/LanguageContext';
 import { FIRST_RUN_GOALS } from '../services/goalEditForm';
+import { PiggyMark } from './PiggyMark';
 import { Icon } from './ui/Icon';
 import { Tile, type TileTint } from './ui/Tile';
 
@@ -20,9 +21,7 @@ const FirstRun: React.FC<{
       <div className="mx-auto w-full max-w-md">
         <div className="flex flex-col items-center text-center">
           {/* The one pink thing in the app is the piggy. */}
-          <span className="material-symbols-rounded text-[#E8456B]" style={{ fontSize: 56 }} aria-hidden="true">
-            savings
-          </span>
+          <PiggyMark className="w-[84px]" />
           <h1 className="mt-4 text-[30px] font-extrabold leading-tight tracking-[-0.035em]">{t.firstRun.title}</h1>
           <p className="mt-2 max-w-[32ch] text-[14px] font-medium leading-relaxed text-mute">{t.firstRun.body}</p>
         </div>

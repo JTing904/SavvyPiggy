@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useT } from '../contexts/LanguageContext';
 import type { Messages } from '../i18n';
+import { PiggyTile } from './PiggyMark';
+import { Button } from './ui/Button';
+import { Field } from './ui/Field';
 
 /** Turns a Firebase auth/* code into something worth showing a person. */
 const friendlyError = (e: unknown, words: Messages['auth']['errors']) => {
@@ -88,118 +91,67 @@ const Login: React.FC = () => {
     void run(() => (isSignUp ? signUp(name, email, password) : signIn(email, password)));
   };
 
-  const inputClass =
-    'w-full h-16 px-6 rounded-3xl bg-surface border border-white/5 text-base font-bold text-white ' +
-    'focus:outline-none focus:border-primary/50 transition-all placeholder:text-slate-700 shadow-xl';
-
   return (
-    <div className="min-h-full flex flex-col justify-center px-6 py-12 safe-pt safe-pb">
-      <div className="w-full max-w-md mx-auto">
-        <div className="flex flex-col items-center mb-10">
-          <div className="size-20 rounded-[1.75rem] bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-2xl shadow-primary/20 mb-6">
-            <span className="material-symbols-rounded text-black text-4xl font-black">savings</span>
-          </div>
-          <h1 className="text-white text-4xl font-black tracking-tight">SavvyPiggy</h1>
-          <p className="text-slate-500 font-medium mt-2 text-center">
-            {isSignUp ? t.auth.signUpHint : t.auth.signInHint}
-          </p>
+    <div className="flex min-h-full flex-col justify-center px-5 py-12 safe-pt safe-pb font-figtree text-ink">
+      <div className="mx-auto w-full max-w-md">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <PiggyTile size={84} />
+          <h1 className="mt-5 text-[34px] font-extrabold leading-none tracking-[-0.035em]">SavvyPiggy</h1>
+          <p className="mt-2 text-[14px] font-medium text-mute">{isSignUp ? t.auth.signUpHint : t.auth.signInHint}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {isSignUp && (
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={inputClass}
-              placeholder={t.auth.yourName}
-              autoComplete="name"
-            />
-          )}
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={inputClass}
-            placeholder={t.auth.email}
-            type="email"
-            autoComplete="email"
-          />
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
-            placeholder={t.auth.password}
-            type="password"
-            autoComplete={isSignUp ? 'new-password' : 'current-password'}
-          />
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {isSignUp && <Field label={t.auth.yourName} value={name} onChange={setName} autoComplete="name" />}
+          <Field label={t.auth.email} value={email} onChange={setEmail} type="email" autoComplete="email" />
+          <Field label={t.auth.password} value={password} onChange={setPassword} type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} />
 
           {!isSignUp && (
             <button
               type="button"
               onClick={handleReset}
               disabled={busy}
-              className="w-full text-right text-slate-400 text-xs font-bold active:opacity-60 disabled:opacity-40"
+              className="ml-auto flex min-h-11 items-center px-1 text-[13px] font-bold text-mute active:opacity-60 disabled:opacity-40"
             >
               {t.auth.forgotPassword}
             </button>
           )}
 
           {sent && (
-            <div className="flex items-start gap-3 rounded-2xl bg-primary/10 border border-primary/25 px-5 py-4">
-              <span className="material-symbols-rounded text-primary text-lg">mark_email_read</span>
-              <p className="text-primary/90 text-xs font-bold leading-relaxed">
-                {t.auth.resetSent}
-              </p>
+            <div role="status" className="rounded-3xl bg-mint px-5 py-4">
+              <p className="text-[13px] font-bold leading-relaxed">{t.auth.resetSent}</p>
             </div>
           )}
 
           {error && (
-            <div
-              role="alert"
-              className="flex items-start gap-3 rounded-2xl bg-red-500/10 border border-red-500/20 px-5 py-4"
-            >
-              <span className="material-symbols-rounded text-red-400 text-lg">error</span>
-              <p className="text-red-300 text-xs font-bold leading-relaxed">{error}</p>
+            <div role="alert" className="rounded-3xl bg-peach px-5 py-4">
+              <p className="text-[13px] font-bold leading-relaxed text-neg">{error}</p>
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={!canSubmit || busy}
-            className={`w-full h-16 rounded-[2rem] font-black text-lg transition-all shadow-2xl ${
-              canSubmit && !busy
-                ? 'bg-primary text-black shadow-primary/20 active:scale-95'
-                : 'bg-white/5 text-slate-700 cursor-not-allowed'
-            }`}
-          >
+          <Button type="submit" disabled={!canSubmit} loading={busy}>
             {busy ? t.auth.pleaseWait : isSignUp ? t.auth.createAccount : t.auth.signIn}
-          </button>
+          </Button>
         </form>
 
-        <div className="flex items-center gap-4 my-7">
-          <div className="h-px flex-1 bg-white/10" />
-          <span className="text-slate-600 text-[10px] font-black uppercase tracking-widest">{t.auth.or}</span>
-          <div className="h-px flex-1 bg-white/10" />
+        <div className="my-5 flex items-center gap-4">
+          <div className="h-px flex-1 bg-line/10" />
+          <span className="text-[12px] font-bold text-mute">{t.auth.or}</span>
+          <div className="h-px flex-1 bg-line/10" />
         </div>
 
-        <div>
-          <button
-            onClick={() => void run(signInWithGoogle)}
-            disabled={busy}
-            className="w-full h-16 rounded-[2rem] glass border border-white/10 text-white font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform disabled:opacity-40"
-          >
-            <span className="material-symbols-rounded text-primary">login</span>
-            {t.auth.continueWithGoogle}
-          </button>
-        </div>
+        <Button variant="ghost" disabled={busy} onClick={() => void run(signInWithGoogle)}>
+          {t.auth.continueWithGoogle}
+        </Button>
 
-        <p className="text-center text-slate-500 text-sm font-medium mt-8">
+        <p className="mt-6 text-center text-[14px] font-medium text-mute">
           {isSignUp ? t.auth.haveAccount : t.auth.noAccount}{' '}
           <button
+            type="button"
             onClick={() => {
               setMode(isSignUp ? 'signin' : 'signup');
               setError(null);
             }}
-            className="text-primary font-black"
+            className="min-h-11 px-1 font-extrabold text-ink"
           >
             {isSignUp ? t.auth.signInLink : t.auth.signUpLink}
           </button>

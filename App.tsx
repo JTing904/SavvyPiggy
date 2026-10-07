@@ -65,14 +65,8 @@ import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
 import { useTradeRow } from './hooks/useTradeRow';
 import { OlderRecordsSheet } from './components/OlderRecordsNotice';
+import { Splash } from './components/Splash';
 import { checkPermission, onNotificationOpen, requestPermission, syncNotifications } from './services/notifications';
-
-const Splash: React.FC<{ label: string }> = ({ label }) => (
-  <div className="h-full flex flex-col items-center justify-center gap-4">
-    <span className="material-symbols-rounded text-primary text-4xl animate-pulse">savings</span>
-    <p className="text-slate-600 text-xs font-black uppercase tracking-widest">{label}</p>
-  </div>
-);
 
 const App: React.FC = () => {
   const { user, loading: authLoading } = useAuth();
@@ -976,7 +970,12 @@ const App: React.FC = () => {
     document.querySelector('main')?.scrollTo({ top: 0 });
   }, [topOverlay, activeTab]);
   // Home's savings half is a redesigned screen; its investing half is not yet.
-  useScreenLook({ tab: activeTab === Tab.HOME && mode === 'save' ? 'homeSave' : activeTab, overlays: topOverlay ? [topOverlay] : [] });
+  // Everything before the app proper (setup, language, sign-in, invite, the first load) is the new look too.
+  const beforeApp = !isFirebaseConfigured || !languageChosen || authLoading || !user || isMember !== true;
+  useScreenLook({
+    tab: activeTab === Tab.HOME && mode === 'save' ? 'homeSave' : activeTab,
+    overlays: beforeApp ? ['auth'] : topOverlay ? [topOverlay] : [],
+  });
 
   const entryActivity = entryId ? visibleActivities.find((a) => a.id === entryId) : undefined;
 

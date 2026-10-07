@@ -198,6 +198,7 @@ input[type=number] {
     --dot3: 157 164 232;
     --tog: 214 221 216;
     --warn: 176 112 0;
+    --brand: 240 67 109;
     --cat1: 39 85 192;
     --cat2: 11 110 68;
     --cat3: 176 112 0;
@@ -229,6 +230,7 @@ input[type=number] {
         --dot3: 157 164 232;
         --tog: 52 65 59;
         --warn: 240 201 74;
+        --brand: 255 107 142;
         --cat1: 141 174 242;
         --cat2: 111 217 166;
         --cat3: 240 201 74;
@@ -260,6 +262,7 @@ input[type=number] {
     --dot3: 157 164 232;
     --tog: 52 65 59;
     --warn: 240 201 74;
+    --brand: 255 107 142;
     --cat1: 141 174 242;
     --cat2: 111 217 166;
     --cat3: 240 201 74;
@@ -292,6 +295,39 @@ html[data-look="new"] .bg-bg-dark {
 .toast-in { animation: toast-in 200ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
     .toast-in { animation: none; }
+}
+
+/* The logo and the launch screen: the piggy draws itself, fills in, the name
+   rises, then the dots keep pulsing until the data is here. Every delay has the
+   time already played taken off (--el), so a screen that mounts again mid-way
+   carries on instead of starting over. */
+.pig-draw .o {
+    fill: none;
+    stroke: rgb(var(--brand));
+    stroke-width: 3;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: pig-dr var(--t, .7s) cubic-bezier(.55, .1, .2, 1) both;
+    animation-delay: calc(var(--dl, 0s) - var(--el, 0s));
+}
+.pig-draw .o.tl { stroke-width: 5; }
+.pig-draw .solid { animation: pig-fi .55s ease both; animation-delay: calc(1.05s - var(--el, 0s)); }
+.pig-draw .det { animation: pig-fi .35s ease both; animation-delay: calc(1.5s - var(--el, 0s)); }
+.pig-wm { animation: pig-up .55s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(1.55s - var(--el, 0s)); }
+.pig-lb { animation: pig-fi .5s ease both; animation-delay: calc(2s - var(--el, 0s)); }
+.pig-lb i { animation: pig-dot 1.2s ease-in-out infinite; animation-delay: calc(2.05s - var(--el, 0s)); }
+.pig-lb i:nth-child(2) { animation-delay: calc(2.25s - var(--el, 0s)); }
+.pig-lb i:nth-child(3) { animation-delay: calc(2.45s - var(--el, 0s)); }
+@keyframes pig-dr { to { stroke-dashoffset: 0; } }
+@keyframes pig-fi { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pig-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+@keyframes pig-dot { 0%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+    .pig-draw .o { display: none; }
+    .pig-draw .solid, .pig-draw .det, .pig-wm, .pig-lb { animation: none; }
+    .pig-lb i { animation: none; opacity: .6; }
 }
 
 @tailwind base;

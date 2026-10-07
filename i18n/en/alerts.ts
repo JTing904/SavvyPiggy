@@ -60,7 +60,18 @@ export const alerts = {
   emptyBody: 'Milestones, auto-deposit receipts and streaks show up here as they happen.',
 
   // Preferences
-  deliveryPreferences: 'Delivery preferences',
+  deliveryPreferences: 'Reminder settings',
+  prefsCollapse: 'Hide',
+  prefsExpand: 'Change',
+  prefsNone: 'Everything is off',
+  prefsShortNames: {
+    receipts: 'Auto deposits',
+    milestones: 'Milestones',
+    reminder: (time: string) => `Daily ${time}`,
+    digest: 'Monthly report',
+    exDates: 'Ex-dates',
+    bills: 'Bills',
+  },
   receiptsTitle: 'Auto-deposit receipts',
   receiptsHint: 'A card here each time a rule posts a deposit.',
   milestonesTitle: 'Milestones & streaks',

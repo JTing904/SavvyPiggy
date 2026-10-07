@@ -1,5 +1,7 @@
 import React from 'react';
 import { setLang, type Lang } from '../i18n';
+import { PiggyTile } from './PiggyMark';
+import { Icon } from './ui/Icon';
 
 /**
  * The very first screen, before signing in.
@@ -14,19 +16,17 @@ const OPTIONS: { lang: Lang; label: string }[] = [
 ];
 
 const LanguagePicker: React.FC = () => (
-  <div className="min-h-screen flex flex-col justify-center px-8 py-12">
-    <div className="size-16 rounded-[1.25rem] bg-primary text-black flex items-center justify-center">
-      <span className="material-symbols-rounded text-4xl">savings</span>
-    </div>
-    <h1 className="text-white text-3xl font-black tracking-tight leading-tight mt-6">
+  <div className="flex min-h-screen flex-col justify-center bg-page px-6 py-12 font-figtree text-ink">
+    <PiggyTile size={72} />
+    <h1 className="mt-6 text-[30px] font-extrabold leading-tight tracking-[-0.03em]">
       选择语言
       <br />
       Choose your language
     </h1>
-    <p className="text-slate-400 text-sm font-medium leading-relaxed mt-2">
-      之后可以在「个人」页面里更改。
+    <p className="mt-2 text-[14px] font-medium leading-relaxed text-mute">
+      之后可以在「设置」页面里更改。
       <br />
-      You can change this later in Profile.
+      You can change this later in Settings.
     </p>
 
     <div className="mt-8 space-y-3">
@@ -35,10 +35,10 @@ const LanguagePicker: React.FC = () => (
           key={option.lang}
           type="button"
           onClick={() => setLang(option.lang)}
-          className="w-full h-16 px-5 rounded-2xl bg-white/5 border border-white/10 text-left text-white text-lg font-black flex items-center active:scale-[0.98] active:border-primary/50 transition-all"
+          className="flex min-h-16 w-full items-center rounded-3xl bg-card px-5 text-left text-[18px] font-extrabold active:opacity-80"
         >
           <span className="flex-1">{option.label}</span>
-          <span className="material-symbols-rounded text-slate-600">chevron_right</span>
+          <Icon name="chev" size={20} className="text-mute" />
         </button>
       ))}
     </div>

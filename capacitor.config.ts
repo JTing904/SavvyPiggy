@@ -22,7 +22,7 @@ const config: CapacitorConfig = {
     LocalNotifications: {
       // A flat silhouette; the launcher icon would render as a white blob.
       smallIcon: 'ic_stat_savvypiggy',
-      iconColor: '#4ADE80',
+      iconColor: '#F0436D',
     },
   },
 };

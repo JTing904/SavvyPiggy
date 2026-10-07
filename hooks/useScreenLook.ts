@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { SystemBars, SystemBarsStyle } from '@capacitor/core';
+import { registerPlugin, SystemBars, SystemBarsStyle } from '@capacitor/core';
 import { lookOf, type Look, type ScreenState } from '../services/lookOf';
 
 /**
@@ -27,6 +27,12 @@ export const getThemePreference = (): ThemePreference => {
 
 let currentLook: Look = 'legacy';
 
+/** The native side that paints the bars behind the page (see BarsPlugin.java). */
+const Bars = registerPlugin<{ setColor(options: { color: string }): Promise<void> }>('Bars');
+
+/** Whether the phone itself is in dark mode, for the 'system' choice. */
+const phoneIsDark = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
 const apply = (look: Look) => {
   currentLook = look;
   if (typeof document === 'undefined') return;
@@ -39,6 +45,10 @@ const apply = (look: Look) => {
   const theme = look === 'legacy' ? 'dark' : pref;
   if (theme === 'system') delete root.dataset.theme;
   else root.dataset.theme = theme;
+
+  // The bars take the page's colour, so their icons stay readable on it.
+  const dark = theme === 'dark' || (theme === 'system' && phoneIsDark());
+  void Bars.setColor({ color: look === 'legacy' ? '#0A0F0D' : dark ? '#0E1311' : '#F3F5F1' }).catch(() => {});
 
   // Status and navigation bar icons: light icons on a dark screen and back.
   try {
@@ -64,5 +74,13 @@ export const useScreenLook = (state: ScreenState) => {
   const look = lookOf(state);
   useEffect(() => {
     apply(look);
+  }, [look]);
+  // With 'same as phone', the phone going dark or light at sunset has to repaint the bars too.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => apply(look);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
   }, [look]);
 };
