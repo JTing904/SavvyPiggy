@@ -30,6 +30,7 @@ import { Button } from './ui/Button';
 import { Icon } from './ui/Icon';
 import { EmptyState } from './ui/EmptyState';
 import type { TileTint } from './ui/Tile';
+import { swipeBlockedAt } from '../services/swipe';
 
 const TINTS: TileTint[] = ['peach', 'lav', 'sun', 'mint'];
 
@@ -177,7 +178,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   // A swipe left goes to investing, as it always did.
   const touch = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
-    touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    touch.current = swipeBlockedAt(e.target) ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
   const onTouchEnd = (e: React.TouchEvent) => {
     const start = touch.current;

@@ -3,6 +3,8 @@ import type { Activity, PiggyBank, SavingsSettings, Schedule } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useT } from '../contexts/LanguageContext';
 import LanguageSheet from './LanguageSheet';
+import InviteSheet from './InviteSheet';
+import { isAdminUser } from '../services/inviteCodes';
 import { isArchived, isFull, isInSplit, receiptCount, seedSampleBanks } from '../services/firestore';
 import { summarize, type StreakRun } from '../services/analytics';
 import { describe, nextOccurrence } from '../services/schedules';
@@ -75,6 +77,7 @@ const Profile: React.FC<ProfileProps> = ({
   const [busy, setBusy] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
   const t = useT();
   // How many receipt photos are kept (a count on the server: none is downloaded to answer it).
@@ -363,6 +366,17 @@ const Profile: React.FC<ProfileProps> = ({
             />
           )}
           <Row icon="doc" tint="lav" title={t.profile.statementsExports} sub={t.profile.statementsHint} trailing={<Chevron />} tone="mute" onClick={onOpenReport} />
+          {isAdminUser(user) && (
+            <Row
+              icon="userplus"
+              tint="mint"
+              title={t.invite.rowTitle}
+              sub={t.invite.rowSub}
+              trailing={<Chevron />}
+              tone="mute"
+              onClick={() => setShowInvite(true)}
+            />
+          )}
           <Row
             icon="globe"
             tint="sun"
@@ -399,6 +413,7 @@ const Profile: React.FC<ProfileProps> = ({
       <p className="mt-4 text-center text-[11.5px] font-semibold text-mute">SavvyPiggy v{APP_VERSION}</p>
 
       {showLanguage && <LanguageSheet onClose={() => setShowLanguage(false)} />}
+      {showInvite && <InviteSheet onClose={() => setShowInvite(false)} />}
     </div>
   );
 };

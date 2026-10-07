@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { redeemInvite } from '../services/invites';
+import { canScanCodes, scanCode } from '../services/quickRead';
 import { useT } from '../contexts/LanguageContext';
 import { PiggyTile } from './PiggyMark';
 import { Button } from './ui/Button';
 import { Field } from './ui/Field';
+import { Icon } from './ui/Icon';
 
 const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
   const { logout } = useAuth();
@@ -14,17 +16,35 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code.trim() || busy) return;
+  const join = async (value: string) => {
+    if (!value.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await redeemInvite(user, code);
+      await redeemInvite(user, value);
       // The membership listener flips the app over; nothing to do here.
     } catch (err) {
       setError((err as Error).message || t.auth.redeemFailed);
       setBusy(false);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void join(code);
+  };
+
+  // Scanning fills the box and joins in one go; there is nothing left to press.
+  const scan = async () => {
+    if (busy) return;
+    setError(null);
+    try {
+      const value = await scanCode();
+      if (!value) return;
+      setCode(value.trim().toUpperCase());
+      await join(value);
+    } catch {
+      setError(t.invite.scanFailed);
     }
   };
 
@@ -46,6 +66,19 @@ const RedeemInvite: React.FC<{ user: User }> = ({ user }) => {
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
+            hint={canScanCodes() ? t.invite.scanHint : undefined}
+            suffix={
+              canScanCodes() && (
+                <button
+                  type="button"
+                  onClick={() => void scan()}
+                  aria-label={t.invite.scan}
+                  className="-mr-2 grid size-11 place-items-center rounded-[14px] bg-cta text-cta-fg active:opacity-80"
+                >
+                  <Icon name="scan" size={24} />
+                </button>
+              )
+            }
           />
 
           {error && (

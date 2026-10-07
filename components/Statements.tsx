@@ -124,9 +124,10 @@ const Statements: React.FC<StatementsProps> = ({
   const going = useMemo(() => nextToClear(months), [months]);
 
   /**
-   * Seeing this screen is the acknowledgement — but only of what it showed.
-   * Once the months before the current cutoff have been read and are on the
-   * screen, that cutoff is recorded, and clearing never reaches past it. A
+   * Saving a statement here is the acknowledgement — and only of what this
+   * screen showed. Once the months before the current cutoff have been read and
+   * are on the screen, saving any statement records that cutoff, and clearing
+   * never reaches past it. Merely opening the screen clears nothing. A
    * window that shrinks later, or a month that ages out after this, is not
    * covered: the warning comes back and nothing more goes until this screen
    * has listed it.
@@ -143,11 +144,11 @@ const Statements: React.FC<StatementsProps> = ({
           : !older.complete
             ? t.profile.olderPartial
             : null;
-  useEffect(() => {
+  const acknowledge = () => {
     if (!shownFor || new Date(shownFor).getTime() <= 0) return;
     if (savings.retentionAcknowledgedCutoff === shownFor && savings.retentionAcknowledged) return;
     onSaveSettings({ retentionAcknowledged: true, retentionAcknowledgedCutoff: shownFor });
-  }, [shownFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
 
   const say = (text: string) => {
     setNote(text);
@@ -195,6 +196,8 @@ const Statements: React.FC<StatementsProps> = ({
         );
       }
       say(t.profile.fileSaved(month.label));
+      // Only a statement that was really saved lets the listed months go.
+      acknowledge();
     } catch (e) {
       say(e instanceof Error ? e.message : t.profile.saveFailed);
     } finally {

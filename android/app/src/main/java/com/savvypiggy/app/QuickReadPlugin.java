@@ -21,6 +21,10 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -96,6 +100,31 @@ public class QuickReadPlugin extends Plugin {
     public void clearShared(PluginCall call) {
         pending = null;
         call.resolve();
+    }
+
+    /**
+     * Opens Google's own QR scanner (a Play services screen, so the app needs no
+     * camera permission) and resolves with the text of the first code it reads,
+     * or `cancelled` when the person backed out.
+     */
+    @PluginMethod
+    public void scanCode(PluginCall call) {
+        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build();
+        GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(getActivity(), options);
+        scanner.startScan()
+                .addOnSuccessListener(barcode -> {
+                    JSObject result = new JSObject();
+                    result.put("value", barcode.getRawValue());
+                    call.resolve(result);
+                })
+                .addOnCanceledListener(() -> {
+                    JSObject result = new JSObject();
+                    result.put("cancelled", true);
+                    call.resolve(result);
+                })
+                .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "scan failed" : e.getMessage()));
     }
 
     /** Opens the camera or the photo picker. Resolves with the picture's address, or `cancelled`. */

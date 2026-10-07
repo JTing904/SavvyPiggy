@@ -19,6 +19,7 @@ export type Shared = { kind: 'none' } | { kind: 'image'; uri: string } | { kind:
 interface QuickReadPlugin {
   getShared(): Promise<Shared>;
   clearShared(): Promise<void>;
+  scanCode(): Promise<{ value?: string; cancelled?: boolean }>;
   pick(options: { source: 'camera' | 'gallery' }): Promise<{ uri?: string; cancelled?: boolean }>;
   recognize(options: { uri: string }): Promise<{ lines: ReadLine[] }>;
   compress(options: { uri: string; maxSide?: number; quality?: number; discard?: boolean }): Promise<{ image: string }>;
@@ -80,3 +81,12 @@ export const onShared = (listener: (shared: Shared) => void): (() => void) => {
     void handle?.remove();
   };
 };
+
+/** Opens the QR scanner; the text it read, or null when the person backed out. Throws when it cannot open. */
+export const scanCode = async (): Promise<string | null> => {
+  const result = await plugin.scanCode();
+  return result.cancelled || !result.value ? null : result.value;
+};
+
+/** Whether a scanner exists here (the browser build has none). */
+export const canScanCodes = () => Capacitor.isNativePlatform();

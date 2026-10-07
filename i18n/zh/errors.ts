@@ -12,6 +12,7 @@ export const errors: typeof English = {
   inviteMissing: '没有这个邀请码。',
   inviteUsed: '这个邀请码已经被用过了。',
   inviteJustClaimed: '这个邀请码刚被别人抢先用了。',
+  inviteExpired: '这个邀请码已经过期了。请朋友重新生成一个。',
   googleCancelled: '已取消 Google 登录。',
 
   nothingToDepositInto: '没有可以存入的钱罐。',

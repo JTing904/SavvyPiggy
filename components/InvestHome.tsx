@@ -13,6 +13,7 @@ import PotCard from './invest/PotCard';
 import { Amount } from './ui/Amount';
 import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
+import { swipeBlockedAt } from '../services/swipe';
 
 interface InvestHomeProps {
   holdings: Holding[];
@@ -84,7 +85,7 @@ const InvestHome: React.FC<InvestHomeProps> = ({
   // A swipe to the right goes back to savings, as a swipe to the left there comes here.
   const start = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
-    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    start.current = swipeBlockedAt(e.target) ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
   const onTouchEnd = (e: React.TouchEvent) => {
     if (!start.current) return;

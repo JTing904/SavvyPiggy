@@ -1070,9 +1070,18 @@ export const pruneOlderThan = async (uid: string, cutoff: Date, max = 800) => {
     );
     if (snap.empty) break;
 
-    const batch = writeBatch(db);
-    snap.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+    // A cleared entry takes its receipt photos with it; left behind they would
+    // sit in the account unreachable, and still be counted.
+    const doomed = snap.docs.flatMap((d) => [
+      d.ref,
+      ...(((d.data() as { receipts?: string[] }).receipts ?? []).map((id) => receiptRef(uid, id))),
+    ]);
+    // A batch holds 500 writes; entries plus their photos can come to more.
+    for (let i = 0; i < doomed.length; i += 450) {
+      const batch = writeBatch(db);
+      doomed.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
     removed += snap.size;
     // A short page means there was nothing else waiting.
     if (snap.size < 400) break;

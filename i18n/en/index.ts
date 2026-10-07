@@ -26,5 +26,6 @@ import { bills } from './bills';
 import { review } from './review';
 import { quick } from './quick';
 import { net } from './net';
+import { invite } from './invite';
 
-export const en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick, net };
+export const en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick, net, invite };

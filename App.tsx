@@ -1390,9 +1390,9 @@ const App: React.FC = () => {
           today's is not. */}
       {offline && !failure && (
         <div className="fixed inset-x-0 top-0 z-[55] px-4 pt-3 safe-pt pointer-events-none">
-          <div className="max-w-md mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/35 backdrop-blur px-4 py-2.5 flex items-center gap-2.5">
-            <span className="material-symbols-rounded text-amber-300 text-lg shrink-0">cloud_off</span>
-            <p className="text-amber-200 text-[11px] font-black">
+          <div className="mx-auto flex max-w-md items-center gap-2.5 rounded-2xl bg-sun px-4 py-2.5 shadow-lg">
+            <span className="material-symbols-rounded shrink-0 text-lg text-warn">cloud_off</span>
+            <p className="text-[12px] font-extrabold text-ink">
               {t.app.offline}
             </p>
           </div>
@@ -1405,12 +1405,12 @@ const App: React.FC = () => {
         <div className="fixed inset-x-0 top-0 z-[60] px-4 pt-3 safe-pt pointer-events-none">
           <div
             role="alert"
-            className="max-w-md mx-auto rounded-2xl bg-red-500/15 border border-red-500/40 backdrop-blur px-4 py-3 flex items-start gap-3"
+            className="mx-auto flex max-w-md items-start gap-3 rounded-2xl bg-peach px-4 py-3 shadow-lg"
           >
-            <span className="material-symbols-rounded text-red-400 text-xl shrink-0">error</span>
+            <span className="material-symbols-rounded shrink-0 text-xl text-neg">error</span>
             <div className="min-w-0">
-              <p className="text-red-300 text-xs font-black">{t.app.didNotSave}</p>
-              <p className="text-red-200/80 text-[11px] font-bold mt-0.5 leading-relaxed">{failure}</p>
+              <p className="text-[13px] font-extrabold text-neg">{t.app.didNotSave}</p>
+              <p className="mt-0.5 text-[12px] font-bold leading-relaxed text-ink">{failure}</p>
             </div>
           </div>
         </div>

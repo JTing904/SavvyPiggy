@@ -109,9 +109,9 @@ export const profile: typeof English = {
   nextToClear: '下一个要清除的',
   nextToClearDetail: (records, date) => `——${records} 条记录，将在 ${date} 清除。想保留的话，先用上面的按钮保存。`,
   dueBadge: '将被清除',
-  dueDetail: (date) => `${date} 起已超出保留期 · 下次打开 app 时清除`,
+  dueDetail: (date) => `${date} 起已超出保留期 · 保存过月结单后，下次打开 app 时清除`,
   dueToClearDetail: (records) =>
-    `——${records} 条记录，已经超出你设定的保留期，下次打开 app 时就会清除。想保留的话，现在先用上面的按钮保存。`,
+    `——${records} 条记录，已经超出你设定的保留期，在你用上面的按钮保存过月结单之前，什么都不会清除；保存之后，下次打开 app 时就会清除，所以想保留的月份请先全部保存。`,
   olderLoading: '正在查找等待清除的旧月份……',
   olderFailed: '没能查到等待清除的旧月份。在这里列出来之前，什么都不会被清除，联网后再试一次。',
   olderPartial: '旧月份太多，一次列不完。这些清除之后，其余的会在这里列出；没有列出过的月份不会被清除。',

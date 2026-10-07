@@ -11,6 +11,7 @@ export const errors = {
   inviteMissing: 'No such invite code.',
   inviteUsed: 'That invite code has already been used.',
   inviteJustClaimed: 'That invite code was just claimed by someone else.',
+  inviteExpired: 'That invite code has expired. Ask your friend for a new one.',
   googleCancelled: 'Google sign-in was cancelled.',
 
   nothingToDepositInto: 'Nothing to deposit into.',
