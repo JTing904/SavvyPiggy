@@ -19,7 +19,7 @@ export const bills: typeof English = {
   rowSub: (when, source, category) => `${when} · ${source} · ${category}`,
   depositRowTitle: (amount) => amount,
   depositRowSub: (when, target) => `${when} · ${target}`,
-  byRule: '按收入规则',
+  bySplit: '按比例分进钱罐',
   toggleLabel: (name) => `${name} 开或关`,
 
   sheetNew: '新增账单',

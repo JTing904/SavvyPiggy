@@ -427,9 +427,4 @@ export interface InvestSettings {
 export interface WalletSettings {
   /** Ringgit, like a goal balance. Negative means overdrawn. */
   balance: number;
-  /**
-   * The share of every income that goes straight to the goals, 0..100. The rest
-   * stays in the wallet. 100 (the default) means income behaves as it always did.
-   */
-  goalsPercent: number;
 }

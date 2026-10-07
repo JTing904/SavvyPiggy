@@ -1,6 +1,6 @@
 import type { Loan, PiggyBank, WalletSettings } from '../types';
 import { effectiveSplit, isArchived, outstandingCents, planDeposit, type Movement, type RepaymentStep } from './ledger';
-import { splitByPercentage, splitProportionally, toCents } from './money';
+import { splitByPercentage, toCents } from './money';
 
 /**
  * The wallet: money that has arrived but is not in a goal yet.
@@ -11,22 +11,18 @@ import { splitByPercentage, splitProportionally, toCents } from './money';
  * which the next income clears before anything else is placed.
  */
 
-export const DEFAULT_WALLET: WalletSettings = { balance: 0, goalsPercent: 100 };
+export const DEFAULT_WALLET: WalletSettings = { balance: 0 };
 
-/** Whatever was stored, as a usable setting: the share is a whole number from 0 to 100. */
+/** Whatever was stored, as a usable setting. Older documents may still carry a goals share; it is ignored. */
 export const cleanWallet = (raw: Partial<WalletSettings> | undefined | null): WalletSettings => {
   const balance = Number(raw?.balance);
-  const percent = Number(raw?.goalsPercent);
-  return {
-    balance: Number.isFinite(balance) ? balance : 0,
-    goalsPercent: Number.isFinite(percent) ? Math.min(100, Math.max(0, Math.round(percent))) : 100,
-  };
+  return { balance: Number.isFinite(balance) ? balance : 0 };
 };
 
 export const walletCents = (wallet: WalletSettings) => toCents(wallet.balance);
 
-/** Where a new income goes. `rule` uses the wallet's share; `split` ignores it and feeds every goal in the split. */
-export type IncomeTarget = { mode: 'rule' } | { mode: 'split' } | { mode: 'wallet' } | { mode: 'goal'; goalId: string };
+/** Where a new income goes: all of it kept in the wallet, all of it split over the goals by their shares, or one goal. */
+export type IncomeTarget = { mode: 'split' } | { mode: 'wallet' } | { mode: 'goal'; goalId: string };
 
 export type IncomeProblem = 'amountPositive' | 'noDestination' | 'goalGone' | 'goalArchived';
 
@@ -49,7 +45,6 @@ export interface IncomeInput {
   loans: Loan[];
   /** What the wallet holds now, in cents; below zero is an overdraft. */
   wallet: number;
-  goalsPercent: number;
   target: IncomeTarget;
   overflow: boolean;
 }
@@ -82,19 +77,8 @@ export const planIncome = (i: IncomeInput): { plan: IncomePlan } | { problem: In
   const covered = i.wallet < 0 ? Math.min(remaining, -i.wallet) : 0;
   remaining -= covered;
 
-  let toGoals = 0;
-  let toWallet = 0;
-  if (i.target.mode === 'wallet') toWallet = remaining;
-  else if (i.target.mode === 'split') toGoals = remaining;
-  else {
-    const percent = Math.min(100, Math.max(0, Math.round(i.goalsPercent)));
-    const shares = splitProportionally(remaining, [
-      { item: 'goals' as const, weight: percent },
-      { item: 'wallet' as const, weight: 100 - percent },
-    ]);
-    toGoals = shares.find((s) => s.item === 'goals')?.cents ?? 0;
-    toWallet = shares.find((s) => s.item === 'wallet')?.cents ?? 0;
-  }
+  const toWallet = i.target.mode === 'wallet' ? remaining : 0;
+  const toGoals = i.target.mode === 'wallet' ? 0 : remaining;
 
   let movements: Movement[] = [];
   if (toGoals > 0) {
@@ -104,11 +88,8 @@ export const planIncome = (i: IncomeInput): { plan: IncomePlan } | { problem: In
       percentage: Math.round(share.weight * 100) / 100,
     }));
     const placed = movements.reduce((s, m) => s + m.cents, 0);
-    // The rule keeps the wallet whole: what no goal takes (no goal in the split, or shares under
-    // 100%) stays in the wallet rather than being lost. An explicit "split" with nowhere to go is
-    // refused instead, as a deposit always was.
-    if (i.target.mode === 'rule') toWallet += toGoals - placed;
-    else if (placed === 0 && repayments.length === 0 && covered === 0) return { problem: 'noDestination' };
+    // A split with nowhere to go is refused, as a deposit always was, rather than parked in the wallet.
+    if (placed === 0 && repayments.length === 0 && covered === 0) return { problem: 'noDestination' };
     movements = movements.filter((m) => m.cents !== 0);
   }
 

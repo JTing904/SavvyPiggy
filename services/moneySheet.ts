@@ -12,21 +12,21 @@ const activeGoals = (banks: PiggyBank[]) => banks.filter((b) => !isArchived(b));
 export const WALLET = 'wallet';
 
 /**
- * Where an income goes: `rule` is the wallet's share to the goals and the rest
- * kept, `split` is all of it to the goals by their shares, `wallet` is all of
- * it kept; anything else is a goal's id.
+ * Where an income goes: `wallet` keeps all of it, `split` sends all of it to
+ * the goals by their shares; anything else is a goal's id.
  */
-export type IncomeChoice = 'rule' | 'split' | 'wallet' | string;
+export type IncomeChoice = 'split' | 'wallet' | string;
 
 /**
- * Where an income starts: the wallet or the goal used last time if it still
- * exists, otherwise the rule, which is also what an account that never touched
- * the wallet gets (at 100% the rule is a plain split).
+ * Where an income starts: what was used last time if it still exists,
+ * otherwise the wallet. (An old remembered "rule" no longer exists and reads
+ * as the wallet.)
  */
 export const defaultIncomeChoice = (banks: PiggyBank[], last?: string): IncomeChoice => {
-  if (last === WALLET) return WALLET;
-  if (last && last !== 'split' && last !== 'rule' && activeGoals(banks).some((b) => b.id === last)) return last;
-  return 'rule';
+  const goals = activeGoals(banks);
+  if (last === 'split' && goals.length > 0) return 'split';
+  if (last && last !== WALLET && last !== 'split' && last !== 'rule' && goals.some((b) => b.id === last)) return last;
+  return WALLET;
 };
 
 /**

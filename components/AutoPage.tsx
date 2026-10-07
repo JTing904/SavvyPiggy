@@ -57,7 +57,8 @@ const AutoPage: React.FC<AutoPageProps> = ({
   const b = t.bills;
   const [open, setOpen] = useState<Open>(null);
 
-  const goalName = (id: string | null) => (id ? (banks.find((g) => g.id === id)?.name ?? t.profile.deletedGoal) : b.byRule);
+  const goalName = (id: string | null) =>
+    id === WALLET_SOURCE ? t.wallet.name : id ? (banks.find((g) => g.id === id)?.name ?? t.profile.deletedGoal) : b.bySplit;
   const sourceName = (id: string) => (id === WALLET_SOURCE ? t.wallet.name : goalName(id));
 
   return (

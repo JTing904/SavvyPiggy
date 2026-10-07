@@ -3,6 +3,7 @@ import type { PiggyBank, Schedule } from '../types';
 import { amountToCents, typedFromCents } from '../services/keypad';
 import { formatMoney, fromCents, toCents } from '../services/money';
 import { describe } from '../services/schedules';
+import { WALLET_SOURCE } from '../services/bills';
 import { isArchived } from '../services/ledger';
 import { useT } from '../contexts/LanguageContext';
 import { Sheet } from './ui/Sheet';
@@ -38,8 +39,8 @@ const DepositRuleSheet: React.FC<DepositRuleSheetProps> = ({ schedule, banks, on
     dayOfMonth: schedule?.dayOfMonth ?? 1,
     month: schedule?.month ?? 1,
   });
-  /** null follows the income rule. */
-  const [target, setTarget] = useState<string | null>(schedule?.targetBankId ?? null);
+  /** The wallet, null for every goal by its share, or one goal. A new rule starts in the wallet. */
+  const [target, setTarget] = useState<string | null>(schedule ? schedule.targetBankId : WALLET_SOURCE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,8 +93,11 @@ const DepositRuleSheet: React.FC<DepositRuleSheetProps> = ({ schedule, banks, on
 
       <Label>{b.goesTo}</Label>
       <div role="group" aria-label={b.goesTo} className="flex flex-wrap gap-2">
+        <Chip selected={target === WALLET_SOURCE} onClick={() => setTarget(WALLET_SOURCE)}>
+          {t.wallet.name}
+        </Chip>
         <Chip selected={target === null} onClick={() => setTarget(null)}>
-          {b.byRule}
+          {b.bySplit}
         </Chip>
         {goals.map((g) => (
           <Chip key={g.id} selected={target === g.id} onClick={() => setTarget(g.id)}>

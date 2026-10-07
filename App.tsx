@@ -480,10 +480,10 @@ const App: React.FC = () => {
     throw e;
   };
 
-  /** `choice` is `rule`, `split`, `wallet` or the id of one goal. */
+  /** `choice` is `split`, `wallet` or the id of one goal. */
   const handleDeposit = async (amount: number, choice: IncomeChoice, at?: Date) => {
     if (!uid) return;
-    const byMode = choice === 'rule' || choice === 'split' || choice === 'wallet';
+    const byMode = choice === 'split' || choice === 'wallet';
     await settleOrQueue(
       api.deposit(uid, amount, banks, loans, byMode ? null : choice, {
         alerts: prefs,
@@ -509,12 +509,6 @@ const App: React.FC = () => {
     if (!uid) return;
     await settleOrQueue(api.moveWallet(uid, amount, move, banks, wallet, { savings })).catch(refuse);
     toast.show({ message: t.wallet.moved(formatMoney(amount)), tone: 'success' });
-  };
-
-  const handleSaveWalletRule = async (percent: number) => {
-    if (!uid) return;
-    await settleOrQueue(api.saveWalletRule(uid, percent)).catch(refuse);
-    toast.show({ message: t.wallet.ruleSaved, tone: 'success' });
   };
 
   const handleCreateSchedule = async (schedule: Omit<Schedule, 'id' | 'createdAt' | 'lastRunAt'>) => {
@@ -1094,7 +1088,6 @@ const App: React.FC = () => {
         return (
           <StrategyEditor
             wallet={wallet}
-            onSaveWalletRule={handleSaveWalletRule}
             banks={activeBanks}
             onUpdateBanks={handleSaveStrategy}
             onDeleteBank={handleDeleteBank}

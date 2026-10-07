@@ -9,11 +9,9 @@ export const money = {
   quickAmounts: 'Quick amounts',
 
   goesTo: 'Goes to',
-  byRule: 'By your rule',
-  ruleSmall: (percent: number) => (percent >= 100 ? 'All to goals' : `${percent}% to goals · ${100 - percent}% stays`),
   keepInWallet: 'Keep in wallet',
   keepInWalletSmall: 'Move it later',
-  allToGoals: 'All to goals',
+  allToGoals: 'Split into goals',
   allToGoalsSmall: 'By their shares',
   wallet: 'Wallet',
   coversEarlier: (amount: string) => `${amount} covers earlier spending first`,

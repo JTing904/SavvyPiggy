@@ -95,12 +95,12 @@ export interface DepositOptions {
   /** The earliest day an entry may be dated; the retention cutoff when left out. */
   notBefore?: Date;
   /**
-   * The wallet as the screen has it. Given, income is placed by the wallet's rule (or `incomeMode`) and
-   * what the rule keeps lands in the wallet; left out, a deposit behaves exactly as it did before the wallet.
+   * The wallet as the screen has it. Given, income can be kept in the wallet; left out, a deposit
+   * behaves exactly as it did before the wallet.
    */
   wallet?: WalletSettings;
-  /** `rule` (the default) uses the wallet's share, `split` feeds every goal, `wallet` keeps it all. A named goal wins over all three. */
-  incomeMode?: 'rule' | 'split' | 'wallet';
+  /** `wallet` (the default) keeps it all, `split` feeds every goal by its share. A named goal wins over both. */
+  incomeMode?: 'split' | 'wallet';
 }
 
 /** Back-dating for a withdrawal or a borrow. */
@@ -521,7 +521,7 @@ export const deposit = async (
   banks: PiggyBank[],
   loans: Loan[],
   targetBankId: string | null = null,
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, at, notBefore, wallet, incomeMode = 'rule' }: DepositOptions = {}
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, at, notBefore, wallet, incomeMode = 'wallet' }: DepositOptions = {}
 ) => {
   const now = new Date();
   const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
@@ -535,7 +535,6 @@ export const deposit = async (
       banks,
       loans: owed,
       wallet: walletCents(wallet),
-      goalsPercent: wallet.goalsPercent,
       target,
       overflow: savings.overflow,
     });
@@ -1133,8 +1132,6 @@ export const subscribeToWallet = (
  * never written from here: it only ever moves by an increment inside the write
  * that records the entry behind it, so two devices cannot overwrite each other.
  */
-export const saveWalletRule = (uid: string, goalsPercent: number) =>
-  setDoc(walletRef(uid), { goalsPercent: Math.min(100, Math.max(0, Math.round(goalsPercent))) }, { merge: true });
 
 /** Why a trade's money could not move, carried to the screen that has to ask about it. */
 export class TradeMoneyError extends Error {
@@ -1757,7 +1754,7 @@ export const runDueSchedules = async (
     // write would fail and take every later schedule down with it. The others
     // post first; this one is still reported once they have.
     // An archived goal counts as gone here too: it is put away and takes no new money.
-    if (schedule.targetBankId && !banks.some((b) => b.id === schedule.targetBankId && !b.archivedAt)) {
+    if (schedule.targetBankId && schedule.targetBankId !== WALLET_SOURCE && !banks.some((b) => b.id === schedule.targetBankId && !b.archivedAt)) {
       aimedAtNothing += 1;
       continue;
     }
@@ -1768,19 +1765,24 @@ export const runDueSchedules = async (
       const when = localDate(day);
       let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
       if (wallet) {
-        // A rule aimed at one goal saves into that goal; any other follows the wallet's share.
+        // Into the wallet, into one goal, or (nothing named) split over the goals by their shares.
         const income = planIncome({
           amountCents: toCents(schedule.amount),
           banks: liveBanks,
           loans: openLoans,
           wallet: liveWallet,
-          goalsPercent: wallet.goalsPercent,
-          target: schedule.targetBankId ? { mode: 'goal', goalId: schedule.targetBankId } : { mode: 'rule' },
+          target:
+            schedule.targetBankId === WALLET_SOURCE
+              ? { mode: 'wallet' }
+              : schedule.targetBankId
+                ? { mode: 'goal', goalId: schedule.targetBankId }
+                : { mode: 'split' },
           overflow: savings.overflow,
         });
         plan = 'plan' in income ? income.plan : { repayments: [], repaidCents: 0, movements: [], walletCents: 0 };
       } else {
-        plan = { ...planDeposit(toCents(schedule.amount), liveBanks, openLoans, schedule.targetBankId, savings.overflow), walletCents: 0 };
+        const named = schedule.targetBankId === WALLET_SOURCE ? null : schedule.targetBankId;
+        plan = { ...planDeposit(toCents(schedule.amount), liveBanks, openLoans, named, savings.overflow), walletCents: 0 };
       }
       // Nothing allocated and no debt to clear: the rule waits for a strategy.
       if (plan.movements.length === 0 && plan.repayments.length === 0 && plan.walletCents === 0) {

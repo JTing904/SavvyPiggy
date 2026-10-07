@@ -32,14 +32,15 @@ eq('spend: an archived last is not used', defaultSpendSource([a, gone('c')], 'c'
 eq('spend: two active and an archived is nothing', defaultSpendSource([a, b, gone('c')]), undefined);
 
 // --- income
-eq('income: the rule by default', defaultIncomeChoice([a, b]), 'rule');
-eq('income: remembered split reads as the rule', defaultIncomeChoice([a, b], 'split'), 'rule');
-eq('income: remembered rule', defaultIncomeChoice([a, b], 'rule'), 'rule');
+eq('income: the wallet by default', defaultIncomeChoice([a, b]), 'wallet');
+eq('income: remembered split', defaultIncomeChoice([a, b], 'split'), 'split');
+eq('income: a remembered split with no goal falls back to the wallet', defaultIncomeChoice([], 'split'), 'wallet');
+eq('income: an old remembered rule reads as the wallet', defaultIncomeChoice([a, b], 'rule'), 'wallet');
 eq('income: remembered wallet', defaultIncomeChoice([a, b], 'wallet'), 'wallet');
 eq('income: remembered goal wins', defaultIncomeChoice([a, b], 'b'), 'b');
-eq('income: stale remembered goal falls back to the rule', defaultIncomeChoice([a, b], 'zzz'), 'rule');
-eq('income: an archived remembered goal falls back too', defaultIncomeChoice([a, gone('c')], 'c'), 'rule');
-eq('income: no goals still has the rule', defaultIncomeChoice([]), 'rule');
+eq('income: stale remembered goal falls back to the wallet', defaultIncomeChoice([a, b], 'zzz'), 'wallet');
+eq('income: an archived remembered goal falls back too', defaultIncomeChoice([a, gone('c')], 'c'), 'wallet');
+eq('income: no goals still has the wallet', defaultIncomeChoice([]), 'wallet');
 
 // --- date mapping
 const now = new Date(2026, 9, 6, 14, 30);

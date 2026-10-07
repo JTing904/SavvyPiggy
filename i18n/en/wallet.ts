@@ -1,4 +1,4 @@
-/** The wallet: Home's main block, moving money in and out of the goals, and the income rule. */
+/** The wallet: Home's main block, moving money in and out of the goals. */
 export const wallet = {
   name: 'Wallet',
   heroLabel: 'Wallet · money you can spend',
@@ -35,21 +35,6 @@ export const wallet = {
   moveNote: 'Moving is not saving and not spending, it only changes where the money sits. Neither side can be overdrawn by a move.',
   confirmMove: (amount: string) => `Move ${amount}`,
   pickGoal: 'Pick a goal.',
-
-  // the income rule
-  ruleTitle: 'Income rule',
-  ruleLabel: 'Share of every income that goes straight to your goals',
-  ruleAll: '100% (all to goals)',
-  ruleNone: '0% (all to wallet)',
-  ruleExample: (amount: string) => `Example: ${amount} comes in`,
-  ruleToGoals: 'To goals (by their shares)',
-  ruleToWallet: 'Stays in the wallet',
-  ruleNote: 'The default is 100%: income goes to your goals as it always did. A change only affects income from now on; past entries stay as they are.',
-  ruleScheduled: 'Auto deposits follow this rule too, unless one is aimed at a single goal.',
-  ruleSave: 'Save rule',
-  ruleSaved: 'Income rule saved',
-  ruleSliderLabel: 'Percent of income that goes to goals',
-  ruleSummary: (percent: number) => (percent >= 100 ? 'All income goes to goals' : percent <= 0 ? 'All income stays in the wallet' : `${percent}% to goals · ${100 - percent}% stays in the wallet`),
 
   moved: (amount: string) => `${amount} moved`,
 };

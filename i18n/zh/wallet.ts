@@ -36,19 +36,5 @@ export const wallet: typeof English = {
   confirmMove: (amount) => `转移 ${amount}`,
   pickGoal: '请选一个钱罐。',
 
-  ruleTitle: '收入规则',
-  ruleLabel: '每笔收入，直接进钱罐的比例',
-  ruleAll: '100%（全进钱罐）',
-  ruleNone: '0%（全留钱包）',
-  ruleExample: (amount) => `例：收入 ${amount}`,
-  ruleToGoals: '进钱罐（按各自比例分）',
-  ruleToWallet: '留在钱包',
-  ruleNote: '默认是 100%：收入照旧全部进钱罐。改了只影响以后的收入，已有记录不动。',
-  ruleScheduled: '自动存入也按这条规则走，除非那条自动存入指定了某一个钱罐。',
-  ruleSave: '保存规则',
-  ruleSaved: '收入规则已保存',
-  ruleSliderLabel: '收入进钱罐的百分比',
-  ruleSummary: (percent) => (percent >= 100 ? '所有收入都进钱罐' : percent <= 0 ? '所有收入都留在钱包' : `${percent}% 进钱罐 · ${100 - percent}% 留在钱包`),
-
   moved: (amount) => `已转移 ${amount}`,
 };

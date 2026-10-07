@@ -18,7 +18,7 @@ export const bills = {
   rowSub: (when: string, source: string, category: string) => `${when} · ${source} · ${category}`,
   depositRowTitle: (amount: string) => amount,
   depositRowSub: (when: string, target: string) => `${when} · ${target}`,
-  byRule: 'By your income rule',
+  bySplit: 'Goals, by their shares',
   toggleLabel: (name: string) => `${name} on or off`,
 
   // the bill sheet

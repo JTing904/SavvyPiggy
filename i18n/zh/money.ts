@@ -9,11 +9,9 @@ export const money: typeof English = {
   quickAmounts: '快捷金额',
 
   goesTo: '存到',
-  byRule: '按你的规则',
-  ruleSmall: (percent) => (percent >= 100 ? '全部进钱罐' : `${percent}% 进钱罐 · ${100 - percent}% 留钱包`),
   keepInWallet: '全放钱包',
   keepInWalletSmall: '以后再转',
-  allToGoals: '全部进钱罐',
+  allToGoals: '按比例分进钱罐',
   allToGoalsSmall: '按各自比例',
   wallet: '钱包',
   coversEarlier: (amount) => `${amount} 会先还清之前的预支`,

@@ -36,7 +36,7 @@ interface MoneySheetProps {
   uid: string;
   /** The earliest day an entry can be dated: the start of the history the app keeps. */
   liveFrom: Date;
-  /** `choice` is `rule`, `split`, `wallet` or a goal's id. `at` is only given for a day other than today. */
+  /** `choice` is `split`, `wallet` or a goal's id. `at` is only given for a day other than today. */
   onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
   /** `source` is `wallet` or a goal's id. */
   onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date) => void | Promise<void>;
@@ -68,13 +68,13 @@ const Choice: React.FC<{
 );
 
 const targetOf = (choice: IncomeChoice): IncomeTarget =>
-  choice === 'rule' || choice === 'split' || choice === 'wallet' ? { mode: choice } : { mode: 'goal', goalId: choice };
+  choice === 'split' || choice === 'wallet' ? { mode: choice } : { mode: 'goal', goalId: choice };
 
 /**
  * Income and spending, in one sheet.
  *
  * Nothing is chosen for the person where a wrong guess moves money: an income
- * starts from the wallet's rule (or where it went last time), but a spend
+ * starts in the wallet (or where it went last time), but a spend
  * starts from nothing unless it is the same as last time or the wallet is the
  * only place there is. What was chosen is remembered only after the save succeeds.
  */
@@ -110,7 +110,6 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   const cents = amountToCents(text);
   const held = walletCents(wallet);
-  const percent = wallet.goalsPercent;
 
   const deposit = tab === 'deposit';
   const needsSource = !deposit && source === undefined;
@@ -124,12 +123,11 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
             banks,
             loans: loans.filter((l) => l.outstanding > 0),
             wallet: held,
-            goalsPercent: percent,
             target: targetOf(choice),
             overflow: savings.overflow,
           })
         : null,
-    [deposit, cents, banks, loans, held, percent, choice, savings.overflow]
+    [deposit, cents, banks, loans, held, choice, savings.overflow]
   );
   const incomeProblem = income && 'problem' in income ? income.problem : null;
   const plan = income && 'plan' in income ? income.plan : null;
@@ -216,15 +214,8 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
       <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
         {deposit ? (
           <>
-            <Choice
-              tint="mint"
-              selected={choice === 'rule'}
-              onClick={() => setChoice('rule')}
-              title={w.byRule}
-              small={w.ruleSmall(percent)}
-            />
-            <Choice tint="sun" selected={choice === 'wallet'} onClick={() => setChoice('wallet')} icon="wallet" title={w.keepInWallet} small={w.keepInWalletSmall} />
-            {percent < 100 && (
+            <Choice tint="mint" selected={choice === 'wallet'} onClick={() => setChoice('wallet')} icon="wallet" title={w.keepInWallet} small={w.keepInWalletSmall} />
+            {goals.length > 0 && (
               <Choice tint="lav" selected={choice === 'split'} onClick={() => setChoice('split')} title={w.allToGoals} small={w.allToGoalsSmall} />
             )}
             {goals.map((b, i) => (
