@@ -27,7 +27,8 @@ import { review } from './review';
 import { quick } from './quick';
 import { net } from './net';
 import { invite } from './invite';
+import { backup } from './backup';
 
 import type { en } from '../en';
 
-export const zh: typeof en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick, net, invite };
+export const zh: typeof en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick, net, invite, backup };

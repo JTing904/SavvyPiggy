@@ -19,7 +19,10 @@ import { formatMoney } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
+import BackupSheet from './BackupSheet';
 import { Chip } from './ui/Chip';
+import { Group } from './ui/Group';
+import { Row } from './ui/Row';
 import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
 import { Notice } from './ui/Notice';
@@ -70,6 +73,7 @@ const Statements: React.FC<StatementsProps> = ({
 }) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [showBackup, setShowBackup] = useState(false);
   const t = useT();
   const { user } = useAuth();
   const uid = user?.uid;
@@ -235,6 +239,18 @@ const Statements: React.FC<StatementsProps> = ({
         </div>
       )}
 
+      <Group className="mt-4">
+        <Row
+          icon="dep"
+          tint="mint"
+          title={t.backup.rowTitle}
+          sub={t.backup.rowSub}
+          trailing={<Icon name="chev" size={18} className="text-mute" />}
+          tone="mute"
+          onClick={() => setShowBackup(true)}
+        />
+      </Group>
+
       <div className="mt-4">
         {kept !== 'ready' ? (
           <Notice status={kept} onRetry={ledger.retry} />
@@ -337,6 +353,8 @@ const Statements: React.FC<StatementsProps> = ({
           {t.profile.moneyUntouchedHint}
         </p>
       </div>
+
+      {showBackup && <BackupSheet onClose={() => setShowBackup(false)} />}
     </div>
   );
 };

@@ -116,6 +116,30 @@ const App: React.FC = () => {
     null
   );
 
+  // Signing out closes everything, so the next person to sign in starts at Home
+  // rather than on the last screen the previous one had open.
+  useEffect(() => {
+    if (user) return;
+    setActiveTab(Tab.HOME);
+    setMode('save');
+    setShowProfile(false);
+    setShowAlerts(false);
+    setShowStatements(false);
+    setShowAutoDeposits(false);
+    setShowBudgets(false);
+    setShowNetWorth(false);
+    setShowMonthlyBuy(false);
+    setShowCreateGoal(false);
+    setReviewMonth(null);
+    setSelectedGoalId(null);
+    setEntryId(null);
+    setTradeDraft(null);
+    setShowQuickPick(false);
+    setQuickAction(null);
+    setPotSheet(null);
+    setSetup(null);
+  }, [user]);
+
   // A tab belongs to one half of the app, so the bar follows it. Screens reached
   // from Profile or an alert (the split, the report) used to open under the
   // investing bar with nothing lit.

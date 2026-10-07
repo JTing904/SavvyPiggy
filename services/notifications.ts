@@ -373,6 +373,23 @@ export const syncNotifications = async (
   writePlan(after);
 };
 
+/**
+ * Takes every reminder this app has set off the phone. Signing out calls it:
+ * the alarms carry the last account's amounts and bill names, and nothing would
+ * otherwise stop them going off, on the lock screen, for whoever holds the phone.
+ */
+export const cancelAllNotifications = async () => {
+  if (!native()) return;
+  try {
+    // cancelAll works from the plugin's own record of every alarm it set,
+    // rather than from the list getPending hands back.
+    await LocalNotifications.cancelAll();
+    writePlan({});
+  } catch {
+    // A phone that refuses is no worse off than before; sign-out goes ahead.
+  }
+};
+
 /** Fires when the user taps a notification; returns a way to stop listening. */
 export const onNotificationOpen = (handler: (target: OpenTarget) => void) => {
   if (!native()) return () => {};

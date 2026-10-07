@@ -15,6 +15,7 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider, isFirebaseConfigured } from '../lib/firebase';
 import { m } from '../i18n';
+import { cancelAllNotifications } from '../services/notifications';
 
 interface AuthValue {
   user: User | null;
@@ -68,6 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (name) await updateProfile(cred.user, { displayName: name });
     },
     logout: async () => {
+      await cancelAllNotifications();
       // The native plugin keeps its own session; both have to be cleared.
       if (Capacitor.isNativePlatform()) await FirebaseAuthentication.signOut();
       await signOut(auth);
