@@ -2,7 +2,12 @@ package com.savvypiggy.app;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.graphics.Rect;
+import android.media.ExifInterface;
+import android.util.Base64;
 import android.net.Uri;
 import android.provider.MediaStore;
 
@@ -22,7 +27,9 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.InputStream;
 
 /**
  * Quick entry from a picture or from another app.
@@ -186,6 +193,66 @@ public class QuickReadPlugin extends Plugin {
                 discardCameraFile();
                 call.reject("failed");
             });
+    }
+
+    /**
+     * A picture as a small JPEG, for a receipt that is kept: scaled so its long side is
+     * at most `maxSide`, turned the right way up, and encoded as base64. The photo taken
+     * for it is deleted afterwards unless `discard` is false.
+     */
+    @PluginMethod
+    public void compress(PluginCall call) {
+        String address = call.getString("uri");
+        int maxSide = call.getInt("maxSide", 1280);
+        int quality = call.getInt("quality", 65);
+        boolean discard = Boolean.TRUE.equals(call.getBoolean("discard", true));
+        if (address == null) {
+            call.reject("uri");
+            return;
+        }
+        try {
+            Uri uri = Uri.parse(address);
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
+                BitmapFactory.decodeStream(in, null, bounds);
+            }
+            int sample = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / sample > maxSide * 2) sample *= 2;
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            Bitmap bitmap;
+            try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
+                bitmap = BitmapFactory.decodeStream(in, null, options);
+            }
+            if (bitmap == null) {
+                call.reject("unreadable");
+                return;
+            }
+            int rotation = 0;
+            try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
+                int orientation = new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+                if (orientation == ExifInterface.ORIENTATION_ROTATE_90) rotation = 90;
+                else if (orientation == ExifInterface.ORIENTATION_ROTATE_180) rotation = 180;
+                else if (orientation == ExifInterface.ORIENTATION_ROTATE_270) rotation = 270;
+            } catch (Exception ignored) {
+                // No orientation to read: the picture is taken as it is.
+            }
+            float scale = Math.min(1f, (float) maxSide / Math.max(bitmap.getWidth(), bitmap.getHeight()));
+            Matrix matrix = new Matrix();
+            matrix.postScale(scale, scale);
+            matrix.postRotate(rotation);
+            Bitmap out = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            out.compress(Bitmap.CompressFormat.JPEG, quality, bytes);
+            JSObject result = new JSObject();
+            result.put("image", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("unreadable");
+        } finally {
+            if (discard) discardCameraFile();
+        }
     }
 
     private void discardCameraFile() {

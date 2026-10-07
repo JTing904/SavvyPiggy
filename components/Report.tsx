@@ -36,6 +36,9 @@ interface ReportProps {
   /** Opens the full review of the month starting on this day. */
   onOpenReview: (month: Date) => void;
   onOpenBudgets: () => void;
+  /** What is known less what is owed, and how it compares with last month. */
+  netWorth: { totalCents: number; changeCents: number | null };
+  onOpenNetWorth: () => void;
 }
 
 const longDate = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric', year: 'numeric' });
@@ -91,6 +94,8 @@ const Report: React.FC<ReportProps> = ({
   onDeposit,
   onOpenReview,
   onOpenBudgets,
+  netWorth,
+  onOpenNetWorth,
 }) => {
   const [period, setPeriod] = useState<Period>('month');
   // Which cadence bar the user tapped, so it can show what it is worth.
@@ -239,12 +244,40 @@ const Report: React.FC<ReportProps> = ({
     <>
       {head}
 
+      {/* What is known less what is owed. */}
+      <button type="button" onClick={onOpenNetWorth} className="mt-4 block w-full rounded-3xl bg-lav p-5 text-left active:opacity-80">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="text-[12.5px] font-bold">{t.net.cardTitle}</span>
+          <span className="flex items-center gap-0.5 text-[12.5px] font-bold text-mute">
+            {t.net.view}
+            <Icon name="chev" size={14} />
+          </span>
+        </span>
+        <span className="mt-1 block">
+          <Amount cents={netWorth.totalCents} size="lg" tone={netWorth.totalCents < 0 ? 'neg' : 'ink'} />
+        </span>
+        {netWorth.changeCents !== null && (
+          <span
+            className={`mt-2 inline-block rounded-full px-3 py-1 text-[12.5px] font-extrabold ${
+              netWorth.changeCents > 0 ? 'bg-mint text-pos' : netWorth.changeCents < 0 ? 'bg-peach text-neg' : 'bg-line/10 text-mute'
+            }`}
+          >
+            {netWorth.changeCents > 0
+              ? t.net.betterBy(money(netWorth.changeCents))
+              : netWorth.changeCents < 0
+                ? t.net.worseBy(money(-netWorth.changeCents))
+                : t.net.sameAs}
+          </span>
+        )}
+        <span className="mt-2 block text-[12px] font-medium text-mute">{t.net.cardNote}</span>
+      </button>
+
       {/* The month's review, one tap from here. */}
       {review && (
         <button
           type="button"
           onClick={() => onOpenReview(review.target.start)}
-          className="mt-4 block w-full rounded-3xl bg-hero p-5 text-left active:opacity-80"
+          className="mt-2.5 block w-full rounded-3xl bg-hero p-5 text-left active:opacity-80"
         >
           <span className="flex items-baseline justify-between gap-3">
             <span className="text-[12.5px] font-bold">

@@ -21,6 +21,7 @@ interface QuickReadPlugin {
   clearShared(): Promise<void>;
   pick(options: { source: 'camera' | 'gallery' }): Promise<{ uri?: string; cancelled?: boolean }>;
   recognize(options: { uri: string }): Promise<{ lines: ReadLine[] }>;
+  compress(options: { uri: string; maxSide?: number; quality?: number; discard?: boolean }): Promise<{ image: string }>;
   addListener(event: 'shared', listener: (shared: Shared) => void): Promise<PluginListenerHandle>;
 }
 
@@ -33,6 +34,18 @@ export const canReadPictures = () => Capacitor.isNativePlatform();
 export const pickPicture = async (source: 'camera' | 'gallery'): Promise<string | null> => {
   const picked = await plugin.pick({ source });
   return picked.cancelled || !picked.uri ? null : picked.uri;
+};
+
+/**
+ * A picture as a small JPEG (base64), for a receipt that is kept. `discard: false`
+ * leaves a photo just taken in place, for the reading that comes next.
+ */
+export const compressPicture = async (uri: string, discard = true): Promise<string> => (await plugin.compress({ uri, discard })).image;
+
+/** Takes or chooses a picture and returns it already compressed; null when the person backed out. */
+export const pickReceipt = async (source: 'camera' | 'gallery'): Promise<string | null> => {
+  const uri = await pickPicture(source);
+  return uri ? compressPicture(uri) : null;
 };
 
 /** Reads one picture into what an entry needs. Throws when it cannot be read at all. */

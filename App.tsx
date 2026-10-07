@@ -17,6 +17,10 @@ import AutoPage from './components/AutoPage';
 import Report from './components/Report';
 import MonthReview from './components/MonthReview';
 import BudgetPage from './components/BudgetPage';
+import NetWorthPage from './components/NetWorthPage';
+import { changeSinceLastMonth, needsSnapshot, netWorthOf, trendOf } from './services/netWorth';
+import { monthKeyOf } from './services/review';
+import { portfolioTotals } from './services/holdings';
 import Alerts from './components/Alerts';
 import Statements from './components/Statements';
 import Trades from './components/Trades';
@@ -55,7 +59,7 @@ import type { PotReturn } from './services/potTransfers';
 import type { IncomeChoice } from './services/moneySheet';
 import type { WalletMove } from './services/wallet';
 import { expectedCents } from './services/bills';
-import type { Bill } from './types';
+import type { Bill, Liability } from './types';
 import { staleAlerts, staleAlertsCutoff, streakAlertFor } from './services/alerts';
 import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
@@ -94,6 +98,7 @@ const App: React.FC = () => {
   /** The month open in the review page: any day in it. */
   const [reviewMonth, setReviewMonth] = useState<Date | null>(null);
   const [showBudgets, setShowBudgets] = useState(false);
+  const [showNetWorth, setShowNetWorth] = useState(false);
   /* Which half of the app the bar and Home body are showing. The card the
      user swipes to on Home sets it; nothing else does. */
   const [mode, setMode] = useState<Mode>('save');
@@ -122,7 +127,7 @@ const App: React.FC = () => {
     else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
   }, [activeTab]);
 
-  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, budgets, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, budgets, liabilities, netWorthPoints, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -320,6 +325,7 @@ const App: React.FC = () => {
       }
       await syncNotifications(prefs, schedules, dividends, trades, new Date(), {
         bills,
+        debts: liabilities,
         walletCents: toCents(wallet.balance),
         expected: Object.fromEntries(bills.map((b) => [b.id, expectedCents(b, activities)])),
       }).catch(() => {});
@@ -330,7 +336,7 @@ const App: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisible);
     // The language is in the list because every alarm's words are: switching
     // re-arms each one in the new language.
-  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang, bills, wallet.balance, activities]);
+  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang, bills, liabilities, wallet.balance, activities]);
 
   // Android's back gesture: close whatever is open, step back to Home, and
   // only then leave the app. Sheets inside a screen take it first — they push
@@ -373,6 +379,7 @@ const App: React.FC = () => {
       setShowAutoDeposits(false);
       setShowMonthlyBuy(false);
       setShowBudgets(false);
+      setShowNetWorth(false);
       setReviewMonth(null);
       setSelectedGoalId(null);
       setEntryId(null);
@@ -391,7 +398,8 @@ const App: React.FC = () => {
   }, [uid, dataLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useBackHandler(true, () => {
-    if (showBudgets) setShowBudgets(false);
+    if (showNetWorth) setShowNetWorth(false);
+    else if (showBudgets) setShowBudgets(false);
     else if (reviewMonth) setReviewMonth(null);
     else if (showStatements) setShowStatements(false);
     else if (showCreateGoal) setShowCreateGoal(false);
@@ -536,11 +544,92 @@ const App: React.FC = () => {
   };
 
   /** `source` is `wallet` or the id of one goal. Spending past the wallet makes it overdrawn, which the sheet has said. */
-  const handleWithdraw = async (amount: number, source: string, note: string, category: string, at?: Date) => {
+  const handleWithdraw = async (amount: number, source: string, note: string, category: string, at?: Date, extras?: { receipts?: string[] }) => {
     if (!uid) return;
-    const job = source === 'wallet' ? api.spendFromWallet(uid, amount, note, category, { at, notBefore }) : api.withdraw(uid, amount, source, note, category, { at, notBefore });
+    const options = { at, notBefore, receipts: extras?.receipts };
+    const job = source === 'wallet' ? api.spendFromWallet(uid, amount, note, category, options) : api.withdraw(uid, amount, source, note, category, options);
     await settleOrQueue(job).catch(refuse);
     toast.show({ message: t.app.toast.spent(formatMoney(amount)), tone: 'success' });
+  };
+
+  // What is known, less what is owed, and the figure kept for each month the app is opened in.
+  const holdingsValueCents = useMemo(() => portfolioTotals(holdings, quotes).valueCents, [holdings, quotes]);
+  const netParts = useMemo(
+    () =>
+      netWorthOf({
+        walletCents: toCents(wallet.balance),
+        goalsCents: banks.reduce((sum, b) => sum + toCents(b.currentAmount), 0),
+        potCents: toCents(invest.potBalance ?? 0),
+        holdingsCents: holdingsValueCents,
+        liabilities,
+      }),
+    [wallet.balance, banks, invest.potBalance, holdingsValueCents, liabilities]
+  );
+  const netTrend = trendOf(netWorthPoints, new Date(), netParts.totalCents);
+  const netChange = changeSinceLastMonth(netWorthPoints, new Date(), netParts.totalCents);
+  // Written once the figure has stopped moving for a while: prices arrive a moment after the app opens.
+  const savedNet = useRef(netWorthPoints);
+  savedNet.current = netWorthPoints;
+  useEffect(() => {
+    if (!uid || dataLoading || offline) return;
+    const now = new Date();
+    if (!needsSnapshot(savedNet.current, now, netParts.totalCents)) return;
+    const timer = window.setTimeout(() => {
+      void api.saveNetWorthPoint(uid, monthKeyOf(now), netParts.totalCents).catch(() => undefined);
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [uid, dataLoading, offline, netParts.totalCents]);
+
+  // Pay days older than the history the app keeps are only passed over, so they are never asked about.
+  useEffect(() => {
+    if (!uid || dataLoading || offline || liabilities.length === 0) return;
+    void api.passOverOldDebtDays(uid, liabilities, { notBefore: ledger.liveFrom }).catch(() => undefined);
+  }, [uid, dataLoading, offline, liabilities, ledger.liveFrom]);
+
+  const handleCreateDebt = async (debt: api.NewLiability) => {
+    if (!uid) return;
+    await settleOrQueue(api.createLiability(uid, debt)).catch(refuse);
+    toast.show({ message: t.net.saved, tone: 'success' });
+  };
+
+  const handleUpdateDebt = async (id: string, patch: Partial<Liability>) => {
+    if (!uid) return;
+    await settleOrQueue(api.updateLiability(uid, id, patch)).catch(refuse);
+    toast.show({ message: t.net.saved, tone: 'success' });
+  };
+
+  const handleSetBalance = async (id: string, balance: number) => {
+    if (!uid) return;
+    await settleOrQueue(api.setLiabilityBalance(uid, id, balance)).catch(refuse);
+    toast.show({ message: t.net.balanceUpdated, tone: 'success' });
+  };
+
+  /** A payment is a transaction, so it needs a connection and says why when it has none. */
+  const handleDebtPayment = async (
+    debt: Liability,
+    payment: { totalCents: number; interestCents: number; source: string },
+    day?: string
+  ) => {
+    if (!uid) return;
+    try {
+      const done = await api.recordDebtPayment(uid, debt, payment, { forDay: day, notBefore });
+      if (!done) return;
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.net.recorded(formatMoney(fromCents(payment.totalCents))), tone: 'success' });
+  };
+
+  const handleSkipDebtDay = async (debt: Liability, day: string) => {
+    if (!uid) return;
+    try {
+      await api.skipDebtDay(uid, debt, day);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.net.skipped(debt.name), tone: 'success' });
   };
 
   /** Sets one monthly limit from a month on (0 takes it away). A transaction, so it needs a connection and says why when it has none. */
@@ -863,7 +952,9 @@ const App: React.FC = () => {
   const selectedGoal = banks.find((b) => b.id === selectedGoalId);
   // The screen on top decides the look. Sheets (money, entry, new goal) are not
   // listed: they follow whatever is under them.
-  const topOverlay = showBudgets
+  const topOverlay = showNetWorth
+    ? 'netWorth'
+    : showBudgets
     ? 'budgets'
     : reviewMonth
       ? 'monthReview'
@@ -965,6 +1056,29 @@ const App: React.FC = () => {
           onBack={() => setShowMonthlyBuy(false)}
           onRecordBuy={(d) => openTrade({ mode: 'new', kind: 'buy', ...d })}
           onEditStyle={() => setSetup({ step: 'style', pending: null, editing: true })}
+        />
+      );
+    }
+
+    if (showNetWorth) {
+      return (
+        <NetWorthPage
+          parts={netParts}
+          trend={netTrend}
+          change={netChange}
+          liabilities={liabilities}
+          activities={activities}
+          banks={activeBanks}
+          walletCents={toCents(wallet.balance)}
+          onBack={() => setShowNetWorth(false)}
+          onCreateDebt={handleCreateDebt}
+          onUpdateDebt={handleUpdateDebt}
+          onDeleteDebt={(id) => {
+            if (uid) void api.deleteLiability(uid, id).then(() => toast.show({ message: t.net.deleted, tone: 'success' }), fail);
+          }}
+          onSetBalance={handleSetBalance}
+          onPay={(debt, payment) => handleDebtPayment(debt, payment)}
+          onOpenEntry={(id) => setEntryId(id)}
         />
       );
     }
@@ -1117,6 +1231,9 @@ const App: React.FC = () => {
             bills={visibleBills}
             budgets={budgets}
             onOpenBudgets={() => setShowBudgets(true)}
+            liabilities={liabilities}
+            onConfirmDebt={handleDebtPayment}
+            onSkipDebt={handleSkipDebtDay}
             onRecordBill={handleRecordBill}
             onSkipBill={handleSkipBill}
             onOpenAuto={() => setShowAutoDeposits(true)}
@@ -1156,6 +1273,8 @@ const App: React.FC = () => {
             streak={streak.run}
             budgets={budgets}
             walletCents={toCents(wallet.balance)}
+            netWorth={{ totalCents: netParts.totalCents, changeCents: netChange }}
+            onOpenNetWorth={() => setShowNetWorth(true)}
             onOpenReview={(month) => setReviewMonth(month)}
             onOpenBudgets={() => setShowBudgets(true)}
             onOpenStrategy={() => setActiveTab(Tab.BANKS)}
@@ -1515,7 +1634,7 @@ const App: React.FC = () => {
 
   return shell(
     renderContent(),
-    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !reviewMonth && !showBudgets && !dataLoading
+    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !reviewMonth && !showBudgets && !showNetWorth && !dataLoading
   );
 };
 

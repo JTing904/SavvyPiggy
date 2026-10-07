@@ -35,7 +35,9 @@ export type ActivityType =
   | 'toInvest'
   | 'fromInvest'
   /** Money moved between the wallet and the goals by hand. Neither income nor spending. */
-  | 'walletMove';
+  | 'walletMove'
+  /** A payment on a loan or other debt: the principal lowers the debt, the interest is spending. */
+  | 'loanPayment';
 
 export interface Activity {
   id: string;
@@ -47,6 +49,12 @@ export interface Activity {
   distributions: { bankId: string; amount: number; percentage: number }[];
   /** Set on an entry a recurring bill made: which bill, so its past amounts can be read back. */
   billId?: string;
+  /** `loanPayment`: which debt was paid, and how the amount split. `amount` is the whole payment. */
+  liabilityId?: string;
+  principal?: number;
+  interest?: number;
+  /** Ids of the receipt photos kept for this entry (documents in `receipts`). */
+  receipts?: string[];
   /** The app recorded this by itself (a fixed bill on its day) rather than the person. */
   auto?: boolean;
   /**
@@ -443,4 +451,40 @@ export interface BudgetStep {
 export interface Budgets {
   total: BudgetStep[];
   categories: Record<string, BudgetStep[]>;
+}
+
+/* ------------------------------------------------------- net worth */
+
+export type LiabilityKind = 'home' | 'car' | 'ptptn' | 'card' | 'other';
+
+/** Money owed, as far as the person says: what is left, changed by each payment recorded. */
+export interface Liability {
+  id: string;
+  name: string;
+  kind: LiabilityKind;
+  /** Ringgit still owed. */
+  balance: number;
+  /** What is paid each month, in ringgit; null when not given. */
+  monthly?: number | null;
+  /** The yearly interest rate in percent (4.2 means 4.2%); null when not given. */
+  rate?: number | null;
+  /**
+   * How the interest is charged: `eir` on what is still owed, so it shrinks as the
+   * debt does; `flat` on the amount first borrowed, so it never changes.
+   */
+  rateType?: 'eir' | 'flat';
+  /** Ringgit first borrowed. Only a flat-rate debt needs it. */
+  original?: number | null;
+  /** The day of the month the payment falls on; null when not given. */
+  payDay?: number | null;
+  /** The last month day that was recorded or skipped, an ISO time; the clock the monthly question runs on. */
+  lastRunAt?: string | null;
+  createdAt: number;
+}
+
+/** The net worth on the last day it was looked at in a month. */
+export interface NetWorthPoint {
+  /** "2026-10" */
+  month: string;
+  cents: number;
 }

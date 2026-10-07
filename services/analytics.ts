@@ -515,14 +515,18 @@ export const spendingByCategory = (
   const totals = new Map<string, { cents: number; entries: number }>();
 
   for (const a of activities) {
-    if (a.type !== 'withdraw') continue;
+    if (a.type !== 'withdraw' && a.type !== 'loanPayment') continue;
     const at = new Date(a.date);
     if (at < range.start || at >= range.end || at > now) continue;
 
-    const cents = a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0) + walletSpentCents(a);
+    // A payment on a debt is spending only by its interest.
+    const cents =
+      a.type === 'loanPayment'
+        ? toCents(a.interest ?? 0)
+        : a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0) + walletSpentCents(a);
     if (cents === 0) continue;
 
-    const key = categoryOf(a.category).key;
+    const key = a.type === 'loanPayment' ? 'interest' : categoryOf(a.category).key;
     const row = totals.get(key) ?? { cents: 0, entries: 0 };
     row.cents += cents;
     row.entries += 1;

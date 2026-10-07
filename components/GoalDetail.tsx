@@ -42,6 +42,7 @@ const STYLES: Record<ActivityType, Style> = {
   toInvest: { label: (t) => t.common.activity.toInvest, icon: 'swap', tint: 'lav', tone: 'info' },
   fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'swap', tint: 'lav', tone: 'info' },
   walletMove: { label: (t) => t.common.activity.walletMove, icon: 'swap', tint: 'lav', tone: 'info' },
+  loanPayment: { label: (t) => t.common.activity.loanPayment, icon: 'out', tint: 'peach', tone: 'sign' },
 };
 
 // Full literal strings so the build keeps every class.

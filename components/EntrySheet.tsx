@@ -10,6 +10,7 @@ import { EntryRow } from './history/EntryRow';
 import { PlanPreview, type PreviewRow } from './history/PlanPreview';
 import { AmountField, GoalChips, SectionLabel, WhenFields, useOnline } from './history/EntryFields';
 import GoneShareSheet from './GoneShareSheet';
+import ReceiptStrip from './ReceiptStrip';
 import { useT } from '../contexts/LanguageContext';
 import { useToast } from '../contexts/ToastContext';
 import { planActivityEdit, type ActivityEdit } from '../services/activityEdit';
@@ -280,6 +281,8 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
           autoComplete="off"
         />
       </div>
+
+      {isWithdraw && !typing && <ReceiptStrip ownerId={activity.id} ids={activity.receipts ?? []} />}
 
       {!typing && <Outcome problem={problem ? activityEditProblemText(problem, t, banks) : null} changed={changed} rows={rows} />}
 
@@ -557,6 +560,39 @@ const WalletMoveEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete,
   );
 };
 
+/** A payment on a debt: what it did is read here, and it can only be deleted (which puts everything back). */
+const LoanPaymentEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete, onClose }) => {
+  const t = useT();
+  return (
+    <Sheet
+      title={t.net.paymentTitle(activity.note || t.net.deletedDebt)}
+      onClose={onClose}
+      footer={
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              onDelete();
+              onClose();
+            }}
+            className={DELETE_BUTTON}
+          >
+            {t.entry.delete}
+          </button>
+          <Button full={false} onClick={onClose} className="flex-[2]">
+            {t.ui.close}
+          </Button>
+        </div>
+      }
+    >
+      <Group>
+        <EntryRow activity={activity} banks={banks} />
+      </Group>
+      <p className="mb-2 mt-4 px-1 text-[13.5px] font-medium leading-relaxed text-mute">{t.net.paymentBody}</p>
+    </Sheet>
+  );
+};
+
 /**
  * Opens from a History row (and later from Home and a goal's own list): change
  * an entry, see exactly what the change would do before saving it, or delete it.
@@ -568,6 +604,7 @@ const EntrySheet: React.FC<EntrySheetProps> = (props) => {
   const { type } = props.activity;
   if (type === 'toInvest' || type === 'fromInvest') return <PotEntry {...props} />;
   if (type === 'walletMove') return <WalletMoveEntry {...props} />;
+  if (type === 'loanPayment') return <LoanPaymentEntry {...props} />;
   if (type === 'manual' || type === 'auto-save' || type === 'withdraw' || type === 'borrow') return <MoneyEntry {...props} />;
   return <LockedEntry {...props} />;
 };

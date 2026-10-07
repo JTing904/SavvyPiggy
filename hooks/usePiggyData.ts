@@ -1,7 +1,7 @@
 import { DEFAULT_WALLET } from '../services/wallet';
 import { EMPTY_BUDGETS } from '../services/budgets';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings, Bill, Budgets } from '../types';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings, Bill, Budgets, Liability, NetWorthPoint } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
@@ -16,6 +16,8 @@ import {
   subscribeToInvest,
   subscribeToWallet,
   subscribeToBudgets,
+  subscribeToLiabilities,
+  subscribeToNetWorth,
   subscribeToBills,
   migrateHoldingsToTrades,
   DEFAULT_INVEST,
@@ -39,6 +41,8 @@ export const usePiggyData = (uid: string | undefined) => {
   const [invest, setInvest] = useState<InvestSettings>(DEFAULT_INVEST);
   const [wallet, setWallet] = useState<WalletSettings>(DEFAULT_WALLET);
   const [budgets, setBudgets] = useState<Budgets>(EMPTY_BUDGETS);
+  const [liabilities, setLiabilities] = useState<Liability[]>([]);
+  const [netWorthPoints, setNetWorthPoints] = useState<NetWorthPoint[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
@@ -221,6 +225,21 @@ export const usePiggyData = (uid: string | undefined) => {
     return subscribeToWallet(uid, setWallet, (e) => setError(e.message));
   }, [uid, attempt]);
 
+  // Debts and the net worth trend never hold the screens back either.
+  useEffect(() => {
+    if (!uid) {
+      setLiabilities([]);
+      setNetWorthPoints([]);
+      return;
+    }
+    const stopDebts = subscribeToLiabilities(uid, setLiabilities, (e) => setError(e.message));
+    const stopPoints = subscribeToNetWorth(uid, setNetWorthPoints, (e) => setError(e.message));
+    return () => {
+      stopDebts();
+      stopPoints();
+    };
+  }, [uid, attempt]);
+
   // Budgets never hold the screens back: until they arrive there are none, and nothing is judged.
   useEffect(() => {
     if (!uid) {
@@ -300,6 +319,8 @@ export const usePiggyData = (uid: string | undefined) => {
     wallet,
     bills,
     budgets,
+    liabilities,
+    netWorthPoints,
     loading: loading || !activitiesReady,
     offline,
     error,

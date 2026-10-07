@@ -33,6 +33,7 @@ export const common: typeof English = {
     toInvest: '转去投资',
     fromInvest: '从投资转回',
     walletMove: '钱包转移',
+    loanPayment: '还款',
   },
 
   categories: {
@@ -47,6 +48,7 @@ export const common: typeof English = {
     travel: '旅行',
     learning: '学习',
     gifts: '礼物',
+    interest: '利息',
     other: '其他',
   },
 

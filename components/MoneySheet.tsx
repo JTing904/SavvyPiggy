@@ -5,7 +5,7 @@ import { formatMoney, fromCents, toCents } from '../services/money';
 import { amountToCents, typedFromCents } from '../services/keypad';
 import { CATEGORIES, categoryOf, UNCATEGORISED } from '../services/categories';
 import { findDuplicate, parseQuick } from '../services/quickParse';
-import { canReadPictures, pickPicture, readPicture, type QuickDraft } from '../services/quickRead';
+import { canReadPictures, compressPicture, pickPicture, readPicture, type QuickDraft } from '../services/quickRead';
 import type { ReceiptRead } from '../services/receipt';
 import { loadLastChoices, saveLastChoices, usableChoices, withChoice, type ChoicePatch } from '../services/lastChoices';
 import { atFromPicked, defaultIncomeChoice, defaultSpendSource, WALLET, type IncomeChoice } from '../services/moneySheet';
@@ -20,6 +20,7 @@ import { Tile, type TileTint } from './ui/Tile';
 import { Button } from './ui/Button';
 import { Amount } from './ui/Amount';
 import { Keypad } from './ui/Keypad';
+import { Toggle } from './ui/Toggle';
 import { Field } from './ui/Field';
 import { Icon } from './ui/Icon';
 import DateField from './DateField';
@@ -46,7 +47,8 @@ interface MoneySheetProps {
   /** `choice` is `split`, `wallet` or a goal's id. `at` is only given for a day other than today. */
   onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
   /** `source` is `wallet` or a goal's id. */
-  onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date) => void | Promise<void>;
+  /** `extras.receipts` are compressed pictures (base64) to keep with the entry. */
+  onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date, extras?: { receipts?: string[] }) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -126,6 +128,9 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   /** Amounts to choose from, when the line or the picture has several and does not say which. */
   const [options, setOptions] = useState<number[]>([]);
   const [repeatAsked, setRepeatAsked] = useState(false);
+  /** The picture just read, kept in memory only; it is saved with the entry only when the person says so. */
+  const [receiptImage, setReceiptImage] = useState<string | null>(null);
+  const [attach, setAttach] = useState(false);
 
   const parsed = useMemo(
     () =>
@@ -138,6 +143,8 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     if (!parsed) return;
     setReadInfo(null);
     setReadError(null);
+    setReceiptImage(null);
+    setAttach(false);
     setTab(parsed.kind === 'income' ? 'deposit' : 'spend');
     setText(parsed.cents !== null ? typedFromCents(parsed.cents) : '');
     setOptions(parsed.issues.includes('manyAmounts') ? parsed.amounts : []);
@@ -164,8 +171,13 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     setReading(true);
     setReadError(null);
     setReadInfo(null);
+    setReceiptImage(null);
+    setAttach(false);
     try {
+      // A small copy first, while the photo still exists (reading it deletes a photo just taken).
+      const copy = await compressPicture(uri, false).catch(() => null);
       applyRead(await readPicture(uri));
+      setReceiptImage(copy);
     } catch {
       setReadError(q.readFailed);
     } finally {
@@ -259,7 +271,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     const at = atFromPicked(pickedDay, new Date());
     try {
       if (deposit) await onDeposit(value, choice, at);
-      else await onWithdraw(value, source as string, note.trim(), category, at);
+      else await onWithdraw(value, source as string, note.trim(), category, at, attach && receiptImage ? { receipts: [receiptImage] } : undefined);
     } catch {
       // Nothing is remembered and the sheet stays, so the amount is not lost.
       setBusy(false);
@@ -374,6 +386,16 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
           )}
           {!deposit && category === UNCATEGORISED && <p className="mt-2 text-mute">{q.readCategory}</p>}
           <p className="mt-2 text-[11.5px] text-mute">{q.readOnPhone}</p>
+        </div>
+      )}
+      {receiptImage && !deposit && (
+        <div className="mt-3 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
+          <img src={`data:image/jpeg;base64,${receiptImage}`} alt="" className="h-14 w-10 shrink-0 rounded-lg object-cover" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14.5px] font-bold">{t.net.attach}</span>
+            <span className="block text-[12px] font-medium text-mute">{t.net.attachHint}</span>
+          </span>
+          <Toggle checked={attach} onChange={setAttach} label={t.net.attach} />
         </div>
       )}
       {repeatAsked && (

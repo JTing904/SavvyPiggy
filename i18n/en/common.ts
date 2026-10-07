@@ -37,6 +37,7 @@ export const common = {
     toInvest: 'Moved to investing',
     fromInvest: 'Back from investing',
     walletMove: 'Wallet move',
+    loanPayment: 'Debt payment',
   },
 
   /** Spending categories, by their stored key. */
@@ -52,6 +53,7 @@ export const common = {
     travel: 'Travel',
     learning: 'Learning',
     gifts: 'Gifts',
+    interest: 'Interest',
     other: 'Other',
   } as Record<string, string>,
 

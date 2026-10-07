@@ -29,7 +29,7 @@ export const outflow = (a: Activity) =>
     ? 0
     : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0) +
       // Spending out of the wallet touches no goal, but it is spending.
-      (a.type === 'withdraw' ? Math.max(0, -toCents(a.wallet ?? 0)) : 0);
+      (a.type === 'withdraw' || a.type === 'loanPayment' ? Math.max(0, -toCents(a.wallet ?? 0)) : 0);
 
 /** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
 export const sharesCents = (a: Activity) =>

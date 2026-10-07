@@ -32,11 +32,12 @@ export const LOOK: Record<ActivityType, Look> = {
   fromInvest: { icon: 'swap', tint: 'lav', tone: 'info' },
   transfer: { icon: 'swap', tint: 'sun', tone: 'ink' },
   walletMove: { icon: 'swap', tint: 'lav', tone: 'info' },
+  loanPayment: { icon: 'out', tint: 'peach', tone: 'neg' },
 };
 
 export const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
 
-const ACTIVITY_LABEL: Record<ActivityType, 'autoSave' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest' | 'walletMove'> = {
+const ACTIVITY_LABEL: Record<ActivityType, 'autoSave' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest' | 'walletMove' | 'loanPayment'> = {
   'auto-save': 'autoSave',
   manual: 'manual',
   withdraw: 'withdraw',
@@ -47,6 +48,7 @@ const ACTIVITY_LABEL: Record<ActivityType, 'autoSave' | 'manual' | 'withdraw' | 
   toInvest: 'toInvest',
   fromInvest: 'fromInvest',
   walletMove: 'walletMove',
+  loanPayment: 'loanPayment',
 };
 
 interface EntryRowProps {
@@ -81,6 +83,12 @@ export const EntryRow: React.FC<EntryRowProps> = ({ activity, banks, onOpen }) =
       parts.push(categoryOf(activity.category).label);
       if ((activity.wallet ?? 0) < 0) parts.push(t.history.fromWallet);
       if (activity.auto) parts.push(t.bills.autoTag);
+      if (activity.receipts?.length) parts.push(t.net.receiptCount(activity.receipts.length));
+      break;
+    case 'loanPayment':
+      title = t.net.paymentTitle(note || t.net.deletedDebt);
+      parts.push(t.net.paymentSub(money(activity.principal ?? 0), money(activity.interest ?? 0), '').replace(/ · $/, ''));
+      if ((activity.wallet ?? 0) < 0) parts.push(t.history.fromWallet);
       break;
     case 'walletMove':
       if (goals.length === 1) parts.push((activity.wallet ?? 0) < 0 ? t.history.walletToGoals(nameOf(goals[0].bankId)) : t.history.goalToWallet(nameOf(goals[0].bankId)));

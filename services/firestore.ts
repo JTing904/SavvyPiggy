@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   getDocsFromServer,
+  getCountFromServer,
   setDoc,
   addDoc,
   deleteDoc,
@@ -16,13 +17,16 @@ import {
   writeBatch,
   runTransaction,
   increment,
+  arrayUnion,
+  arrayRemove,
+  Bytes,
   type Unsubscribe,
   type FirestoreError,
   type Transaction,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { Bill, InvestSettings, WalletSettings } from '../types';
+import type { Bill, InvestSettings, Liability, LiabilityKind, NetWorthPoint, WalletSettings } from '../types';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
 import type { Activity, ActivityType, Alert, Budgets, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
@@ -32,7 +36,7 @@ import type { LangChoice } from '../i18n';
 import { m as messages } from '../i18n';
 import { dividendsAfterChange, exchangeDay, type CreditedDividend, type DueDividend } from './dividends';
 import { dueOccurrences, localDate, runStamp, scheduleDay } from './schedules';
-import { fromCents, toCents } from './money';
+import { formatMoney, fromCents, toCents } from './money';
 import { archiveStrategy, isInSplit, outstandingCents, planDeposit, planGoalRemoval, planWithdrawal, type GoalMoneyChoice, type GoneShareChoice, type Movement } from './ledger';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS, milestoneAlerts, receiptAlert, type AlertDraft } from './alerts';
 import { activityRowsChanged } from './ledgerEvents';
@@ -45,6 +49,7 @@ import { firstGoalSplit } from './firstGoalSplit';
 import { liveWindowStart } from './ledgerWindow';
 import { billNote, outsideHistory, planFixedRun, WALLET_SOURCE } from './bills';
 import { cleanBudgets, TOTAL, withLimit } from './budgets';
+import { debtDaysOutsideHistory, planPayment } from './debts';
 import { cleanWallet, planIncome, planWalletMove, planWalletSpend, walletCents, type IncomeTarget, type WalletMove } from './wallet';
 import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from './potTransfers';
 import { planDividendCorrection, planDividendRemoval } from './dividendCorrection';
@@ -82,6 +87,10 @@ const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general')
 const investRef = (uid: string) => doc(db, 'users', uid, 'settings', 'invest');
 const walletRef = (uid: string) => doc(db, 'users', uid, 'settings', 'wallet');
 const budgetsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'budgets');
+const liabilitiesCol = (uid: string) => collection(db, 'users', uid, 'liabilities');
+const liabilityRef = (uid: string, id: string) => doc(db, 'users', uid, 'liabilities', id);
+const receiptRef = (uid: string, id: string) => doc(db, 'users', uid, 'receipts', id);
+const netWorthCol = (uid: string) => collection(db, 'users', uid, 'netWorth');
 const billsCol = (uid: string) => collection(db, 'users', uid, 'bills');
 const billRef = (uid: string, id: string) => doc(db, 'users', uid, 'bills', id);
 
@@ -109,6 +118,8 @@ export interface DepositOptions {
 export interface DatedOptions {
   at?: Date;
   notBefore?: Date;
+  /** Receipt photos to keep with the entry: base64 JPEGs, already compressed. */
+  receipts?: string[];
 }
 
 /**
@@ -606,7 +617,7 @@ export const withdraw = async (
   sourceBankId: string,
   note = '',
   category: string = UNCATEGORISED,
-  { at, notBefore }: DatedOptions = {}
+  { at, notBefore, receipts }: DatedOptions = {}
 ) => {
   const movements = planWithdrawal(toCents(amount), sourceBankId);
   if (movements.length === 0) throw new Error(messages().errors.enterWithdrawAmount);
@@ -622,6 +633,7 @@ export const withdraw = async (
     distributions: toDistributions(movements),
     note,
     category,
+    ...receiptFields(batch, uid, 'activity', entry.id, receipts),
   });
   movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
@@ -640,7 +652,7 @@ export const spendFromWallet = async (
   amount: number,
   note = '',
   category: string = UNCATEGORISED,
-  { at, notBefore }: DatedOptions = {}
+  { at, notBefore, receipts }: DatedOptions = {}
 ) => {
   const spend = planWalletSpend(toCents(amount));
   if ('problem' in spend) throw new Error(messages().errors.enterWithdrawAmount);
@@ -657,6 +669,7 @@ export const spendFromWallet = async (
     wallet: fromCents(spend.walletCents),
     note,
     category,
+    ...receiptFields(batch, uid, 'activity', entry.id, receipts),
   });
   batch.set(walletRef(uid), { balance: increment(fromCents(spend.walletCents)) }, { merge: true });
   await batch.commit();
@@ -800,6 +813,8 @@ export const deleteActivity = (
     // A debt this entry paid down may have been removed since; updating a
     // missing document would fail the whole undo.
     const repaidLoans = await Promise.all((activity.repayments ?? []).map((r) => tx.get(loanRef(uid, r.loanId))));
+    // A payment on a debt puts its principal back; the debt may have been deleted since.
+    const paidDebt = activity.liabilityId ? await tx.get(liabilityRef(uid, activity.liabilityId)) : null;
 
     // Spent ahead that was already covered: that money goes back to the goals.
     // If the split cannot place all of it (no goal takes a share, or the shares
@@ -831,6 +846,11 @@ export const deleteActivity = (
     if (toCents(activity.wallet ?? 0) !== 0) {
       tx.set(walletRef(uid), { balance: increment(-(activity.wallet ?? 0)) }, { merge: true });
     }
+
+    if (paidDebt?.exists() && toCents(activity.principal ?? 0) > 0) {
+      tx.update(liabilityRef(uid, paidDebt.id), { balance: increment(activity.principal ?? 0) });
+    }
+    activity.receipts?.forEach((id) => tx.delete(receiptRef(uid, id)));
 
     // Undoing a repayment puts the debt back.
     activity.repayments?.forEach((r, i) => {
@@ -2015,3 +2035,202 @@ export const seedSampleBanks = async (uid: string) => {
   );
   await batch.commit();
 };
+
+
+/* ----------------------------------------------------------------- receipts */
+
+/**
+ * Receipt photos are kept as small JPEGs in their own documents, so opening an
+ * entry never reads them: only looking at the receipt does. The page asks for
+ * them already compressed (about 150 KB), well inside a document's limit.
+ */
+type ReceiptOwnerKind = 'activity';
+
+const receiptDoc = (kind: ReceiptOwnerKind, ownerId: string, base64: string) => ({
+  ownerKind: kind,
+  ownerId,
+  data: Bytes.fromBase64String(base64),
+  bytes: Math.floor((base64.length * 3) / 4),
+  at: Date.now(),
+});
+
+/** Writes the receipts into a batch and returns what the owner document should say about them. */
+const receiptFields = (batch: ReturnType<typeof writeBatch>, uid: string, kind: ReceiptOwnerKind, ownerId: string, images?: string[]) => {
+  if (!images || images.length === 0) return {};
+  const ids = images.map((image) => {
+    const ref = doc(collection(db, 'users', uid, 'receipts'));
+    batch.set(ref, receiptDoc(kind, ownerId, image));
+    return ref.id;
+  });
+  return { receipts: ids };
+};
+
+/** One receipt as a picture the page can show. */
+export const loadReceipt = async (uid: string, id: string): Promise<string> => {
+  const snap = await getDoc(receiptRef(uid, id));
+  if (!snap.exists()) throw new Error(messages().net.receiptLoadFailed);
+  return `data:image/jpeg;base64,${(snap.data().data as Bytes).toBase64()}`;
+};
+
+/** Adds a receipt to an entry. */
+export const addReceipt = async (uid: string, owner: { kind: ReceiptOwnerKind; id: string }, base64: string) => {
+  const ref = doc(collection(db, 'users', uid, 'receipts'));
+  const batch = writeBatch(db);
+  batch.set(ref, receiptDoc(owner.kind, owner.id, base64));
+  batch.update(activityRef(uid, owner.id), { receipts: arrayUnion(ref.id) });
+  await batch.commit();
+  // An older row is not listened to, so it is read back.
+  activityRowsChanged([{ id: owner.id, server: true }]);
+  return ref.id;
+};
+
+export const removeReceipt = async (uid: string, owner: { kind: ReceiptOwnerKind; id: string }, id: string) => {
+  const batch = writeBatch(db);
+  batch.delete(receiptRef(uid, id));
+  batch.update(activityRef(uid, owner.id), { receipts: arrayRemove(id) });
+  await batch.commit();
+  activityRowsChanged([{ id: owner.id, server: true }]);
+};
+
+/** How many receipts are kept: a count on the server, so no receipt is downloaded to answer it. */
+export const receiptCount = async (uid: string): Promise<number> => {
+  const snap = await getCountFromServer(collection(db, 'users', uid, 'receipts'));
+  return snap.data().count;
+};
+
+/* ------------------------------------------------------------------- debts */
+
+export const subscribeToLiabilities = (uid: string, onChange: (debts: Liability[]) => void, onError: (e: FirestoreError) => void): Unsubscribe =>
+  onSnapshot(
+    query(liabilitiesCol(uid), orderBy('createdAt', 'asc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Liability)),
+    onError
+  );
+
+export interface NewLiability {
+  name: string;
+  kind: LiabilityKind;
+  balance: number;
+  monthly: number | null;
+  rate: number | null;
+  rateType: 'eir' | 'flat';
+  original: number | null;
+  payDay: number | null;
+}
+
+/** Starts counting from now, like a bill: adding a debt never asks about the months before. */
+export const createLiability = (uid: string, debt: NewLiability) =>
+  addDoc(liabilitiesCol(uid), { ...debt, lastRunAt: new Date().toISOString(), createdAt: Date.now() });
+
+/** Changing a debt's terms. A new pay day restarts the clock, so it applies from the next one and never backwards. */
+export const updateLiability = (uid: string, id: string, patch: Partial<Pick<Liability, 'name' | 'kind' | 'monthly' | 'rate' | 'rateType' | 'original' | 'payDay'>>) =>
+  updateDoc(liabilityRef(uid, id), { ...patch, ...(patch.payDay !== undefined ? { lastRunAt: new Date().toISOString() } : {}) });
+
+/** Correcting what is owed by hand, for when the bank's figure and the app's have drifted apart. */
+export const setLiabilityBalance = (uid: string, id: string, balance: number) => updateDoc(liabilityRef(uid, id), { balance });
+
+export const deleteLiability = (uid: string, id: string) => deleteDoc(liabilityRef(uid, id));
+
+/**
+ * Records a payment on a debt: what left the wallet (or one goal), how much of
+ * it lowered the debt, and how much was interest. One transaction that reads the
+ * debt first, so two devices answering the same month cannot both record it.
+ * With `forDay`, the entry is dated that pay day and the debt's clock moves to it.
+ * Returns false when that day had already been answered or the debt is gone.
+ */
+export const recordDebtPayment = async (
+  uid: string,
+  debt: Liability,
+  payment: { totalCents: number; interestCents: number; source: string },
+  { at, notBefore, forDay, now = new Date() }: DatedOptions & { forDay?: string; now?: Date } = {}
+): Promise<boolean> => {
+  const stamped = forDay ? null : stampOrThrow(at, now, notBefore);
+  const entry = doc(activitiesCol(uid));
+  const fromWallet = payment.source === WALLET_SOURCE;
+  const done = await runTransaction(db, async (tx) => {
+    const fresh = await tx.get(liabilityRef(uid, debt.id));
+    if (!fresh.exists()) return false;
+    if (forDay) {
+      const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+      if (last === null || last >= forDay) return false;
+    }
+    const goal = fromWallet ? null : await tx.get(bankRef(uid, payment.source));
+    if (!fromWallet && !goal?.exists()) throw new Error(messages().errors.billGoalGone(1));
+
+    // Worked out against what is owed now, not what this screen last saw.
+    const planned = planPayment({ totalCents: payment.totalCents, interestCents: payment.interestCents, balanceCents: toCents(fresh.data().balance ?? 0) });
+    if ('problem' in planned) {
+      const n = messages().net;
+      throw new Error(
+        planned.problem === 'interestTooBig'
+          ? n.interestTooBig
+          : planned.problem === 'overBalance'
+            ? n.overBalance(formatMoney(fresh.data().balance ?? 0))
+            : messages().errors.enterSpendAmount
+      );
+    }
+    const { plan } = planned;
+    tx.set(entry, {
+      type: 'loanPayment' satisfies ActivityType,
+      date: forDay ? billMoment(forDay, now).toISOString() : stamped!.stamp,
+      amount: fromCents(plan.totalCents),
+      principal: fromCents(plan.principalCents),
+      interest: fromCents(plan.interestCents),
+      liabilityId: debt.id,
+      note: debt.name,
+      category: 'interest',
+      distributions: fromWallet ? [] : [{ bankId: payment.source, amount: -fromCents(plan.totalCents), percentage: 100 }],
+      ...(fromWallet ? { wallet: -fromCents(plan.totalCents) } : {}),
+    });
+    if (fromWallet) tx.set(walletRef(uid), { balance: increment(-fromCents(plan.totalCents)) }, { merge: true });
+    else tx.update(bankRef(uid, payment.source), { currentAmount: increment(-fromCents(plan.totalCents)) });
+    tx.update(liabilityRef(uid, debt.id), {
+      balance: increment(-fromCents(plan.principalCents)),
+      ...(forDay ? { lastRunAt: runStamp(forDay) } : {}),
+    });
+    return true;
+  });
+  if (done) {
+    activityRowsChanged([{ id: entry.id, server: true }]);
+    if (stamped) announceBackDated(entry.id, stamped.when, now);
+  }
+  return done;
+};
+
+/** Passes over a pay day (and everything before it) without recording anything. */
+export const skipDebtDay = (uid: string, debt: Liability, day: string) =>
+  runTransaction(db, async (tx) => {
+    const fresh = await tx.get(liabilityRef(uid, debt.id));
+    if (!fresh.exists()) return false;
+    const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+    if (last !== null && last >= day) return false;
+    tx.update(liabilityRef(uid, debt.id), { lastRunAt: runStamp(day) });
+    return true;
+  });
+
+/** What the app does for debts when it opens: pay days older than the history it keeps are only passed over. */
+export const passOverOldDebtDays = async (uid: string, debts: Liability[], { now = new Date(), notBefore }: { now?: Date; notBefore: Date }) => {
+  for (const debt of debts) {
+    const old = debtDaysOutsideHistory(debt, now, notBefore);
+    if (old.length > 0) await skipDebtDay(uid, debt, old[old.length - 1]);
+  }
+};
+
+/* --------------------------------------------------------- net worth trend */
+
+export const subscribeToNetWorth = (uid: string, onChange: (points: NetWorthPoint[]) => void, onError: (e: FirestoreError) => void): Unsubscribe =>
+  onSnapshot(
+    netWorthCol(uid),
+    (snap) =>
+      onChange(
+        snap.docs
+          .map((d) => ({ month: d.id, cents: Number(d.data().cents) }))
+          .filter((p) => /^\d{4}-\d{2}$/.test(p.month) && Number.isFinite(p.cents))
+          .sort((a, b) => a.month.localeCompare(b.month))
+      ),
+    onError
+  );
+
+/** Keeps today's net worth as this month's figure; the last one written in a month is the month's. */
+export const saveNetWorthPoint = (uid: string, month: string, cents: number) =>
+  setDoc(doc(netWorthCol(uid), month), { cents, at: Date.now() });

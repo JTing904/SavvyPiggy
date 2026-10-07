@@ -110,6 +110,18 @@ export const figuresFor = (activities: Activity[], first: Date, end: Date, now: 
           billCount += 1;
         }
       }
+    } else if (a.type === 'loanPayment') {
+      // Only the interest is spending; the principal lowers a debt and is neither spent nor saved.
+      // Paid out of a goal, the whole payment leaves it.
+      const interest = toCents(a.interest ?? 0);
+      const fromGoals = goalSpentCents(a);
+      spent += interest;
+      if (fromGoals > 0) spentGoals += interest;
+      else spentWallet += interest;
+      takenOut += fromGoals;
+      if (interest > 0) {
+        spends.push({ id: a.id, date: a.date, cents: interest, note: a.note ?? '', category: 'interest', bill: false, auto: false });
+      }
     } else if (a.type === 'walletMove') {
       for (const d of a.distributions) {
         if (d.amount > 0) putIn += toCents(d.amount);

@@ -1,5 +1,5 @@
 import { safeGoalIcon } from '../services/goalIcons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Activity, PiggyBank, SavingsSettings, Schedule } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useT } from '../contexts/LanguageContext';
@@ -10,6 +10,10 @@ import { describe, nextOccurrence } from '../services/schedules';
 import { APP_VERSION } from '../services/version';
 import { SLICE_COLORS } from './DonutChart';
 import { formatMoney } from '../services/money';
+import { receiptCount } from '../services/firestore';
+
+/** About 80% of the free gigabyte, at roughly 150 KB a receipt. */
+const RECEIPT_WARN = 5400;
 import { dateLocale } from '../i18n';
 
 interface ProfileProps {
@@ -115,6 +119,11 @@ const Profile: React.FC<ProfileProps> = ({
   const [showArchive, setShowArchive] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
   const t = useT();
+  // How many receipt photos are kept (a count on the server: none is downloaded to answer it).
+  const [receipts, setReceipts] = useState(0);
+  useEffect(() => {
+    if (user?.uid) void receiptCount(user.uid).then(setReceipts).catch(() => undefined);
+  }, [user?.uid]);
   const now = new Date();
 
   if (!user) return null;
@@ -396,6 +405,13 @@ const Profile: React.FC<ProfileProps> = ({
               }
               onClick={onOpenHoldings}
             />
+            {receipts > 0 && (
+              <Row
+                icon="photo_library"
+                title={t.net.receiptsRow}
+                subtitle={receipts >= RECEIPT_WARN ? t.net.receiptsNearFull : t.net.receiptsUsed(receipts, `${((receipts * 150) / 1024).toFixed(1)} MB`)}
+              />
+            )}
             <Row
               icon="description"
               title={t.profile.statementsExports}

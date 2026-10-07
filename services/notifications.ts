@@ -1,9 +1,10 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
-import type { Bill, Dividend, NotificationPrefs, Schedule, Trade } from '../types';
+import type { Bill, Dividend, Liability, NotificationPrefs, Schedule, Trade } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
 import { billSchedule, WALLET_SOURCE } from './bills';
+import { debtSchedule, suggestPayment } from './debts';
 import { toCents } from './money';
 import { unitsOnExDate } from './holdings';
 import { dividendId, exchangeDay } from './dividends';
@@ -140,6 +141,8 @@ export const requestExactAlarms = async () => {
 /** What the bill alarms need that the settings alone do not say. */
 export interface BillExtras {
   bills: Bill[];
+  /** Loans that ask for a payment on a day each month. */
+  debts?: Liability[];
   /** What the wallet holds now, in cents. */
   walletCents: number;
   /** What each bill usually costs, in cents, by bill id. */
@@ -231,6 +234,26 @@ export const plannedNotifications = (
           extra: { open: 'home' satisfies OpenTarget },
         });
       }
+    }
+  }
+
+  // Loan payments ask on their day, like a bill with a changing amount: the usual figure is in the note.
+  if (prefs.bills && extras?.debts) {
+    for (const debt of extras.debts) {
+      const schedule = debtSchedule(debt);
+      if (!schedule.enabled) continue;
+      const next = nextOccurrence(schedule, now);
+      if (!next) continue;
+      const at = new Date(next);
+      at.setHours(MORNING, 0, 0, 0);
+      const plan = suggestPayment(debt);
+      out.push({
+        id: BILL_BASE + slot(`debt:${debt.id}`, SPAN),
+        title: m().net.notifyTitle(debt.name),
+        body: plan ? m().net.notifyBody(formatMoney(plan.totalCents / 100)) : m().net.notifyBodyNoAmount,
+        schedule: { at },
+        extra: { open: 'home' satisfies OpenTarget },
+      });
     }
   }
 

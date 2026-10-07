@@ -1,6 +1,6 @@
 
 import SavingsHome from './SavingsHome';
-import type { Bill, Budgets, WalletSettings } from '../types';
+import type { Bill, Budgets, Liability, WalletSettings } from '../types';
 import type { IncomeChoice } from '../services/moneySheet';
 import type { WalletMove } from '../services/wallet';
 import { safeGoalIcon } from '../services/goalIcons';
@@ -39,6 +39,7 @@ const activityLabel = (t: Messages, type: ActivityType) =>
     toInvest: t.common.activity.toInvest,
     fromInvest: t.common.activity.fromInvest,
     walletMove: t.common.activity.walletMove,
+    loanPayment: t.common.activity.loanPayment,
   })[type];
 
 const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoing: boolean }> = {
@@ -52,6 +53,7 @@ const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoi
   toInvest: { icon: 'south_east', tint: 'bg-accent/10 text-accent', outgoing: true },
   fromInvest: { icon: 'north_west', tint: 'bg-accent/10 text-accent', outgoing: false },
   walletMove: { icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
+  loanPayment: { icon: 'account_balance', tint: 'bg-slate-500/10 text-slate-400', outgoing: true },
 };
 
 interface DashboardProps {
@@ -68,10 +70,13 @@ interface DashboardProps {
   onOpenAuto: () => void;
   budgets: Budgets;
   onOpenBudgets: () => void;
+  liabilities: Liability[];
+  onConfirmDebt: (debt: Liability, payment: { totalCents: number; interestCents: number; source: string }, day?: string) => void | Promise<void>;
+  onSkipDebt: (debt: Liability, day: string) => void | Promise<void>;
   /** `choice` is `rule`, `split`, `wallet` or a goal's id; `at` is only given for a day other than today. */
   onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
   /** `source` is `wallet` or a goal's id. */
-  onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date) => void | Promise<void>;
+  onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date, extras?: { receipts?: string[] }) => void | Promise<void>;
   onMoveWallet: (amount: number, move: WalletMove) => void | Promise<void>;
   onAddGoal: () => void;
   onViewAll: () => void;
@@ -723,6 +728,9 @@ const Dashboard: React.FC<DashboardProps> = (props) =>
       onOpenAuto={props.onOpenAuto}
       budgets={props.budgets}
       onOpenBudgets={props.onOpenBudgets}
+      liabilities={props.liabilities}
+      onConfirmDebt={props.onConfirmDebt}
+      onSkipDebt={props.onSkipDebt}
       savings={props.savings}
       totalBalance={props.totalBalance}
       unreadAlerts={props.unreadAlerts}

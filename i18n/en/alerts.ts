@@ -74,7 +74,7 @@ export const alerts = {
   monthlyReportHint: 'On the 1st at 9:00 AM, opening last month’s Report.',
   exDates: 'Ex-dividend days',
   billReminders: 'Bills',
-  billRemindersHint: 'A bill that asks for its amount, on its day, and a heads-up the day before a bill your wallet cannot cover.',
+  billRemindersHint: 'A bill that asks for its amount, or a loan payment to confirm, on its day, and a heads-up the day before a bill your wallet cannot cover.',
   exDatesHint:
     'Two days before a counter you hold goes ex-dividend — the day that decides whether the payment is yours.',
   footer:

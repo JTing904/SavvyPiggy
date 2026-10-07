@@ -67,7 +67,7 @@ export const alerts: typeof English = {
   monthlyReportHint: '每月 1 日 09:00，打开上个月的报表。',
   exDates: '除权日',
   billReminders: '账单',
-  billRemindersHint: '每次不同的账单到期当天，提醒你输入金额；钱包不够付明天的账单时，提前一天提醒。',
+  billRemindersHint: '每次不同的账单、或贷款还款到期当天，提醒你确认；钱包不够付明天的账单时，提前一天提醒。',
   exDatesHint: '你持有的股票除权前两天提醒你——这一天决定股息是不是你的。',
   footer:
     '提醒设在这部手机上，应用关着也会响。自动存入本身只在你打开应用时才会入账（SavvyPiggy 没有服务器），所以到期的规则会在 09:00 提醒你打开应用。',
