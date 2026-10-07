@@ -205,6 +205,7 @@ eq('a borrow note is only a patch', planOf(plan(borrowRow, { note: ' lunch ' }, 
   loanOutstanding: {},
   patch: { note: 'lunch' },
   potDelta: 0,
+  walletDelta: 0,
 });
 
 // --- note and date never recompute money
@@ -237,5 +238,35 @@ eq('a debt owing something else is stale', staleCheck(repaidRow, fresh, [L1, L2]
 eq('a debt deleted since is stale', staleCheck(repaidRow, fresh, [L1, L2], [L1]), 'staleDebt');
 eq('a borrow whose loan changed is stale', staleCheck(borrowRow, borrowRow, [debt], [loan('D', 100, 30, 5000)]), 'staleDebt');
 eq('a note changed elsewhere is not stale', staleCheck(repaidRow, { ...repaidRow, note: 'y' }, [L1, L2], [L1, L2]), null);
+
+// --- the wallet took part
+const keptSome = row({
+  type: 'manual',
+  amount: 100,
+  wallet: 30,
+  distributions: [
+    { bankId: 'a', amount: 70, percentage: 100 },
+  ],
+});
+eq('income partly kept in the wallet: a new amount is refused', kindOf(plan(keptSome, { amount: 120 }, AB)), 'walletRow');
+eq('income partly kept in the wallet: a new target is refused', kindOf(plan(keptSome, { target: { mode: 'split' } }, AB)), 'walletRow');
+eq('income partly kept in the wallet: a note still goes through', planOf(plan(keptSome, { note: 'pay' }, AB))?.patch, { note: 'pay' });
+eq('and so does a new date', planOf(plan(keptSome, { date: new Date(2026, 8, 18, 12).toISOString() }, AB))?.walletDelta, 0);
+
+const walletSpend = row({ type: 'withdraw', amount: 40, wallet: -40, distributions: [], category: 'food' });
+{
+  const r = planOf(plan(walletSpend, { amount: 55 }, AB));
+  eq('spending from the wallet: a bigger amount takes more from it', r?.walletDelta, -1500);
+  eq('and the row says so', [r?.patch.amount, r?.patch.wallet], [55, -55]);
+  eq('no goal is touched', r?.bankDeltas, {});
+}
+{
+  const r = planOf(plan(walletSpend, { amount: 25 }, AB));
+  eq('a smaller amount gives some back', r?.walletDelta, 1500);
+}
+eq('spending from the wallet cannot be moved to a goal here', kindOf(plan(walletSpend, { source: 'a' }, AB)), 'walletRow');
+eq('its category can change', planOf(plan(walletSpend, { category: 'transport' }, AB))?.patch, { category: 'transport' });
+eq('wallet moves are not editable', kindOf(plan(row({ type: 'walletMove', amount: 5, wallet: -5, distributions: [{ bankId: 'a', amount: 5, percentage: 100 }] }), { amount: 6 }, AB)), 'notEditable');
+
 
 report();

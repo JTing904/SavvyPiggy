@@ -384,7 +384,7 @@ const App: React.FC = () => {
     // below zero in floats.
     return fromCents(
       activities
-        .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest'].includes(a.type))
+        .filter((a) => !['invest', 'divest', 'transfer', 'toInvest', 'fromInvest', 'walletMove'].includes(a.type))
         .filter((a) => new Date(a.date).toLocaleDateString() === today)
         .flatMap((a) => a.distributions)
         .reduce((sum, d) => sum + toCents(d.amount), 0)

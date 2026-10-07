@@ -31,11 +31,12 @@ export const LOOK: Record<ActivityType, Look> = {
   toInvest: { icon: 'swap', tint: 'lav', tone: 'info' },
   fromInvest: { icon: 'swap', tint: 'lav', tone: 'info' },
   transfer: { icon: 'swap', tint: 'sun', tone: 'ink' },
+  walletMove: { icon: 'swap', tint: 'lav', tone: 'info' },
 };
 
 export const isTrade = (a: Activity) => a.type === 'invest' || a.type === 'divest';
 
-const ACTIVITY_LABEL: Record<ActivityType, 'autoSave' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest'> = {
+const ACTIVITY_LABEL: Record<ActivityType, 'autoSave' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest' | 'walletMove'> = {
   'auto-save': 'autoSave',
   manual: 'manual',
   withdraw: 'withdraw',
@@ -45,6 +46,7 @@ const ACTIVITY_LABEL: Record<ActivityType, 'autoSave' | 'manual' | 'withdraw' | 
   transfer: 'transfer',
   toInvest: 'toInvest',
   fromInvest: 'fromInvest',
+  walletMove: 'walletMove',
 };
 
 interface EntryRowProps {

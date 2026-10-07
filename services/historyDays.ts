@@ -19,12 +19,17 @@ export const credited = (a: Activity) => a.distributions.reduce((s, d) => (d.amo
  * moving to or from the investment pot.
  */
 export const inflow = (a: Activity) =>
-  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' ? 0 : credited(a);
+  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' || a.type === 'walletMove'
+    ? 0
+    : // Income kept in the wallet (or clearing an overdraft) arrived all the same.
+      credited(a) + Math.max(0, toCents(a.wallet ?? 0));
 
 export const outflow = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest'
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' || a.type === 'walletMove'
     ? 0
-    : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0);
+    : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0) +
+      // Spending out of the wallet touches no goal, but it is spending.
+      (a.type === 'withdraw' ? Math.max(0, -toCents(a.wallet ?? 0)) : 0);
 
 /** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
 export const sharesCents = (a: Activity) =>

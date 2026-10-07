@@ -32,6 +32,7 @@ export const common: typeof English = {
     transfer: '钱罐间转移',
     toInvest: '转去投资',
     fromInvest: '从投资转回',
+    walletMove: '钱包转移',
   },
 
   categories: {

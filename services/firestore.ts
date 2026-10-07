@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { InvestSettings } from '../types';
+import type { InvestSettings, WalletSettings } from '../types';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
 import type { Activity, ActivityType, Alert, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
@@ -43,9 +43,10 @@ import { planBankEdit, type BankEdit } from './bankEdit';
 import { GOAL_ICON_SET } from './goalIcons';
 import { firstGoalSplit } from './firstGoalSplit';
 import { liveWindowStart } from './ledgerWindow';
+import { cleanWallet, planIncome, planWalletMove, planWalletSpend, walletCents, type IncomeTarget, type WalletMove } from './wallet';
 import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from './potTransfers';
 import { planDividendCorrection, planDividendRemoval } from './dividendCorrection';
-import { activityEditProblemText, bankEditProblemText, dateProblemText, dividendProblemText, potTransferProblemText } from './problemText';
+import { activityEditProblemText, bankEditProblemText, dateProblemText, dividendProblemText, potTransferProblemText, walletProblemText } from './problemText';
 
 export { isInSplit, isArchived, isFull } from './ledger';
 
@@ -77,6 +78,7 @@ const prefsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'notificatio
 const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings');
 const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general');
 const investRef = (uid: string) => doc(db, 'users', uid, 'settings', 'invest');
+const walletRef = (uid: string) => doc(db, 'users', uid, 'settings', 'wallet');
 
 /** Which alerts a deposit is allowed to raise. */
 export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
@@ -89,6 +91,13 @@ export interface DepositOptions {
   at?: Date;
   /** The earliest day an entry may be dated; the retention cutoff when left out. */
   notBefore?: Date;
+  /**
+   * The wallet as the screen has it. Given, income is placed by the wallet's rule (or `incomeMode`) and
+   * what the rule keeps lands in the wallet; left out, a deposit behaves exactly as it did before the wallet.
+   */
+  wallet?: WalletSettings;
+  /** `rule` (the default) uses the wallet's share, `split` feeds every goal, `wallet` keeps it all. A named goal wins over all three. */
+  incomeMode?: 'rule' | 'split' | 'wallet';
 }
 
 /** Back-dating for a withdrawal or a borrow. */
@@ -509,15 +518,32 @@ export const deposit = async (
   banks: PiggyBank[],
   loans: Loan[],
   targetBankId: string | null = null,
-  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, at, notBefore }: DepositOptions = {}
+  { alerts = DEFAULT_PREFS, savings = DEFAULT_SAVINGS, at, notBefore, wallet, incomeMode = 'rule' }: DepositOptions = {}
 ) => {
   const now = new Date();
   const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
   // A deposit recorded for a past day can only repay a debt that was already owed that day.
   const owed = at ? loans.filter((l) => debtExistedOn(new Date(l.createdAt).toISOString(), when)) : loans;
-  const plan = planDeposit(toCents(amount), banks, owed, targetBankId, savings.overflow);
-  if (plan.movements.length === 0 && plan.repayments.length === 0) {
-    throw new Error(messages().errors.nothingToDepositInto);
+  let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
+  if (wallet) {
+    const target: IncomeTarget = targetBankId ? { mode: 'goal', goalId: targetBankId } : { mode: incomeMode };
+    const income = planIncome({
+      amountCents: toCents(amount),
+      banks,
+      loans: owed,
+      wallet: walletCents(wallet),
+      goalsPercent: wallet.goalsPercent,
+      target,
+      overflow: savings.overflow,
+    });
+    if ('problem' in income) throw new Error(walletProblemText({ kind: income.problem }, messages(), banks));
+    plan = income.plan;
+  } else {
+    const old = planDeposit(toCents(amount), banks, owed, targetBankId, savings.overflow);
+    if (old.movements.length === 0 && old.repayments.length === 0) {
+      throw new Error(messages().errors.nothingToDepositInto);
+    }
+    plan = { ...old, walletCents: 0 };
   }
 
   const batch = writeBatch(db);
@@ -530,11 +556,14 @@ export const deposit = async (
     distributions: toDistributions(plan.movements),
     repaid: fromCents(plan.repaidCents),
     repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
+    // Only when the wallet took part, so every other row stays exactly as it was.
+    ...(plan.walletCents !== 0 ? { wallet: fromCents(plan.walletCents) } : {}),
   });
 
   plan.movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
+  if (plan.walletCents !== 0) batch.set(walletRef(uid), { balance: increment(fromCents(plan.walletCents)) }, { merge: true });
 
     /*
       Relative, not absolute.
@@ -593,6 +622,70 @@ export const withdraw = async (
   movements.forEach((m) =>
     batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })
   );
+  await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id };
+};
+
+/**
+ * Spending from the wallet. It may take the wallet below zero: that is an
+ * overdraft, and the next income clears it before anything else is placed.
+ */
+export const spendFromWallet = async (
+  uid: string,
+  amount: number,
+  note = '',
+  category: string = UNCATEGORISED,
+  { at, notBefore }: DatedOptions = {}
+) => {
+  const spend = planWalletSpend(toCents(amount));
+  if ('problem' in spend) throw new Error(messages().errors.enterWithdrawAmount);
+
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore);
+  const entry = doc(activitiesCol(uid));
+  const batch = writeBatch(db);
+  batch.set(entry, {
+    type: 'withdraw' satisfies ActivityType,
+    date: stamp,
+    amount: fromCents(toCents(amount)),
+    distributions: [],
+    wallet: fromCents(spend.walletCents),
+    note,
+    category,
+  });
+  batch.set(walletRef(uid), { balance: increment(fromCents(spend.walletCents)) }, { merge: true });
+  await batch.commit();
+  announceBackDated(entry.id, when, now);
+  return { id: entry.id };
+};
+
+/** Moving money between the wallet and the goals by hand. Neither side may be overdrawn by it. */
+export const moveWallet = async (
+  uid: string,
+  amount: number,
+  move: WalletMove,
+  banks: PiggyBank[],
+  wallet: WalletSettings,
+  { savings = DEFAULT_SAVINGS, at, notBefore }: { savings?: SavingsSettings; at?: Date; notBefore?: Date } = {}
+) => {
+  const planned = planWalletMove({ amountCents: toCents(amount), move, banks, wallet: walletCents(wallet), overflow: savings.overflow });
+  if ('problem' in planned) throw new Error(walletProblemText({ kind: planned.problem, cents: planned.availableCents }, messages(), banks));
+  const { plan } = planned;
+
+  const now = new Date();
+  const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
+  const entry = doc(activitiesCol(uid));
+  const batch = writeBatch(db);
+  batch.set(entry, {
+    type: 'walletMove' satisfies ActivityType,
+    date: stamp,
+    amount: fromCents(toCents(amount)),
+    distributions: toDistributions(plan.movements),
+    wallet: fromCents(plan.walletCents),
+  });
+  plan.movements.forEach((m) => batch.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) }));
+  batch.set(walletRef(uid), { balance: increment(fromCents(plan.walletCents)) }, { merge: true });
   await batch.commit();
   announceBackDated(entry.id, when, now);
   return { id: entry.id };
@@ -730,6 +823,11 @@ export const deleteActivity = (
     if (settle && settleSnap?.exists()) move(settle.id, settleSnap.data().currentAmount ?? 0, -gone);
     next.forEach((cents, id) => tx.update(bankRef(uid, id), { currentAmount: fromCents(cents) }));
 
+    // What the entry did to the wallet is undone with the rest (an increment needs no read).
+    if (toCents(activity.wallet ?? 0) !== 0) {
+      tx.set(walletRef(uid), { balance: increment(-(activity.wallet ?? 0)) }, { merge: true });
+    }
+
     // Undoing a repayment puts the debt back.
     activity.repayments?.forEach((r, i) => {
       if (repaidLoans[i]?.exists()) tx.update(loanRef(uid, r.loanId), { outstanding: increment(r.amount), settledAt: null });
@@ -851,6 +949,8 @@ const applyActivityEdit = async (
         settledAt: owed === 0 ? now.toISOString() : null,
       });
     }
+
+    if (plan.walletDelta !== 0) tx.set(walletRef(uid), { balance: increment(fromCents(plan.walletDelta)) }, { merge: true });
 
     const patch = defined({ ...plan.patch } as Record<string, unknown>);
     if (Object.keys(patch).length > 0) tx.update(activityRef(uid, fresh.id), patch);
@@ -1011,6 +1111,20 @@ export const subscribeToInvest = (
   onSnapshot(investRef(uid), (snap) => onChange({ ...DEFAULT_INVEST, ...(snap.data() ?? {}) } as InvestSettings), onError);
 
 export const saveInvest = (uid: string, patch: Partial<InvestSettings>) => setDoc(investRef(uid), patch, { merge: true });
+
+export const subscribeToWallet = (
+  uid: string,
+  onChange: (wallet: WalletSettings) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe => onSnapshot(walletRef(uid), (snap) => onChange(cleanWallet(snap.data() as Partial<WalletSettings> | undefined)), onError);
+
+/**
+ * The share of every income that goes straight to the goals. The balance is
+ * never written from here: it only ever moves by an increment inside the write
+ * that records the entry behind it, so two devices cannot overwrite each other.
+ */
+export const saveWalletRule = (uid: string, goalsPercent: number) =>
+  setDoc(walletRef(uid), { goalsPercent: Math.min(100, Math.max(0, Math.round(goalsPercent))) }, { merge: true });
 
 /** Why a trade's money could not move, carried to the screen that has to ask about it. */
 export class TradeMoneyError extends Error {

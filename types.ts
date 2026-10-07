@@ -24,7 +24,18 @@ import type { FeeKey, SecurityType, TradeFees } from './services/fees';
  * coming back into them. Neither is spending or saving — the report keeps them
  * on their own lines — and both belong to a trade, which is where they are edited.
  */
-export type ActivityType = 'auto-save' | 'manual' | 'withdraw' | 'borrow' | 'invest' | 'divest' | 'transfer' | 'toInvest' | 'fromInvest';
+export type ActivityType =
+  | 'auto-save'
+  | 'manual'
+  | 'withdraw'
+  | 'borrow'
+  | 'invest'
+  | 'divest'
+  | 'transfer'
+  | 'toInvest'
+  | 'fromInvest'
+  /** Money moved between the wallet and the goals by hand. Neither income nor spending. */
+  | 'walletMove';
 
 export interface Activity {
   id: string;
@@ -34,6 +45,12 @@ export interface Activity {
   amount: number;
   /** Signed per bank: money in is positive, money out is negative. */
   distributions: { bankId: string; amount: number; percentage: number }[];
+  /**
+   * What this entry did to the wallet, signed ringgit: income kept in it (or
+   * clearing an overdraft) is positive, spending from it negative. Absent on
+   * every entry made before the wallet existed, which read as 0.
+   */
+  wallet?: number;
   /** Portion of a deposit that cleared debt instead of feeding the split. */
   repaid?: number;
   /** Which debts this entry paid down, so deleting it can put them back. */
@@ -364,4 +381,19 @@ export interface InvestSettings {
    * It never goes below zero and is not part of total savings.
    */
   potBalance: number;
+}
+
+/**
+ * Money that has arrived but is not in any goal yet. It can go below zero:
+ * spending past what it holds is an overdraft, which the next income clears
+ * before anything else is placed.
+ */
+export interface WalletSettings {
+  /** Ringgit, like a goal balance. Negative means overdrawn. */
+  balance: number;
+  /**
+   * The share of every income that goes straight to the goals, 0..100. The rest
+   * stays in the wallet. 100 (the default) means income behaves as it always did.
+   */
+  goalsPercent: number;
 }

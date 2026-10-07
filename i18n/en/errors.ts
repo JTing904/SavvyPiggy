@@ -38,6 +38,7 @@ export const errors = {
     thatGoal: 'that goal',
     activity: {
       notEditable: 'This kind of entry can’t be changed here. Delete it and record it again instead.',
+      walletRow: 'Part of this income went to your wallet, or this spending came out of it, so only the date, note and category can change here. To change the amount, delete it and record it again.',
       amountPositive: 'The amount has to be more than RM0.00. To take the entry back, delete it instead.',
       goalGone: 'A goal this entry used has been deleted, so it can’t be corrected. Delete it and record it again instead.',
       goalArchived: (goal: string) => `${goal} is put away and takes no new money. Pick another goal, or bring it back first.`,
@@ -70,6 +71,14 @@ export const errors = {
       notPotRow: 'This entry isn’t a move to or from your investing cash.',
       goalGone: 'A goal this move involved has been deleted, so it can’t be corrected. Delete the entry and choose where the money goes.',
       amountPositive: 'The amount has to be more than RM0.00. To take the move back, delete it instead.',
+    },
+    wallet: {
+      amountPositive: 'Enter an amount.',
+      noDestination: 'There is nowhere to put this: no goal takes a share of deposits. Keep it in the wallet instead, or give a goal a share first.',
+      goalGone: 'That goal has been deleted. Choose another.',
+      goalArchived: (goal: string) => `${goal} is put away. Restore it first, or choose another goal.`,
+      walletShort: (available: string) => `Your wallet holds ${available}. Move less, or add income to it first.`,
+      goalShort: (goal: string, available: string) => `${goal} holds ${available}. Move less.`,
     },
     dividend: {
       notDividend: 'This entry isn’t a dividend.',

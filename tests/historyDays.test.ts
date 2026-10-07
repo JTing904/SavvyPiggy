@@ -141,4 +141,20 @@ eq('a week has seven days', weekOf(new Date()).length, 7);
   eq('keys line up with grouping', dayKey(sep[1][2]!), '2026-09-08');
 }
 
+// --- the wallet
+{
+  const kept = act('manual', at(2026, 9, 6, 9), [{ bankId: 'a', amount: 70 }], { amount: 100, wallet: 30 });
+  const allWallet = act('manual', at(2026, 9, 6, 10), [], { amount: 50, wallet: 50 });
+  const spendWallet = act('withdraw', at(2026, 9, 6, 11), [], { amount: 12, wallet: -12 });
+  const toGoals = act('walletMove', at(2026, 9, 6, 12), [{ bankId: 'a', amount: 20 }], { amount: 20, wallet: -20 });
+  eq('income counts what went to the goals and what was kept', [inflow(kept), inflow(allWallet)], [10000, 5000]);
+  eq('spending from the wallet is out', outflow(spendWallet), 1200);
+  eq('a wallet move is neither in nor out', [inflow(toGoals), outflow(toGoals)], [0, 0]);
+  const day = groupByDay([kept, allWallet, spendWallet, toGoals])[0];
+  eq('the day adds up', [day.saved, day.spent], [15000, 1200]);
+  eq('dots: in and out, nothing for the move', dotsFor(day), { in: true, out: true, invest: false });
+  eq('a day with only a wallet move has no dots', dotsFor(groupByDay([toGoals])[0]), { in: false, out: false, invest: false });
+}
+
+
 report();

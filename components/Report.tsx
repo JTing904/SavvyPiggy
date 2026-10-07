@@ -97,12 +97,12 @@ const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOp
   const arrived = summary.distributed + summary.repaid;
   // Spending is both kinds — out of a goal, and on credit against future
   // deposits. Splitting them is the point; hiding either is not.
-  const outgoings = summary.spent + summary.borrowed;
+  const outgoings = summary.spent + summary.borrowed + summary.walletSpent;
   // Sale proceeds that cleared spent ahead came back from shares without
   // reaching a goal, so they are taken off before the goals' total.
   const sharesToDebt = Math.max(0, fromCents(Math.round((summary.cameBack - summary.cameBackToGoals) * 100)));
   const grewBy = fromCents(
-    Math.round((summary.distributed - summary.spent - summary.invested + summary.cameBackToGoals) * 100)
+    Math.round((summary.distributed - summary.spent - summary.invested + summary.cameBackToGoals + summary.walletMoved) * 100)
   );
   const spending = useMemo(
     () => spendingByCategory(activities, summary.range, now),

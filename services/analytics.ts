@@ -156,6 +156,10 @@ export interface Summary {
   spent: number;
   repaid: number;
   borrowed: number;
+  /** Spent out of the wallet rather than a goal: spending all the same, but the goals did not pay for it. */
+  walletSpent: number;
+  /** What moving money between the wallet and the goals changed the goals by, signed. */
+  walletMoved: number;
   /** Paid out of goals for shares. Not spending: the money still exists, as shares. */
   invested: number;
   /** A sale's proceeds coming back — split, into a goal, or covering spent ahead. Not saving. */
@@ -189,11 +193,18 @@ export interface Summary {
  * rather than money saved, so it counts neither here nor towards a streak.
  */
 export const inflowCents = (a: Activity) =>
-  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' ? 0 : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
+  a.type === 'divest' || a.type === 'transfer' || a.type === 'fromInvest' || a.type === 'walletMove'
+    ? 0
+    : a.distributions.reduce((sum, d) => (d.amount > 0 ? sum + toCents(d.amount) : sum), 0);
 
 /** What was spent out of goals. Buying shares is not spending, so it is left out. */
 const outflowCents = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' ? 0 : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' || a.type === 'walletMove'
+    ? 0
+    : a.distributions.reduce((sum, d) => (d.amount < 0 ? sum - toCents(d.amount) : sum), 0);
+
+/** Spending that came out of the wallet rather than a goal, in cents. */
+export const walletSpentCents = (a: Activity) => (a.type === 'withdraw' && (a.wallet ?? 0) < 0 ? -toCents(a.wallet ?? 0) : 0);
 
 const movedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
 
@@ -208,6 +219,8 @@ const signedCents = (a: Activity) => a.distributions.reduce((sum, d) => sum + to
  */
 export const goalsChangeCents = (a: Activity) => {
   if (a.type === 'transfer') return 0;
+  // Money moved between the wallet and the goals: the goals changed by exactly what was moved, signed.
+  if (a.type === 'walletMove') return signedCents(a);
   if (a.type === 'invest' || a.type === 'toInvest') return -movedCents(a);
   if (a.type === 'fromInvest') return movedCents(a);
   if (a.type === 'divest') return signedCents(a);
@@ -324,6 +337,8 @@ export const summarize = (
   let spent = 0;
   let repaid = 0;
   let borrowed = 0;
+  let walletSpent = 0;
+  let walletMoved = 0;
   let invested = 0;
   let cameBack = 0;
   let cameBackToGoals = 0;
@@ -343,6 +358,11 @@ export const summarize = (
     }
     // A deleted goal's money moving into another goal changes nothing overall.
     if (a.type === 'transfer') continue;
+    // Moving money between the wallet and the goals is neither saving nor spending; the goals' change is kept.
+    if (a.type === 'walletMove') {
+      walletMoved += signedCents(a);
+      continue;
+    }
     if (a.type === 'divest') {
       cameBack += signedCents(a) + toCents(a.repaid ?? 0);
       cameBackToGoals += signedCents(a);
@@ -352,6 +372,7 @@ export const summarize = (
     distributed += inflow;
     spent += outflowCents(a);
     repaid += toCents(a.repaid ?? 0);
+    walletSpent += walletSpentCents(a);
     if (a.type === 'borrow') borrowed += toCents(a.amount);
     for (const dist of a.distributions) {
       if (dist.amount > 0) credited.set(dist.bankId, (credited.get(dist.bankId) ?? 0) + toCents(dist.amount));
@@ -432,6 +453,8 @@ export const summarize = (
     spent: fromCents(spent),
     repaid: fromCents(repaid),
     borrowed: fromCents(borrowed),
+    walletSpent: fromCents(walletSpent),
+    walletMoved: fromCents(walletMoved),
     invested: fromCents(invested),
     cameBack: fromCents(cameBack),
     cameBackToGoals: fromCents(cameBackToGoals),
@@ -484,7 +507,7 @@ export const spendingByCategory = (
     const at = new Date(a.date);
     if (at < range.start || at >= range.end || at > now) continue;
 
-    const cents = a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0);
+    const cents = a.distributions.reduce((sum, d) => sum + Math.abs(toCents(d.amount)), 0) + walletSpentCents(a);
     if (cents === 0) continue;
 
     const key = categoryOf(a.category).key;

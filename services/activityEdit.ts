@@ -41,7 +41,9 @@ export type ActivityEditProblem =
   | 'dateBeforeDebt'
   | 'unknownCategory'
   /** A deposit re-split with no goal in the strategy and no debt to repay would lose its money. */
-  | 'noDestination';
+  | 'noDestination'
+  /** An income partly kept in the wallet, or spending from it, cannot be re-split or moved to another source. */
+  | 'walletRow';
 
 export interface ActivityEditPlan {
   /** Net change per goal, in cents; goals that end up unchanged are left out. */
@@ -57,6 +59,8 @@ export interface ActivityEditPlan {
   patch: Partial<Activity>;
   /** Editing never moves the investment pot. */
   potDelta: 0;
+  /** Net change to the wallet, in cents; only spending from the wallet can change it. */
+  walletDelta: number;
 }
 
 export type ActivityEditResult =
@@ -104,6 +108,7 @@ export const planActivityEdit = (i: ActivityEditInput): ActivityEditResult => {
   const bankDeltas: Record<string, number> = {};
   const loanDeltas: Record<string, number> = {};
   const loanOutstanding: Record<string, number> = {};
+  let walletDelta = 0;
   const done = (): ActivityEditResult => {
     const changed = withoutZeros(loanDeltas);
     return {
@@ -113,6 +118,7 @@ export const planActivityEdit = (i: ActivityEditInput): ActivityEditResult => {
         loanOutstanding: Object.fromEntries(Object.keys(changed).map((id) => [id, loanOutstanding[id]])),
         patch,
         potDelta: 0,
+        walletDelta,
       },
     };
   };
@@ -143,9 +149,14 @@ export const planActivityEdit = (i: ActivityEditInput): ActivityEditResult => {
 
   const repaid = toCents(activity.repaid ?? 0) > 0 || (activity.repayments?.length ?? 0) > 0;
 
+  const touchesWallet = toCents(activity.wallet ?? 0) !== 0;
+
   if (isDeposit) {
     const targetGiven = !!edit.target;
     if (!amountEdit && !targetGiven) return done();
+    // Part of this income went to (or cleared) the wallet: re-splitting it would need the rule it was
+    // made under. Date, note and the like are fine; the amount means deleting it and entering it again.
+    if (touchesWallet) return problem('walletRow');
 
     const gone = activity.distributions.find((d) => !banks.some((b) => b.id === d.bankId));
     if (gone) return problem('goalGone', { goalId: gone.bankId });
@@ -203,6 +214,16 @@ export const planActivityEdit = (i: ActivityEditInput): ActivityEditResult => {
     patch.distributions = plan.movements.map((m) => ({ bankId: m.bankId, amount: fromCents(m.cents), percentage: m.percentage }));
     patch.repaid = fromCents(plan.repaidCents);
     patch.repayments = plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) }));
+    return done();
+  }
+
+  // Spending from the wallet: one figure to change, nothing to re-split.
+  if (isWithdraw && touchesWallet) {
+    if (edit.source !== undefined) return problem('walletRow');
+    if (!amountEdit) return done();
+    patch.amount = fromCents(newCents);
+    patch.wallet = -fromCents(newCents);
+    walletDelta = -(newCents - oldCents);
     return done();
   }
 

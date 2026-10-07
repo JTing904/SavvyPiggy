@@ -1,5 +1,6 @@
+import { DEFAULT_WALLET } from '../services/wallet';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings } from '../types';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
@@ -12,6 +13,7 @@ import {
   subscribeToSavings,
   subscribeToTrades,
   subscribeToInvest,
+  subscribeToWallet,
   migrateHoldingsToTrades,
   DEFAULT_INVEST,
   ALERTS_LIMIT,
@@ -32,6 +34,7 @@ export const usePiggyData = (uid: string | undefined) => {
   const [savings, setSavings] = useState<SavingsSettings>(DEFAULT_SAVINGS);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [invest, setInvest] = useState<InvestSettings>(DEFAULT_INVEST);
+  const [wallet, setWallet] = useState<WalletSettings>(DEFAULT_WALLET);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
   /**
@@ -204,6 +207,15 @@ export const usePiggyData = (uid: string | undefined) => {
     return subscribeToInvest(uid, setInvest, (e) => setError(e.message));
   }, [uid, attempt]);
 
+  // The wallet likewise: until it arrives it is empty and sends everything to the goals, as before it existed.
+  useEffect(() => {
+    if (!uid) {
+      setWallet(DEFAULT_WALLET);
+      return;
+    }
+    return subscribeToWallet(uid, setWallet, (e) => setError(e.message));
+  }, [uid, attempt]);
+
   /*
     Only the last three months are listened to (see liveWindowStart). The start
     is fixed for this subscription, so the listener opens once per app open —
@@ -262,6 +274,7 @@ export const usePiggyData = (uid: string | undefined) => {
     trades,
     holdings,
     invest,
+    wallet,
     loading: loading || !activitiesReady,
     offline,
     error,

@@ -35,6 +35,7 @@ export const errors: typeof English = {
   problems: {
     thatGoal: '那个钱罐',
     activity: {
+      walletRow: '这笔有一部分进了钱包，或者是从钱包花的，所以这里只能改日期、备注和分类。要改金额，请删除后重新记录。',
       notEditable: '这种记录不能在这里修改。请删除后重新记录。',
       amountPositive: '金额必须大于 RM0.00。如果要撤回这笔记录，请直接删除。',
       goalGone: '这笔记录用到的钱罐已被删除，无法修改。请删除后重新记录。',
@@ -67,6 +68,14 @@ export const errors: typeof English = {
       notPotRow: '这笔记录不是转入或转出投资资金。',
       goalGone: '这笔转账涉及的钱罐已被删除，无法修改。请删除这笔记录，并选择钱要放去哪里。',
       amountPositive: '金额必须大于 RM0.00。如果要撤回这笔转账，请直接删除。',
+    },
+    wallet: {
+      amountPositive: '请输入金额。',
+      noDestination: '这笔钱没有地方放：没有钱罐参与分配。可以先放进钱包，或者先给一个钱罐设比例。',
+      goalGone: '那个钱罐已被删除，请选别的。',
+      goalArchived: (goal: string) => `「${goal}」已封存。请先恢复它，或选别的钱罐。`,
+      walletShort: (available: string) => `钱包里只有 ${available}。请少转一点，或先存入收入。`,
+      goalShort: (goal: string, available: string) => `「${goal}」只有 ${available}。请少转一点。`,
     },
     dividend: {
       notDividend: '这笔记录不是股息。',

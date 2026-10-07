@@ -36,6 +36,7 @@ export const common = {
     transfer: 'Between goals',
     toInvest: 'Moved to investing',
     fromInvest: 'Back from investing',
+    walletMove: 'Wallet move',
   },
 
   /** Spending categories, by their stored key. */

@@ -33,6 +33,7 @@ const activityLabel = (t: Messages, type: ActivityType) =>
     transfer: t.common.activity.transfer,
     toInvest: t.common.activity.toInvest,
     fromInvest: t.common.activity.fromInvest,
+    walletMove: t.common.activity.walletMove,
   })[type];
 
 const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoing: boolean }> = {
@@ -45,6 +46,7 @@ const ACTIVITY_STYLES: Record<ActivityType, { icon: string; tint: string; outgoi
   transfer: { icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
   toInvest: { icon: 'south_east', tint: 'bg-accent/10 text-accent', outgoing: true },
   fromInvest: { icon: 'north_west', tint: 'bg-accent/10 text-accent', outgoing: false },
+  walletMove: { icon: 'swap_horiz', tint: 'bg-white/5 text-slate-300', outgoing: false },
 };
 
 interface DashboardProps {

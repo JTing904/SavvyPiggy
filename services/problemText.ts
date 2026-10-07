@@ -3,6 +3,7 @@ import type { Messages } from '../i18n';
 import type { ActivityEditProblem } from './activityEdit';
 import { GOAL_NAME_MAX, type GoalEditProblem } from './bankEdit';
 import { formatMoney, fromCents } from './money';
+import type { IncomeProblem, WalletMoveProblem } from './wallet';
 
 /**
  * One wording for every refusal, whichever screen or writer meets it.
@@ -48,6 +49,7 @@ export const activityEditProblemText = (
     case 'dateBeforeDebt':
     case 'unknownCategory':
     case 'noDestination':
+    case 'walletRow':
       return text[p.kind];
   }
 };
@@ -97,5 +99,26 @@ export const dividendProblemText = (
       return text[p.problem];
     default:
       return t.errors.recordGone;
+  }
+};
+
+/** Why an income or a move between the wallet and the goals was refused. */
+export const walletProblemText = (
+  p: { kind: IncomeProblem | WalletMoveProblem; cents?: number; goalId?: string },
+  t: Strings,
+  banks?: PiggyBank[]
+): string => {
+  const text = t.errors.problems.wallet;
+  switch (p.kind) {
+    case 'goalArchived':
+      return text.goalArchived(goalName(t, banks, p.goalId));
+    case 'walletShort':
+      return text.walletShort(money(p.cents));
+    case 'goalShort':
+      return text.goalShort(goalName(t, banks, p.goalId), money(p.cents));
+    case 'amountPositive':
+    case 'noDestination':
+    case 'goalGone':
+      return text[p.kind];
   }
 };
