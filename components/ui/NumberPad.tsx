@@ -17,6 +17,8 @@ interface NumberPadProps {
   onDone: () => void;
   /** Changes when the pad is pointed at another field, so the next key starts that one over. */
   fieldKey?: string;
+  /** Leaves out the Done button, for a pad that sits in a sheet with its own. */
+  hideDone?: boolean;
   className?: string;
 }
 
@@ -29,7 +31,7 @@ const BackspaceIcon = () => (
   </svg>
 );
 
-export const NumberPad: React.FC<NumberPadProps> = ({ value, onChange, decimals, onDone, fieldKey, className }) => {
+export const NumberPad: React.FC<NumberPadProps> = ({ value, onChange, decimals, onDone, fieldKey, hideDone, className }) => {
   const t = useT();
   const [fresh, setFresh] = useState(true);
   useEffect(() => setFresh(true), [fieldKey]);
@@ -74,9 +76,11 @@ export const NumberPad: React.FC<NumberPadProps> = ({ value, onChange, decimals,
           <BackspaceIcon />
         </button>
       </div>
-      <Button variant="ghost" onClick={onDone} className="mt-2">
-        {t.entry.amountDone}
-      </Button>
+      {!hideDone && (
+        <Button variant="ghost" onClick={onDone} className="mt-2">
+          {t.entry.amountDone}
+        </Button>
+      )}
     </div>
   );
 };

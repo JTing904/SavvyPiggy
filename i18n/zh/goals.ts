@@ -106,4 +106,8 @@ export const goals: typeof English = {
   allocationMismatch: '分配比例不对',
   saveStrategy: '保存分配',
   strategySaved: '分配已保存',
+  lock: '锁定这个比例',
+  unlock: '解除锁定',
+  deleteThisGoal: '删除这个钱罐',
+  unsavedChanges: '有改动，还没保存',
 };

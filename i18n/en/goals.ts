@@ -109,4 +109,8 @@ export const goals = {
   allocationMismatch: 'Allocation Mismatch',
   saveStrategy: 'Save split',
   strategySaved: 'Split saved',
+  lock: 'Lock this share',
+  unlock: 'Unlock this share',
+  deleteThisGoal: 'Delete this goal',
+  unsavedChanges: 'Changes not saved yet',
 };
