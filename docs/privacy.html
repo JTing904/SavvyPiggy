@@ -5,45 +5,52 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SavvyPiggy — Privacy Policy</title>
 <meta name="description" content="What SavvyPiggy stores, where it is stored, and how to have it deleted.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐷</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='26' fill='%23F0436D'/><g fill='%23FFF6F0' transform='translate(12 22) scale(.54)'><ellipse cx='74' cy='66' rx='44' ry='34'/><path d='M92 38 L100 17 Q114 21 116 44 Z'/><rect x='112' y='55' width='28' height='24' rx='11'/><rect x='44' y='92' width='17' height='21' rx='6.5'/><rect x='88' y='92' width='17' height='21' rx='6.5'/></g></svg>">
+<link rel="preload" href="fonts/figtree-var.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#F3F5F1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1311" media="(prefers-color-scheme: dark)">
 <style>
-  :root { --primary:#4ADE80; --bg:#0A0F0D; --surface:#141C19; --text:#E6EDEA; --muted:#7E8F88; --line:rgba(255,255,255,.07); }
+  @font-face { font-family:Figtree; font-style:normal; font-weight:500 800; font-display:swap; src:url(fonts/figtree-var.woff2) format('woff2'); }
+  :root { --page:#F3F5F1; --card:#FFFFFF; --ink:#0F1D18; --mute:#55665D; --line:rgba(15,29,24,.12); --brand:#F0436D; --mint:#D4ECDF; }
+  @media (prefers-color-scheme:dark) { :root { --page:#0E1311; --card:#18201D; --ink:#F1F5F2; --mute:#94A39B; --line:rgba(255,255,255,.12); --brand:#FF6B8E; --mint:#1F3329; } }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); line-height:1.7;
-    font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif; -webkit-font-smoothing:antialiased; }
-  a { color: var(--primary); }
-  .wrap { width:min(760px,92vw); margin:0 auto; }
-  header { border-bottom:1px solid var(--line); background:rgba(10,15,13,.85); backdrop-filter:blur(12px); position:sticky; top:0; }
-  .nav { display:flex; align-items:center; gap:16px; padding:13px 0; }
-  .brand { display:flex; align-items:center; gap:10px; font-weight:800; text-decoration:none; color:var(--text); letter-spacing:-.02em; }
-  .brand .mark { width:32px; height:32px; border-radius:10px; background:linear-gradient(135deg,#4ADE80,#2DD4BF); display:grid; place-items:center; font-size:18px; }
+  body { margin:0; background:var(--page); color:var(--ink); line-height:1.7; font-size:16px;
+    font-family:Figtree,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  a { color:var(--ink); text-decoration-color:var(--brand); text-decoration-thickness:2px; text-underline-offset:3px; }
+  :focus-visible { outline:3px solid var(--brand); outline-offset:3px; border-radius:8px; }
+  .wrap { width:min(760px,100% - 32px); margin:0 auto; }
+  header { border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--page) 88%,transparent); backdrop-filter:blur(14px); position:sticky; top:0; z-index:5; }
+  .nav { display:flex; align-items:center; gap:16px; min-height:64px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:19px; text-decoration:none; letter-spacing:-.02em; }
+  .brand .mark { display:grid; place-items:center; width:34px; height:34px; border-radius:26%; background:#F0436D; }
+  .brand .mark svg { width:68%; height:auto; }
   .nav .spacer { flex:1; }
-  .lang { border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--text); border-radius:999px; padding:7px 13px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
-  main { padding:56px 0 80px; }
-  h1 { font-size:clamp(30px,5vw,42px); letter-spacing:-.035em; margin:0; font-weight:800; }
-  .updated { color:var(--muted); font-size:13px; font-weight:700; margin-top:10px; }
-  .intro { color:var(--muted); margin-top:22px; }
-  h2 { font-size:19px; font-weight:800; letter-spacing:-.01em; margin:40px 0 10px; }
-  p, li { color:var(--muted); font-size:15px; }
+  .lang { border:0; box-shadow:inset 0 0 0 1px var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:9px 14px; font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+  main { padding:clamp(40px,7vw,72px) 0 clamp(56px,8vw,96px); }
+  h1 { font-size:clamp(32px,5.5vw,48px); letter-spacing:-.035em; margin:0; font-weight:800; line-height:1.1; }
+  .updated { color:var(--mute); font-size:13px; font-weight:700; margin-top:12px; }
+  .intro { color:var(--mute); margin-top:22px; }
+  h2 { font-size:20px; font-weight:800; letter-spacing:-.015em; margin:42px 0 10px; }
+  p, li { color:var(--mute); font-size:16px; }
   ul { padding-left:20px; }
-  li { margin-bottom:8px; }
-  strong { color:var(--text); }
-  .box { background:var(--surface); border:1px solid var(--line); border-radius:22px; padding:22px 26px; margin-top:22px; }
+  li { margin-bottom:10px; }
+  strong { color:var(--ink); }
+  .box { background:var(--mint); border-radius:24px; padding:22px 26px; margin-top:24px; }
+  .box p { color:var(--ink); font-weight:600; }
   .box p:first-child { margin-top:0; }
   .box p:last-child { margin-bottom:0; }
-  footer { border-top:1px solid var(--line); padding:30px 0 60px; color:var(--muted); font-size:13px; }
+  footer { border-top:1px solid var(--line); padding:30px 0 60px; color:var(--mute); font-size:14px; }
   .foot { display:flex; flex-wrap:wrap; gap:12px 22px; }
   .foot .spacer { flex:1; }
-  footer a { color:var(--muted); text-decoration:none; font-weight:600; }
-  footer a:hover { color:var(--primary); }
+  footer a { color:var(--mute); text-decoration:none; font-weight:700; }
+  footer a:hover { color:var(--ink); }
 </style>
 </head>
 <body>
 
 <header>
   <div class="wrap nav">
-    <a class="brand" href="index.html"><span class="mark">🐷</span> SavvyPiggy</a>
+    <a class="brand" href="index.html"><span class="mark"><svg viewBox="4 6 144 112" aria-hidden="true"><g fill="#FFF6F0" stroke="#FFF6F0" stroke-width="3" stroke-linejoin="round"><ellipse cx="74" cy="66" rx="44" ry="34"/><path d="M92 38 L100 17 Q114 21 116 44 Z"/><rect x="112" y="55" width="28" height="24" rx="11"/><rect x="44" y="92" width="17" height="21" rx="6.5"/><rect x="88" y="92" width="17" height="21" rx="6.5"/><path d="M31 57 Q14 54 18 41 Q21 32 11 30" fill="none" stroke-width="5" stroke-linecap="round"/></g><g fill="#6E1230"><rect x="56" y="41" width="34" height="7" rx="3.5"/><circle cx="101" cy="56" r="3.6"/></g></svg></span>SavvyPiggy</a>
     <span class="spacer"></span>
     <button class="lang" id="lang" type="button">中文</button>
   </div>
@@ -52,7 +59,7 @@
 <main>
   <div class="wrap">
     <h1 data-en="Privacy Policy" data-zh="隐私政策">Privacy Policy</h1>
-    <p class="updated" data-en="Last updated: 7 October 2026 · SavvyPiggy 1.4" data-zh="最后更新：2026 年 10 月 7 日 · SavvyPiggy 1.4">Last updated: 7 October 2026 · SavvyPiggy 1.4</p>
+    <p class="updated" data-en="Last updated: 7 October 2026 · SavvyPiggy 2.0" data-zh="最后更新：2026 年 10 月 7 日 · SavvyPiggy 2.0">Last updated: 7 October 2026 · SavvyPiggy 2.0</p>
     <p class="intro" data-en="SavvyPiggy is a personal savings tracker made by one person. It is free, carries no advertising, and makes no money from you or your data. This page explains exactly what it stores and how to have it removed."
        data-zh="SavvyPiggy 是一个人做的个人存钱记账工具。它免费、没有广告，也不会从你或你的数据上赚任何钱。这一页说清楚它存了什么、怎么删掉。">SavvyPiggy is a personal savings tracker made by one person. It is free, carries no advertising, and makes no money from you or your data. This page explains exactly what it stores and how to have it removed.</p>
 

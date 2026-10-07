@@ -1,7 +1,8 @@
 {
   "name": "savvypiggy---smart-savings-dashboard",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
+  "description": "SavvyPiggy: a free Android app that gives every ringgit a place. Split deposits across goals by percentage, keep a wallet, bills, debts and receipts, and track Bursa shares apart from savings.",
   "type": "module",
   "scripts": {
     "dev": "vite",
