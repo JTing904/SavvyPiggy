@@ -1,4 +1,4 @@
-import { amountToCents, formatTyped, pressKey, typedFromCents } from '../services/keypad';
+import { amountToCents, formatTyped, pressKey, pressNumber, typedFromCents } from '../services/keypad';
 import { eq, report } from './harness';
 
 const type = (keys: string[], from = '') => keys.reduce(pressKey, from);
@@ -59,5 +59,22 @@ eq('three digits make ringgit', formatTyped('600'), { whole: '6', cents: '00', t
 eq('thousands separator', formatTyped('123456'), { whole: '1,234', cents: '56', typed: true });
 eq('millions', formatTyped('123456789'), { whole: '1,234,567', cents: '89', typed: true });
 eq('junk shows 0.00', formatTyped('12.5'), { whole: '0', cents: '00', typed: true });
+
+// --- a number as it reads (shares, prices, fees)
+const num = (keys: string[], decimals: number, from = '') => keys.reduce((t, k) => pressNumber(t, k, decimals), from);
+eq('shares: 1, 0, 0', num(['1', '0', '0'], 0), '100');
+eq('shares have no point', num(['1', '.', '5'], 0), '15');
+eq('a price: 7 . 2 5', num(['7', '.', '2', '5'], 4), '7.25');
+eq('a price can say RM0.345', num(['.', '3', '4', '5'], 4), '0.345');
+eq('a point on nothing starts 0.', num(['.'], 4), '0.');
+eq('only one point', num(['7', '.', '.', '2'], 4), '7.2');
+eq('decimals are capped', num(['7', '.', '2', '5', '9'], 2), '7.25');
+eq('four places for a price', num(['0', '.', '1', '2', '3', '4', '5'], 4), '0.1234');
+eq('a leading zero never stays', num(['0', '5'], 4), '5');
+eq('zero then point keeps the zero', num(['0', '.', '5'], 4), '0.5');
+eq('backspace', num(['b'], 4, '7.25'), '7.2');
+eq('backspace on nothing', num(['b'], 4), '');
+eq('too long is refused', num(['1'], 4, '123456789012'), '123456789012');
+eq('a letter is ignored', pressNumber('5', 'x', 2), '5');
 
 report();

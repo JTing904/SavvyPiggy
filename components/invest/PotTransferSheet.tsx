@@ -1,13 +1,14 @@
 import { safeGoalIcon } from '../../services/goalIcons';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import type { PiggyBank, SavingsSettings } from '../../types';
 import { isArchived, isInSplit, planDeposit } from '../../services/ledger';
-import { cleanFeeInput } from '../../services/fees';
+import { amountToCents, typedFromCents } from '../../services/keypad';
 import { loadLastChoices, saveLastChoices, usableChoices, withChoice } from '../../services/lastChoices';
 import { formatMoney, fromCents, toCents } from '../../services/money';
 import { useT } from '../../contexts/LanguageContext';
 import { ChoiceRow } from './RefundSheet';
 import { Button } from '../ui/Button';
+import { Keypad } from '../ui/Keypad';
 import { Sheet } from '../ui/Sheet';
 
 const Line: React.FC<{ label: string; value: string }> = ({ label, value }) => (
@@ -54,14 +55,10 @@ const PotTransferSheet: React.FC<{
     if (last.potOutTarget === 'split') return canSplit ? null : undefined;
     return last.potOutTarget;
   });
-  const amountRef = useRef<HTMLInputElement>(null);
-  // Once there is somewhere for the money to go, the amount is the next thing to type.
-  useEffect(() => {
-    if (target !== undefined) amountRef.current?.focus();
-  }, [target]);
+  /** The digits typed on the keypad: cents, as everywhere else in the app. */
   const [text, setText] = useState('');
 
-  const cents = toCents(Number(text) || 0);
+  const cents = amountToCents(text);
   const potCents = toCents(potBalance);
   const source = direction === 'in' ? goals.find((b) => b.id === target) ?? null : null;
   const limit = direction === 'in' ? (source ? toCents(source.currentAmount) : null) : potCents;
@@ -137,25 +134,9 @@ const PotTransferSheet: React.FC<{
         </>
       )}
 
-      <label htmlFor="pot-amount" className="mb-2 mt-4 block px-1 text-[12.5px] font-bold text-mute">
-        {w.amount}
-      </label>
-      <div className="flex min-h-14 items-center gap-2 rounded-[18px] bg-field px-4 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
-        <span className="shrink-0 font-bold text-mute">RM</span>
-        <input
-          id="pot-amount"
-          ref={amountRef}
-          autoFocus={target !== undefined}
-          type="text"
-          inputMode="decimal"
-          value={text}
-          onChange={(e) => setText(cleanFeeInput(e.target.value))}
-          placeholder="0.00"
-          className="min-h-6 w-full min-w-0 border-0 bg-transparent p-0 text-[20px] font-extrabold text-ink placeholder:text-mute focus:ring-0"
-        />
-      </div>
+      <Keypad value={text} onChange={setText} className="mt-3" />
       {quick !== null && quick > 0 && (
-        <button type="button" onClick={() => setText(fromCents(quick).toFixed(2))} className="mt-2 min-h-11 rounded-full bg-line/10 px-4 text-[13px] font-extrabold active:opacity-70">
+        <button type="button" onClick={() => setText(typedFromCents(quick))} className="mt-2 min-h-11 rounded-full bg-line/10 px-4 text-[13px] font-extrabold active:opacity-70">
           {w.all(money(quick))}
         </button>
       )}

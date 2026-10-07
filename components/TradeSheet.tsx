@@ -47,6 +47,7 @@ import GoneShareSheet from './GoneShareSheet';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
 import { Icon } from './ui/Icon';
+import { NumberPad } from './ui/NumberPad';
 import { Sheet } from './ui/Sheet';
 
 /**
@@ -121,31 +122,32 @@ const NO_DIVIDENDS: Dividend[] = [];
 const sameChoice = (a: MoneyChoice, b: MoneyChoice) =>
   a.mode === b.mode && (a.mode !== 'goal' || (b.mode === 'goal' && a.goalId === b.goalId));
 
+/** Which number the pad is typing into, or null when it is closed. */
+type PadTarget = 'units' | 'price' | 'amount' | FeeKey | null;
+
+/** A number shown in a box. Tapping it opens the app's pad below; the phone's keyboard never appears. */
 const Field: React.FC<{
   label: string;
   value: string;
-  onChange: (v: string) => void;
-  type?: string;
+  onOpen: () => void;
+  active: boolean;
   prefix?: string;
-  autoFocus?: boolean;
-  /** Whole numbers want the digit pad; the default for a number is the one with a point. */
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
-}> = ({ label, value, onChange, type = 'number', prefix, autoFocus, inputMode }) => (
-  <label className="block min-w-0 flex-1">
-    <span className="mb-1.5 block truncate px-1 text-[12.5px] font-bold text-mute">{label}</span>
-    <span className="flex min-h-14 items-center gap-2 rounded-[18px] bg-field px-4 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
+  placeholder?: string;
+  compact?: boolean;
+  /** Draws the box in the "typed over by hand" colour. */
+  flagged?: boolean;
+}> = ({ label, value, onOpen, active, prefix, placeholder = '0', compact, flagged }) => (
+  <button type="button" onClick={onOpen} aria-pressed={active} className="block min-w-0 flex-1 text-left">
+    <span className={`mb-1.5 block truncate px-1 font-bold text-mute ${compact ? 'text-[11.5px]' : 'text-[12.5px]'}`}>{label}</span>
+    <span
+      className={`flex items-center gap-2 bg-field ${compact ? 'min-h-12 rounded-2xl px-2.5' : 'min-h-14 rounded-[18px] px-4'} ${
+        active ? 'outline outline-2 outline-ink' : flagged ? 'outline outline-2 outline-warn' : ''
+      }`}
+    >
       {prefix && <span className="shrink-0 font-bold text-mute">{prefix}</span>}
-      <input
-        autoFocus={autoFocus}
-        type={type}
-        inputMode={inputMode ?? (type === 'number' ? 'decimal' : undefined)}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={type === 'number' ? '0' : undefined}
-        className="min-h-6 w-full min-w-0 border-0 bg-transparent p-0 text-[20px] font-extrabold text-ink placeholder:text-mute focus:ring-0"
-      />
+      <span className={`min-w-0 truncate font-extrabold tabular-nums ${compact ? 'text-[15px]' : 'text-[20px]'} ${value === '' ? 'text-mute' : 'text-ink'}`}>{value === '' ? placeholder : value}</span>
     </span>
-  </label>
+  </button>
 );
 
 const Line: React.FC<{ label: string; value: string; strong?: boolean; tone?: string }> = ({ label, value, strong, tone }) => (
@@ -211,6 +213,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** The number the app's pad is typing into. */
+  const [pad, setPad] = useState<PadTarget>(null);
   /** The price came from the last-price hint rather than from the person; any typing clears it. */
   const [priceFromHint, setPriceFromHint] = useState(false);
   const typePriceText = (text: string) => {
@@ -941,15 +945,10 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             {dividendMode === 'correct' && (
               <div className="mt-5">
                 <p className="text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.correctAmountHint}</p>
-                <div className="flex mt-4">
-                  <Field
-                    label={t.invest.amountReceived}
-                    value={amountText}
-                    onChange={(v) => setAmountText(cleanFeeInput(v))}
-                    prefix="RM"
-                    autoFocus
-                  />
+                <div className="mt-4 flex">
+                  <Field label={t.invest.amountReceived} value={amountText} onOpen={() => setPad('amount')} active={pad === 'amount'} prefix="RM" placeholder="0.00" />
                 </div>
+                {pad === 'amount' && <NumberPad className="mt-3" fieldKey="amount" value={amountText} decimals={2} onChange={setAmountText} onDone={() => setPad(null)} />}
                 {correctionPlan && correctionPlan.deltaCents !== 0 && (
                   <div className="mt-4 rounded-3xl bg-lav p-4">
                     <Line
@@ -1100,9 +1099,19 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               />
             </div>
             <div className="flex gap-3 mt-4">
-              <Field label={t.invest.units} value={units} onChange={setUnits} autoFocus={!editing && !prefilled} inputMode="numeric" />
-              <Field label={t.invest.pricePerUnit} value={price} onChange={typePriceText} prefix="RM" />
+              <Field label={t.invest.units} value={units} onOpen={() => setPad('units')} active={pad === 'units'} />
+              <Field label={t.invest.pricePerUnit} value={price} onOpen={() => setPad('price')} active={pad === 'price'} prefix="RM" />
             </div>
+            {(pad === 'units' || pad === 'price') && (
+              <NumberPad
+                className="mt-3"
+                fieldKey={pad}
+                value={pad === 'units' ? units : price}
+                decimals={pad === 'units' ? 0 : 4}
+                onChange={(text) => (pad === 'units' ? setUnits(text) : typePriceText(text))}
+                onDone={() => setPad(null)}
+              />
+            )}
             {/* A suggestion to tap, never a silent fill: a last price is not what the order filled at. */}
             {priceHint && (
               <div className="mt-2.5 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
@@ -1148,30 +1157,12 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               </div>
               <div className={`grid gap-2 ${isReit ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 {feeKeys.map((key) => (
-                  <label key={key} className="min-w-0 block">
-                    <span className="mb-1 block truncate px-1 text-[11.5px] font-bold text-mute">
-                      {t.invest.feeBox[key]}
-                    </span>
-                    <span
-                      className={`flex min-h-12 items-center rounded-2xl bg-field px-2.5 outline-2 focus-within:outline ${
-                        broker && edited[key] ? 'outline outline-2 outline-warn' : ''
-                      }`}
-                    >
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={shown(key)}
-                        onChange={(e) => typeFee(key, e.target.value)}
-                        onFocus={(e) => e.target.select()}
-                        placeholder="0.00"
-                        className="min-h-6 w-full min-w-0 border-0 bg-transparent p-0 text-[15px] font-extrabold text-ink placeholder:text-mute focus:ring-0"
-                      />
-                    </span>
-                  </label>
+                  <Field key={key} compact label={t.invest.feeBox[key]} value={shown(key)} onOpen={() => setPad(key)} active={pad === key} flagged={!!broker && edited[key]} placeholder="0.00" />
                 ))}
               </div>
+              {pad && pad !== 'units' && pad !== 'price' && pad !== 'amount' && (
+                <NumberPad className="mt-3" fieldKey={pad} value={shown(pad)} decimals={2} onChange={(text) => typeFee(pad, text)} onDone={() => setPad(null)} />
+              )}
               {!broker && (
                 <div className="mt-2.5 rounded-3xl bg-sun px-4 py-3">
                   <p className="text-[12.5px] font-semibold leading-relaxed">{t.invest.noBroker}</p>

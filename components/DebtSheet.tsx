@@ -11,6 +11,7 @@ import { Chip } from './ui/Chip';
 import { Button } from './ui/Button';
 import { Field } from './ui/Field';
 import { AmountInput } from './AmountInput';
+import { NumberInput } from './ui/NumberInput';
 
 const NAME_MAX = 40;
 const KINDS: LiabilityKind[] = ['home', 'car', 'ptptn', 'card', 'other'];
@@ -130,15 +131,7 @@ const DebtSheet: React.FC<DebtSheetProps> = ({ debt, onSave, onClose }) => {
         ]}
       />
 
-      <Field
-        className="mt-3"
-        label={flat ? n.rateFlatLabel : n.rate}
-        value={rate}
-        onChange={setRate}
-        inputMode="decimal"
-        placeholder="4.2"
-        autoComplete="off"
-      />
+      <NumberInput className="mt-3" label={flat ? n.rateFlatLabel : n.rate} value={rate} onChange={setRate} decimals={2} suffix="%" placeholder="4.2" />
       {flat && <AmountInput className="mt-3" label={n.original} value={original} onChange={setOriginal} placeholder={n.original} />}
 
       <AmountInput className="mt-5" label={n.monthly} value={monthly} onChange={setMonthly} placeholder={n.monthly} />

@@ -4,7 +4,7 @@ import { formatMoney } from '../../services/money';
 import type { Messages } from '../../i18n';
 import { useT } from '../../contexts/LanguageContext';
 import { Button } from '../ui/Button';
-import { Field } from '../ui/Field';
+import { NumberInput } from '../ui/NumberInput';
 import { Icon } from '../ui/Icon';
 import { Sheet } from '../ui/Sheet';
 
@@ -198,23 +198,9 @@ const BrokerPicker: React.FC<BrokerPickerProps> = ({ brokerId, customRule, first
 
           {formOpen && (
             <div className="space-y-3 px-3.5 pb-4">
-              <Field label={s.percentLabel} value={inputs.percent} onChange={set('percent')} inputMode="decimal" placeholder="0" error={error === 'percent' ? s.customError.percent : undefined} />
-              <Field
-                label={`${s.minimumLabel} · ${s.optional}`}
-                value={inputs.minimum}
-                onChange={set('minimum')}
-                inputMode="decimal"
-                placeholder="0"
-                error={error === 'minimum' ? s.customError.minimum : undefined}
-              />
-              <Field
-                label={`${s.flatLabel} · ${s.optional}`}
-                value={inputs.flat}
-                onChange={set('flat')}
-                inputMode="decimal"
-                placeholder="0"
-                error={error === 'flat' ? s.customError.flat : undefined}
-              />
+              <NumberInput label={s.percentLabel} value={inputs.percent} onChange={set('percent')} decimals={4} suffix="%" error={error === 'percent' ? s.customError.percent : undefined} />
+              <NumberInput label={`${s.minimumLabel} · ${s.optional}`} value={inputs.minimum} onChange={set('minimum')} decimals={2} suffix="RM" error={error === 'minimum' ? s.customError.minimum : undefined} />
+              <NumberInput label={`${s.flatLabel} · ${s.optional}`} value={inputs.flat} onChange={set('flat')} decimals={2} suffix="RM" error={error === 'flat' ? s.customError.flat : undefined} />
               {error === 'both' && <p className="px-1 text-[12.5px] font-bold text-neg">{s.customError.both}</p>}
               <Button onClick={submit}>{s.useTheseRates}</Button>
             </div>

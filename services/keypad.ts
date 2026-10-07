@@ -41,3 +41,26 @@ export const formatTyped = (text: string): { whole: string; cents: string; typed
     typed: text !== '',
   };
 };
+
+/**
+ * A number typed as it reads: "100" shares, "7.25" a price, "8.00" a fee. Unlike
+ * `pressKey` the digits do not push in from the right, because a share price has
+ * to be able to say RM0.345 and a count of shares has no decimals at all.
+ *
+ * One key press: '0'-'9', '.' (only when `decimals` allows one), or 'b' for
+ * backspace. Anything refused returns the text unchanged.
+ */
+export const pressNumber = (current: string, key: string, decimals: number): string => {
+  if (key === 'b') return current.slice(0, -1);
+  if (key === '.') {
+    if (decimals <= 0 || current.includes('.')) return current;
+    return current === '' ? '0.' : current + '.';
+  }
+  if (!/^[0-9]$/.test(key)) return current;
+  if (current.length >= 12) return current;
+  const dot = current.indexOf('.');
+  if (dot >= 0 && current.length - dot - 1 >= decimals) return current;
+  // A leading zero never stays: 0 then 5 is 5, but 0 then . keeps its zero.
+  if (current === '0') return key;
+  return current + key;
+};
