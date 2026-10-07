@@ -173,7 +173,7 @@ const Statements: React.FC<StatementsProps> = ({
         await saveFile(
           monthFileName(month.label, 'xlsx'),
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          buildMonthWorkbook({ label: month.label, banks, holdings, quotes, ...slice })
+          buildMonthWorkbook({ label: month.label, banks, holdings, quotes, month: month.start, ...slice })
         );
       } else {
         await saveFile(

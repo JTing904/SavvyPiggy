@@ -24,7 +24,7 @@ import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import type { Bill, InvestSettings, WalletSettings } from '../types';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
-import type { Activity, ActivityType, Alert, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
+import type { Activity, ActivityType, Alert, Budgets, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
 import { UNCATEGORISED } from './categories';
 import { dayStart, tradeTotalCents } from './holdings';
@@ -44,6 +44,7 @@ import { GOAL_ICON_SET } from './goalIcons';
 import { firstGoalSplit } from './firstGoalSplit';
 import { liveWindowStart } from './ledgerWindow';
 import { billNote, outsideHistory, planFixedRun, WALLET_SOURCE } from './bills';
+import { cleanBudgets, TOTAL, withLimit } from './budgets';
 import { cleanWallet, planIncome, planWalletMove, planWalletSpend, walletCents, type IncomeTarget, type WalletMove } from './wallet';
 import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from './potTransfers';
 import { planDividendCorrection, planDividendRemoval } from './dividendCorrection';
@@ -80,6 +81,7 @@ const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings')
 const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general');
 const investRef = (uid: string) => doc(db, 'users', uid, 'settings', 'invest');
 const walletRef = (uid: string) => doc(db, 'users', uid, 'settings', 'wallet');
+const budgetsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'budgets');
 const billsCol = (uid: string) => collection(db, 'users', uid, 'bills');
 const billRef = (uid: string, id: string) => doc(db, 'users', uid, 'bills', id);
 
@@ -1127,11 +1129,27 @@ export const subscribeToWallet = (
   onError: (e: FirestoreError) => void
 ): Unsubscribe => onSnapshot(walletRef(uid), (snap) => onChange(cleanWallet(snap.data() as Partial<WalletSettings> | undefined)), onError);
 
+export const subscribeToBudgets = (
+  uid: string,
+  onChange: (budgets: Budgets) => void,
+  onError: (e: FirestoreError) => void
+): Unsubscribe => onSnapshot(budgetsRef(uid), (snap) => onChange(cleanBudgets(snap.data() as Partial<Budgets> | undefined)), onError);
+
 /**
- * The share of every income that goes straight to the goals. The balance is
- * never written from here: it only ever moves by an increment inside the write
- * that records the entry behind it, so two devices cannot overwrite each other.
+ * Sets one monthly limit from a month on: the total, or one category's. Read and
+ * written in a transaction, so two devices changing different limits at once
+ * keep both. 0 takes the limit away from that month.
  */
+export const saveBudget = (uid: string, target: string, month: string, cents: number) =>
+  runTransaction(db, async (tx) => {
+    const snap = await tx.get(budgetsRef(uid));
+    const current = cleanBudgets(snap.data() as Partial<Budgets> | undefined);
+    const next: Budgets =
+      target === TOTAL
+        ? { ...current, total: withLimit(current.total, month, cents) }
+        : { ...current, categories: { ...current.categories, [target]: withLimit(current.categories[target], month, cents) } };
+    tx.set(budgetsRef(uid), next);
+  });
 
 /** Why a trade's money could not move, carried to the screen that has to ask about it. */
 export class TradeMoneyError extends Error {

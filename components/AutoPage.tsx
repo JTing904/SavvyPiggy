@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import type { Activity, Bill, PiggyBank, Schedule } from '../types';
 import type { NewBill } from '../services/firestore';
 import { categoryOf } from '../services/categories';
-import { expectedCents, WALLET_SOURCE } from '../services/bills';
+import { billSchedule, expectedCents, WALLET_SOURCE } from '../services/bills';
 import { formatMoney, fromCents } from '../services/money';
-import { describe } from '../services/schedules';
+import { describe, nextOccurrence } from '../services/schedules';
+import { soonestFirst } from '../services/sorting';
 import { useT } from '../contexts/LanguageContext';
 import { Group } from './ui/Group';
 import { Row } from './ui/Row';
@@ -79,7 +80,7 @@ const AutoPage: React.FC<AutoPageProps> = ({
         <p className="rounded-3xl bg-card px-5 py-8 text-center text-[13px] font-semibold text-mute">{b.noBills}</p>
       ) : (
         <Group>
-          {bills.map((bill) => {
+          {soonestFirst(bills, (bill) => nextOccurrence(billSchedule(bill))).map((bill) => {
             const expected = expectedCents(bill, activities);
             return (
               <Row
@@ -124,7 +125,7 @@ const AutoPage: React.FC<AutoPageProps> = ({
         <p className="rounded-3xl bg-card px-5 py-8 text-center text-[13px] font-semibold text-mute">{b.noDeposits}</p>
       ) : (
         <Group>
-          {schedules.map((s) => (
+          {soonestFirst(schedules, (s) => nextOccurrence(s)).map((s) => (
             <Row
               key={s.id}
               icon="dep"

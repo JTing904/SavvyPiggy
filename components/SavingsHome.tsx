@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Activity, Bill, Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
+import type { Activity, Bill, Budgets, Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
 import { formatMoney, fromCents, percentReached, toCents } from '../services/money';
 import { totalDebtCents } from '../services/ledger';
 import { safeGoalIcon } from '../services/goalIcons';
 import { walletCents, type WalletMove } from '../services/wallet';
 import { expectedCents, pendingVariable, upcomingBills, walletShortfall, type PendingBill } from '../services/bills';
 import { localDate } from '../services/schedules';
+import { budgetNotice, TOTAL } from '../services/budgets';
+import { sortBanks } from '../services/sorting';
+import { categoryOf } from '../services/categories';
 import { dateLocale } from '../i18n';
 import type { IncomeChoice } from '../services/moneySheet';
 import { noteText } from '../i18n';
@@ -34,6 +37,7 @@ interface SavingsHomeProps {
   loans: Loan[];
   wallet: WalletSettings;
   bills: Bill[];
+  budgets: Budgets;
   savings: SavingsSettings;
   /** What the goals hold together, in ringgit. */
   totalBalance: number;
@@ -49,6 +53,7 @@ interface SavingsHomeProps {
   onRecordBill: (bill: Bill, day: string, amount: number) => void | Promise<void>;
   onSkipBill: (bill: Bill, day: string) => void | Promise<void>;
   onOpenAuto: () => void;
+  onOpenBudgets: () => void;
   onViewAll: () => void;
   onSelectGoal: (id: string) => void;
   onAddGoal: () => void;
@@ -81,6 +86,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   loans,
   wallet,
   bills,
+  budgets,
   savings,
   totalBalance,
   unreadAlerts,
@@ -94,6 +100,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   onRecordBill,
   onSkipBill,
   onOpenAuto,
+  onOpenBudgets,
   onViewAll,
   onSelectGoal,
   onAddGoal,
@@ -123,6 +130,15 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   const waiting = pendingVariable(bills, now, liveFrom);
   const week = upcomingBills(bills, activities, now, 7);
   const short = walletShortfall(week, held);
+
+  // Budgets say something only when a limit is close or passed, and then in one line.
+  const notice = budgetNotice(budgets, activities, now);
+  const nameOf = (key: string) => (key === TOTAL ? t.review.totalName : categoryOf(key).label);
+  const budgetParts = [...notice.over.map((k) => t.review.overPart(nameOf(k))), ...notice.near.map((k) => t.review.nearPart(nameOf(k)))];
+  const budgetLine =
+    budgetParts.length === 0
+      ? null
+      : t.review.homeLine([...budgetParts.slice(0, 2), ...(budgetParts.length > 2 ? [t.review.morePart(budgetParts.length - 2)] : [])].join(' · '));
   const dayLabel = (day: string) => localDate(day).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short' });
 
   // The nav's round button lives outside this screen, so it asks through a prop.
@@ -193,6 +209,12 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
         <Amount cents={held} size="xl" tone={overdrawn ? 'neg' : 'ink'} className="mt-1 block" />
         {overdrawn && <p className="mt-2 text-[12.5px] font-semibold leading-snug">{w.overdrawnNote}</p>}
         {short && <p className="mt-2 text-[12.5px] font-bold leading-snug text-neg">{t.bills.short(money(short.totalCents))}</p>}
+        {budgetLine && (
+          <button type="button" onClick={onOpenBudgets} className="mt-1 flex min-h-11 w-full items-center gap-0.5 text-left text-[12.5px] font-bold leading-snug">
+            <span className="min-w-0">{budgetLine}</span>
+            <Icon name="chev" size={14} />
+          </button>
+        )}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button full={false} onClick={() => setSheet('deposit')}>
             <Icon name="plus" size={16} strokeWidth={2.4} />
@@ -293,7 +315,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
         <EmptyState icon="target" title={w.noGoals} body="" action={{ label: w.newGoal, onClick: onAddGoal }} className="rounded-3xl bg-card" />
       ) : (
         <Group>
-          {banks.map((bank, i) => {
+          {sortBanks(banks, { key: 'balance', dir: 'desc' }).map((bank, i) => {
             const cents = toCents(bank.currentAmount);
             const over = cents < 0;
             const full = bank.targetAmount > 0 && cents >= toCents(bank.targetAmount);

@@ -87,6 +87,20 @@ export const quotePricePoints = (quote: Pick<Quote, 'priceCents' | 'pricePoints'
  */
 export const pointsValueCents = (units: number, pricePoints: number) => Math.floor((units * pricePoints) / 100);
 
+/** What a position is worth now: the live price when there is one, otherwise what was paid for it. */
+export const holdingValueCents = (h: Pick<Holding, 'units' | 'costCents'>, quote: Pick<Quote, 'priceCents' | 'pricePoints'> | undefined) =>
+  quote ? quoteValueCents(h, quote) : h.costCents;
+
+/** Positions largest first, the way a portfolio is read; ties keep the order they were bought in. */
+export const byValueDesc = <T extends Pick<Holding, 'units' | 'costCents'>>(
+  holdings: T[],
+  quoteOf: (h: T) => Pick<Quote, 'priceCents' | 'pricePoints'> | undefined
+): T[] =>
+  holdings
+    .map((h, i) => ({ h, i, value: holdingValueCents(h, quoteOf(h)) }))
+    .sort((a, b) => b.value - a.value || a.i - b.i)
+    .map((x) => x.h);
+
 /** A position's value at a live quote. */
 export const quoteValueCents = (holding: Pick<Holding, 'units'>, quote: Pick<Quote, 'priceCents' | 'pricePoints'>) =>
   pointsValueCents(holding.units, quotePricePoints(quote));

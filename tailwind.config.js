@@ -35,6 +35,7 @@ export default {
         ...Object.fromEntries(
           ['page', 'card', 'sheet', 'ink', 'mute', 'cta', 'cta-fg', 'pos', 'neg', 'info',
             'line', 'peach', 'mint', 'lav', 'sun', 'hero', 'field', 'dot1', 'dot2', 'dot3',
+            'warn', 'cat1', 'cat2', 'cat3', 'cat4', 'cat5', 'cat6',
           ].map((name) => [name, `rgb(var(--${name}) / <alpha-value>)`]),
         ),
       },

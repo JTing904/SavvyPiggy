@@ -1,17 +1,22 @@
-import { safeGoalIcon } from '../services/goalIcons';
-import { EmptyState } from './ui/EmptyState';
 import React, { useMemo, useState } from 'react';
-import type { Activity, PiggyBank } from '../types';
-import { PERIODS, spendingByCategory, summarize, type Period, type StreakRun } from '../services/analytics';
+import type { Activity, Budgets, PiggyBank } from '../types';
+import { PERIODS, forecastFor, spendingByCategory, summarize, type Period, type StreakRun } from '../services/analytics';
+import { budgetRows, TOTAL, type BudgetRow } from '../services/budgets';
 import { categoryOf } from '../services/categories';
-import DonutChart, { SLICE_COLORS } from './DonutChart';
-import Avatar from './Avatar';
-import OlderRecordsNotice from './OlderRecordsNotice';
+import { safeGoalIcon } from '../services/goalIcons';
 import { formatMoney, fromCents } from '../services/money';
 import { reportNeedsFrom } from '../services/ledgerWindow';
+import { addMonthsTo, centsChange, creditedByGoal, figuresFor, monthFigures, monthKeyOf, monthStartOf, pointsChange } from '../services/review';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
+import Avatar from './Avatar';
+import { Amount } from './ui/Amount';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Icon } from './ui/Icon';
+import { Meter } from './ui/Meter';
+import { Notice } from './ui/Notice';
 
 interface ReportProps {
   banks: PiggyBank[];
@@ -20,70 +25,79 @@ interface ReportProps {
   ledger: Ledger;
   /** The saving streak, counted by the app rather than from the loaded window. */
   streak: StreakRun;
+  budgets: Budgets;
+  /** What the wallet holds now, in cents. */
+  walletCents: number;
   onOpenStrategy: () => void;
   /** The empty report's one action. */
   onDeposit?: () => void;
   onOpenProfile: () => void;
   onOpenStatements: () => void;
+  /** Opens the full review of the month starting on this day. */
+  onOpenReview: (month: Date) => void;
+  onOpenBudgets: () => void;
 }
 
 const longDate = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric', year: 'numeric' });
 
+// Full literal class strings so the build keeps every one of them.
+const CAT_BG = ['bg-cat1', 'bg-cat2', 'bg-cat3', 'bg-cat4', 'bg-cat5', 'bg-cat6'];
+const TINT_BG = ['bg-peach', 'bg-lav', 'bg-mint', 'bg-sun'];
+
 const Card: React.FC<{ className?: string; children: React.ReactNode }> = ({ className = '', children }) => (
-  <div className={`bg-surface border border-white/5 rounded-[2rem] shadow-xl ${className}`}>{children}</div>
+  <div className={`rounded-3xl bg-card p-5 ${className}`}>{children}</div>
 );
 
-const Metric: React.FC<{ label: string; icon: string; children: React.ReactNode }> = ({ label, icon, children }) => (
-  <Card className="p-5 min-w-0">
-    <div className="flex items-center justify-between gap-2 mb-3">
-      <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest truncate">{label}</p>
-      <span className="material-symbols-rounded text-primary/60 text-lg shrink-0">{icon}</span>
-    </div>
-    {children}
-  </Card>
-);
-
-/**
- * One line of the money-flow card: what happened, and how much.
- *
- * Amounts are signed by the caller, so a line that takes money away reads as
- * one — the minus is the point, not decoration. `rule` draws the line above a
- * subtotal, which is where the arithmetic actually lands.
- */
-const Line: React.FC<{
-  label: string;
-  value: number;
-  rule?: boolean;
-  strong?: boolean;
-  muted?: boolean;
-  small?: boolean;
-}> = ({ label, value, rule, strong, muted, small }) => (
-  <div className={rule ? 'pt-3 border-t border-white/10' : ''}>
-    <div className="flex items-baseline justify-between gap-3">
-      <p
-        className={`min-w-0 truncate ${
-          small ? 'text-[11px]' : 'text-[13px]'
-        } ${strong ? 'text-white font-black' : muted ? 'text-slate-500 font-bold' : 'text-slate-300 font-bold'}`}
-      >
-        {label}
-      </p>
-      <p
-        className={`shrink-0 tabular-nums ${
-          small ? 'text-[11px]' : strong ? 'text-[15px]' : 'text-[13px]'
-        } font-black ${strong ? 'text-white' : value < 0 ? 'text-slate-400' : 'text-slate-300'}`}
-      >
-        {formatMoney(value)}
-      </p>
-    </div>
+const Heading: React.FC<{ title: string; hint?: string; className?: string }> = ({ title, hint, className = '' }) => (
+  <div className={`px-1 ${className}`}>
+    <h2 className="text-[17px] font-extrabold">{title}</h2>
+    {hint && <p className="mt-0.5 text-[12.5px] font-medium text-mute">{hint}</p>}
   </div>
 );
 
-const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOpenStrategy, onOpenProfile, onOpenStatements, onDeposit }) => {
+/** One line of the money-flow card. Amounts are signed by the caller; `rule` draws the line above a subtotal. */
+const Line: React.FC<{ label: string; cents: number; rule?: boolean; strong?: boolean; sub?: boolean; muted?: boolean }> = ({
+  label,
+  cents,
+  rule,
+  strong,
+  sub,
+  muted,
+}) => (
+  <div
+    className={`flex items-baseline justify-between gap-3 ${rule ? 'mt-1.5 border-t border-line/10 pt-3' : ''} ${
+      sub ? 'py-1 pl-4 text-[12.5px]' : strong ? 'py-1.5 text-[15px]' : 'py-1.5 text-[14px]'
+    }`}
+  >
+    <span className={`min-w-0 ${strong ? 'font-extrabold' : sub || muted ? 'font-medium text-mute' : 'font-semibold'}`}>{label}</span>
+    <span className={`shrink-0 whitespace-nowrap tabular-nums ${strong ? 'font-extrabold' : sub || muted ? 'font-semibold text-mute' : 'font-bold'}`}>
+      {formatMoney(fromCents(cents), { signed: false })}
+    </span>
+  </div>
+);
+
+const percent = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+
+const Report: React.FC<ReportProps> = ({
+  banks,
+  activities,
+  ledger,
+  streak,
+  budgets,
+  walletCents,
+  onOpenStrategy,
+  onOpenProfile,
+  onOpenStatements,
+  onDeposit,
+  onOpenReview,
+  onOpenBudgets,
+}) => {
   const [period, setPeriod] = useState<Period>('month');
-  const [message, setMessage] = useState<string | null>(null);
   // Which cadence bar the user tapped, so it can show what it is worth.
   const [picked, setPicked] = useState<number | null>(null);
   const t = useT();
+  const r = t.report;
+  const v = t.review;
 
   const now = new Date();
   // A quarter's comparison, a year or "all" reach past the live three months.
@@ -91,507 +105,508 @@ const Report: React.FC<ReportProps> = ({ banks, activities, ledger, streak, onOp
   const older = useLedgerRange(ledger, needFrom);
   // `t` is a dependency so the period's labels are reworded when the language changes.
   const summary = useMemo(() => summarize(activities, banks, period, now), [activities, banks, period, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const range = summary.range;
 
-  // What actually arrived: whatever reached a goal, plus whatever went
-  // straight back out to clear a debt on the way.
-  const arrived = summary.distributed + summary.repaid;
-  // Spending is both kinds — out of a goal, and on credit against future
-  // deposits. Splitting them is the point; hiding either is not.
-  const outgoings = summary.spent + summary.borrowed + summary.walletSpent;
-  // Sale proceeds that cleared spent ahead came back from shares without
-  // reaching a goal, so they are taken off before the goals' total.
+  const figures = useMemo(() => figuresFor(activities, range.start, range.end, now), [activities, range]); // eslint-disable-line react-hooks/exhaustive-deps
+  const before = useMemo(
+    () => (range.previous ? figuresFor(activities, range.previous.start, range.previous.end, now) : null),
+    [activities, range] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const change = before ? centsChange(figures.putInCents, before.putInCents) : null;
+  const perDay = Math.floor(figures.putInCents / range.days);
+
+  // The month card: the month that just finished, or this one so far when that one has nothing in it.
+  const review = useMemo(() => {
+    const last = monthFigures(activities, addMonthsTo(now, -1), now);
+    const target = last.entries > 0 ? last : monthFigures(activities, monthStartOf(now), now);
+    if (target.entries === 0) return null;
+    const prior = monthFigures(activities, addMonthsTo(target.start, -1), now);
+    return { target, prior, current: target.start.getTime() === monthStartOf(now).getTime() };
+  }, [activities]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const spending = useMemo(() => spendingByCategory(activities, range, now), [activities, range]); // eslint-disable-line react-hooks/exhaustive-deps
+  const spentTotal = figures.spentCents;
+  const isMonth = period === 'month';
+  const limits = useMemo(
+    () => (isMonth ? budgetRows(budgets, monthKeyOf(now), spending, spentTotal) : []),
+    [isMonth, budgets, spending, spentTotal] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const limitOf = (key: string): BudgetRow | undefined => limits.find((row) => row.key === key);
+  const totalRow = limitOf(TOTAL);
+
+  // What reached each goal: put straight in, or moved in from the wallet.
+  const credited = useMemo(() => creditedByGoal(activities, range.start, range.end, now), [activities, range]); // eslint-disable-line react-hooks/exhaustive-deps
+  const creditedTotal = [...credited.values()].reduce((sum, c) => sum + c, 0);
+  const bankStats = useMemo(
+    () =>
+      banks
+        .map((b, i) => ({
+          bank: b,
+          index: i,
+          credited: credited.get(b.id) ?? 0,
+          funded: b.targetAmount > 0 ? Math.round((b.currentAmount / b.targetAmount) * 100) : null,
+        }))
+        .sort((x, y) => y.credited - x.credited || x.index - y.index),
+    [banks, credited]
+  );
+  const top = bankStats.find((s) => s.credited > 0) ?? null;
+  const forecast = useMemo(
+    () =>
+      forecastFor(
+        bankStats.map((s) => ({ bankId: s.bank.id, name: s.bank.name, credited: fromCents(s.credited), target: s.bank.targetAmount, current: s.bank.currentAmount })),
+        range.days,
+        now
+      ),
+    [bankStats, range] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Where "goals grew by" lands: saved, less spent from goals, less moved to shares, plus what came back, plus wallet moves.
   const sharesToDebt = Math.max(0, fromCents(Math.round((summary.cameBack - summary.cameBackToGoals) * 100)));
-  const grewBy = fromCents(
-    Math.round((summary.distributed - summary.spent - summary.invested + summary.cameBackToGoals + summary.walletMoved) * 100)
+  const grewBy = Math.round(
+    (summary.distributed - summary.spent - summary.invested + summary.cameBackToGoals + summary.walletMoved) * 100
   );
-  const spending = useMemo(
-    () => spendingByCategory(activities, summary.range, now),
-    [activities, summary.range] // eslint-disable-line react-hooks/exhaustive-deps
-  );
-  const spentTotal = spending.reduce((sum, row) => sum + row.cents, 0);
-
-  const colorOf = (bankId: string) => SLICE_COLORS[Math.max(0, banks.findIndex((b) => b.id === bankId)) % SLICE_COLORS.length];
-
-  const notify = (text: string) => {
-    setMessage(text);
-    setTimeout(() => setMessage(null), 4000);
-  };
-
-  const slices = summary.banks
-    .filter((b) => b.credited > 0)
-    .map((b) => ({ id: b.bankId, value: b.share, color: colorOf(b.bankId) }));
-  const sliceTotal = slices.reduce((s, x) => s + x.value, 0);
   const maxBucket = Math.max(0, ...summary.buckets.map((b) => b.amount));
+  const money = (cents: number) => formatMoney(fromCents(cents));
 
   const head = (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-6 pt-6">
+      <div className="flex items-start justify-between gap-3 px-1">
         <div className="min-w-0">
-          <h2 className="text-white text-3xl font-black tracking-tight">{t.report.title}</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">{t.report.subtitle}</p>
+          <h1 className="text-[30px] font-extrabold tracking-tight">{r.title}</h1>
+          <p className="mt-0.5 text-[13.5px] font-semibold text-mute">{v.reportHint}</p>
         </div>
-        <Avatar onClick={onOpenProfile} />
+        <Avatar plain onClick={onOpenProfile} />
       </div>
 
-      {/* Period */}
-      <div className="flex gap-2 px-6 mt-6 overflow-x-auto no-scrollbar">
-        {PERIODS.map((p) => (
-          <button
-            key={p.key}
-            onClick={() => {
-              setPeriod(p.key);
-              setPicked(null);
-            }}
-            className={`shrink-0 h-9 px-4 rounded-full text-xs font-black transition-colors ${
-              period === p.key ? 'bg-primary text-black' : 'glass text-slate-300'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
+      <div role="tablist" aria-label={v.period} className="mt-4 flex rounded-full bg-line/10 p-1">
+        {PERIODS.map((p) => {
+          const on = p.key === period;
+          return (
+            <button
+              key={p.key}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => {
+                setPeriod(p.key);
+                setPicked(null);
+              }}
+              className={`min-h-11 min-w-0 flex-1 whitespace-nowrap rounded-full px-1 text-[13px] font-extrabold ${on ? 'bg-card text-ink' : 'text-mute'}`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
       </div>
     </>
+  );
+
+  const frame = (children: React.ReactNode) => (
+    <div className="flex min-h-full flex-col px-4 pb-40 pt-3 safe-pt font-figtree text-ink">{children}</div>
   );
 
   // Nothing is summed from part of a period: until its older records are
   // here, the figures wait rather than read as a smaller total.
   if (older !== 'ready') {
-    return (
-      <div className="flex flex-col min-h-full pb-40 safe-pt">
+    return frame(
+      <>
         {head}
-        <div className="px-6 mt-5">
-          <OlderRecordsNotice status={older} onRetry={ledger.retry} />
-        </div>
-      </div>
+        <Notice status={older} onRetry={ledger.retry} className="mt-5" />
+      </>
     );
   }
 
   // Nothing to sum yet: say so and offer the one thing that fills it.
   if (activities.length === 0) {
-    return (
-      <div className="flex flex-col min-h-full pb-40 safe-pt">
+    return frame(
+      <>
         {head}
         <EmptyState
-          icon="monitoring"
-          title={t.report.emptyTitle}
-          body={t.report.emptyBody}
-          action={onDeposit ? { label: t.report.emptyAction, onClick: onDeposit } : undefined}
-          className="mt-10"
+          icon="chart"
+          title={r.emptyTitle}
+          body={r.emptyBody}
+          action={onDeposit ? { label: r.emptyAction, onClick: onDeposit } : undefined}
+          className="mt-8"
         />
-      </div>
+      </>
     );
   }
 
-  return (
-    <div className="flex flex-col min-h-full pb-40 safe-pt">
+  const monthName = (d: Date) => r.monthsLong[d.getMonth()];
+  const reviewChange = review ? pointsChange(review.target.rate, review.prior.rate) : null;
+
+  return frame(
+    <>
       {head}
-      <div className="flex items-center justify-between gap-3 px-6 mt-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="material-symbols-rounded text-primary text-lg">calendar_month</span>
-          <p className="text-white text-sm font-bold truncate">{summary.range.label}</p>
-        </div>
-        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest shrink-0">
-          {t.report.days(summary.range.days)}
-        </p>
-      </div>
 
-      {/* Headline metrics */}
-      <div className="px-6 mt-5 grid grid-cols-2 gap-3">
-        <Metric label={t.report.saved} icon="savings">
-          <p className="text-white text-2xl font-black tabular-nums truncate">{formatMoney(summary.distributed)}</p>
-          <p className={`text-[11px] font-bold mt-1 ${summary.change === null ? 'text-slate-500' : summary.change >= 0 ? 'text-primary' : 'text-red-400'}`}>
-            {summary.change === null
-              ? summary.range.previous ? t.report.nothingPrevious : t.report.everythingOnRecord
-              : t.report.vsPrevious(`${summary.change >= 0 ? '+' : ''}${summary.change}`)}
-          </p>
-        </Metric>
-
-        <Metric label={t.report.perDay} icon="speed">
-          <p className="text-white text-2xl font-black tabular-nums truncate">{formatMoney(summary.dailyAverage)}</p>
-          <p className="text-slate-500 text-[11px] font-bold mt-1">
-            {t.report.transactions(summary.transactions)}
-          </p>
-        </Metric>
-
-        <Metric label={t.report.topGoal} icon="workspace_premium">
-          {summary.top ? (
-            <>
-              <p className="text-white text-lg font-black truncate leading-tight">{summary.top.name}</p>
-              <p className="text-[11px] font-bold mt-1 flex items-center gap-2">
-                <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full">{summary.top.share}%</span>
-                <span className="text-slate-500">{formatMoney(summary.top.credited)}</span>
-              </p>
-            </>
-          ) : (
-            <p className="text-slate-500 text-sm font-bold">{t.report.noDepositsYet}</p>
-          )}
-        </Metric>
-
-        <Metric label={t.report.allGoals} icon="flag">
-          {summary.collective.funded === null ? (
-            <p className="text-slate-500 text-sm font-bold">{t.report.noTargetSet}</p>
-          ) : (
-            <>
-              <p className="text-primary text-2xl font-black tabular-nums">{summary.collective.funded}%</p>
-              <p className="text-slate-500 text-[11px] font-bold mt-1">
-                {t.report.reachedOf(summary.collective.reached, summary.collective.goals)}
-              </p>
-            </>
-          )}
-        </Metric>
-      </div>
-
-      {/*
-        Where the money went.
-
-        `summarize` has always worked all four of these out, and only the first
-        ever reached a screen. Without the other three "Saved RM103.88" is an
-        answer with its working hidden: it is already net of clearing debt, so
-        it does not match what arrived, and it says nothing about what was
-        spent. Deposits arriving, debt cleared, goals funded, goals drawn down —
-        every line here is a number the ledger already holds.
-      */}
-      <div className="px-6 mt-4">
-        <Card className="p-6">
-          <h3 className="text-white text-lg font-black">{t.report.inAndOut}</h3>
-          <p className="text-slate-500 text-xs font-medium mt-0.5">
-            {t.report.inAndOutHint}
-          </p>
-
-          <div className="mt-5 space-y-3">
-            <Line label={t.report.putIn} value={arrived} />
-            {summary.repaid > 0 && (
-              <Line label={t.report.coveredEarlier} value={-summary.repaid} muted />
-            )}
-            <Line label={t.report.reachedGoals} value={summary.distributed} rule strong />
-
-            {outgoings > 0 && (
-              <>
-                <Line label={t.report.spent} value={-outgoings} />
-                {summary.spent > 0 && summary.borrowed > 0 && (
-                  <div className="pl-4 space-y-2">
-                    <Line label={t.report.outOfGoal} value={-summary.spent} muted small />
-                    <Line label={t.common.spentAhead} value={-summary.borrowed} muted small />
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Shares are neither spending nor saving, so they get lines of
-                their own; the money still left and reached the goals, so it
-                still counts towards what they grew by. */}
-            {summary.invested > 0 && <Line label={t.report.movedIntoShares} value={-summary.invested} />}
-            {summary.cameBack > 0 && (
-              <>
-                <Line label={t.report.cameBackFromShares} value={summary.cameBack} />
-                {sharesToDebt > 0 && (
-                  <div className="pl-4 space-y-2">
-                    <Line label={t.report.coveredEarlier} value={-sharesToDebt} muted small />
-                  </div>
-                )}
-              </>
-            )}
-
-            <Line label={t.report.goalsGrewBy} value={grewBy} rule strong />
-          </div>
-
-          {(summary.invested > 0 || summary.cameBack > 0) && (
-            <p className="text-slate-500 text-[11px] font-medium mt-4 leading-relaxed">
-              {t.report.sharesNote}
-            </p>
-          )}
-
-          {summary.borrowed > 0 && (
-            <p className="text-slate-500 text-[11px] font-medium mt-4 leading-relaxed">
-              {t.report.borrowNote}
-            </p>
-          )}
-        </Card>
-      </div>
-
-      {/* Allocation */}
-      <div className="px-6 mt-4">
-        <Card className="p-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-white text-lg font-black">{t.report.allocation}</h3>
-              <p className="text-slate-500 text-xs font-medium mt-0.5">{t.report.allocationHint}</p>
-            </div>
-            <span className="shrink-0 bg-primary/10 text-primary text-[10px] font-black px-2.5 py-1 rounded-full">
-              {t.report.slicesOf(slices.length, banks.length)}
+      {/* The month's review, one tap from here. */}
+      {review && (
+        <button
+          type="button"
+          onClick={() => onOpenReview(review.target.start)}
+          className="mt-4 block w-full rounded-3xl bg-hero p-5 text-left active:opacity-80"
+        >
+          <span className="flex items-baseline justify-between gap-3">
+            <span className="text-[12.5px] font-bold">
+              {review.current ? v.reviewSoFar(monthName(review.target.start)) : v.reviewCard(monthName(review.target.start))}
             </span>
-          </div>
-
-          <div className="flex justify-center py-6">
-            <DonutChart
-              slices={slices}
-              total={sliceTotal}
-              size={180}
-              center={
-                <>
-                  <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest">{t.report.deposited}</p>
-                  <p className="text-white text-2xl font-black tabular-nums leading-tight">{formatMoney(summary.distributed, { decimals: 0 })}</p>
-                  <p className="text-slate-500 text-[10px] font-bold">{t.report.goalsCount(slices.length)}</p>
-                </>
-              }
-            />
-          </div>
-
-          <div className="space-y-2">
-            {summary.banks.length === 0 && (
-              <p className="text-slate-500 text-sm font-medium text-center py-4">{t.report.noGoalsYet}</p>
-            )}
-            {summary.banks.map((b) => {
-              const color = colorOf(b.bankId);
-              const width = b.funded === null ? 0 : Math.min(100, Math.max(0, b.funded));
-              return (
-                <div key={b.bankId} className="bg-white/5 rounded-2xl px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="size-9 rounded-xl flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${color}1f`, color }}
-                    >
-                      <span className="material-symbols-rounded text-xl">{safeGoalIcon(b.icon)}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <p className="text-white text-sm font-bold truncate">{b.name}</p>
-                        {b.credited > 0 && (
-                          <span
-                            className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-md"
-                            style={{ backgroundColor: `${color}26`, color }}
-                          >
-                            {b.share}%
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-slate-500 text-[11px] font-medium truncate">
-                        {b.credited > 0 ? t.report.credited(formatMoney(b.credited)) : t.report.nothingCredited}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {b.funded === null ? (
-                        <p className="text-slate-400 text-xs font-bold">{formatMoney(b.current, { decimals: 0 })}</p>
-                      ) : (
-                        <>
-                          <p className={`text-sm font-black tabular-nums ${b.current < 0 ? 'text-red-400' : 'text-white'}`}>{b.funded}%</p>
-                          <p className="text-slate-500 text-[10px] font-medium">{t.report.ofTarget(formatMoney(b.target, { decimals: 0 }))}</p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {b.funded !== null && (
-                    <div className="h-1.5 mt-3 bg-white/5 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${width}%`, backgroundColor: color }} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
-
-      {/* Where it went. Only spending appears here: a deposit has no heading,
-          and borrowing is money moved forward rather than money spent. */}
-      {spending.length > 0 && (
-        <div className="px-6 mt-4">
-          <Card className="p-6">
-            <h3 className="text-white text-lg font-black">{t.report.whereItWent}</h3>
-            <p className="text-slate-500 text-xs font-medium mt-1">
-              {t.report.spentInPeriod(formatMoney(fromCents(spentTotal)))}
-            </p>
-
-            <div className="flex items-center gap-6 mt-5">
-              <DonutChart
-                slices={spending.map((row, i) => ({
-                  id: row.key,
-                  value: row.share,
-                  color: SLICE_COLORS[i % SLICE_COLORS.length],
-                }))}
-                total={100}
-                size={128}
-                center={
-                  <p className="text-white text-lg font-black tabular-nums leading-none">
-                    {formatMoney(fromCents(spentTotal), { decimals: 0 })}
-                  </p>
-                }
-              />
-              <div className="flex-1 min-w-0 space-y-2.5">
-                {spending.slice(0, 4).map((row, i) => (
-                  <div key={row.key} className="flex items-center gap-2.5">
-                    <span
-                      className="size-2.5 rounded-full shrink-0"
-                      style={{ background: SLICE_COLORS[i % SLICE_COLORS.length] }}
-                    />
-                    <span className="text-slate-300 text-xs font-bold truncate flex-1">
-                      {categoryOf(row.key).label}
-                    </span>
-                    <span className="text-white text-xs font-black shrink-0">{row.share}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-2">
-              {spending.map((row) => (
-                <div key={row.key} className="flex items-center gap-3">
-                  <span className={`material-symbols-rounded text-lg ${categoryOf(row.key).tint}`}>
-                    {categoryOf(row.key).icon}
-                  </span>
-                  <span className="text-slate-300 text-xs font-bold truncate flex-1">
-                    {categoryOf(row.key).label}
-                  </span>
-                  <span className="text-slate-600 text-[10px] font-bold shrink-0">
-                    {t.report.times(row.entries)}
-                  </span>
-                  <span className="text-white text-sm font-black shrink-0 w-24 text-right">
-                    {formatMoney(fromCents(row.cents))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
+            <span className="flex items-center gap-0.5 text-[12.5px] font-bold text-mute">
+              {v.view}
+              <Icon name="chev" size={14} />
+            </span>
+          </span>
+          <span className="mt-2 flex items-end justify-between gap-3">
+            <span className="min-w-0">
+              {review.target.rate === null ? (
+                <span className="block text-[56px] font-extrabold leading-none tracking-[-0.04em] text-mute">—</span>
+              ) : (
+                <span className="block text-[56px] font-extrabold leading-none tracking-[-0.04em] tabular-nums">
+                  {review.target.rate}
+                  <span className="text-[26px] text-mute">%</span>
+                </span>
+              )}
+              <span className="mt-1 block text-[12.5px] font-bold text-mute">{v.rate}</span>
+            </span>
+            <span className="flex min-w-0 flex-col items-end gap-2 text-right">
+              {reviewChange !== null && (
+                <span
+                  className={`rounded-full px-3 py-1 text-[12.5px] font-extrabold ${
+                    reviewChange > 0 ? 'bg-mint text-pos' : reviewChange < 0 ? 'bg-peach text-neg' : 'bg-line/10 text-mute'
+                  }`}
+                >
+                  {v.vsMonth(reviewChange, monthName(review.prior.start))}
+                </span>
+              )}
+              <span className="text-[12px] font-medium text-mute">
+                {review.target.incomeCents > 0 ? v.savedIncome(money(review.target.savedCents), money(review.target.incomeCents)) : v.noIncomeYet}
+              </span>
+            </span>
+          </span>
+        </button>
       )}
 
-      {/* Cadence */}
-      <div className="px-6 mt-4">
-        <Card className="p-6">
-          <h3 className="text-white text-lg font-black">{t.report.pacing}</h3>
-          <p className="text-slate-500 text-xs font-medium mt-0.5">{t.report.pacingHint}</p>
-
-          <div className="grid grid-cols-3 gap-2 mt-5">
-            {[
-              {
-                // Only a window of history is loaded, so a streak reaching its
-                // first day may be longer than it can be counted to.
-                value: streak.capped ? t.report.streakAtLeast(streak.days) : t.report.streakValue(streak.days),
-                label: t.report.streak,
-              },
-              { value: `${summary.activeDays}/${summary.range.days}`, label: t.report.daysSaved },
-              { value: formatMoney(summary.maxDay, { decimals: 0 }), label: t.report.bestDay },
-            ].map((s) => (
-              <div key={s.label} className="bg-white/5 rounded-2xl py-4 text-center min-w-0">
-                <p className="text-primary text-xl font-black tabular-nums truncate px-1">{s.value}</p>
-                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mt-1 px-1 truncate">{s.label}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 pt-6 flex items-end gap-1.5 h-[9.5rem]">
-            {summary.buckets.map((b, i) => {
-              const h = maxBucket > 0 ? Math.max(b.amount > 0 ? 6 : 2, (b.amount / maxBucket) * 100) : 2;
-              const on = picked === i;
-              return (
-                <button
-                  key={`${b.label}-${i}`}
-                  onClick={() => setPicked(on ? null : i)}
-                  className="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5"
-                >
-                  <div className="w-full flex-1 flex items-end relative">
-                    {on && (
-                      <span
-                        className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-bg-dark/95 border border-primary/30 text-white text-[10px] font-black px-2 py-1 shadow-lg z-10`}
-                        // A full-height bar would push the readout out of the
-                        // card, so it sits just inside the top instead.
-                        style={{ bottom: `calc(${Math.min(h, 92)}% + 5px)` }}
-                      >
-                        {formatMoney(b.amount)}
-                      </span>
-                    )}
-                    <div
-                      className={`w-full rounded-t-lg transition-opacity ${b.amount > 0 ? 'bg-gradient-to-t from-primary/60 to-primary' : 'bg-white/10'} ${b.current || on ? '' : 'opacity-70'}`}
-                      style={{ height: `${h}%` }}
-                      title={formatMoney(b.amount)}
-                    />
-                  </div>
-                  <p className={`${summary.buckets.length > 8 ? 'text-[8px]' : 'text-[9px]'} font-black uppercase ${on ? 'text-white' : b.current ? 'text-primary' : 'text-slate-500'}`}>
-                    {b.label}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-slate-600 text-[10px] font-bold text-center mt-3">
-            {picked === null
-              ? t.report.bestAndTotal(formatMoney(maxBucket), formatMoney(summary.distributed))
-              : t.report.pickedBar(summary.buckets[picked].label, formatMoney(summary.buckets[picked].amount))}
-          </p>
-        </Card>
+      <div className="mt-5 flex items-baseline justify-between gap-3 px-1">
+        <p className="min-w-0 truncate text-[15px] font-extrabold">{range.label}</p>
+        <p className="shrink-0 text-[12.5px] font-bold text-mute">{r.days(range.days)}</p>
       </div>
 
-      {/* Forecast */}
-      <div className="px-6 mt-4">
-        <Card className="p-6 border-primary/20 bg-primary/5">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="material-symbols-rounded text-primary">auto_awesome</span>
-            <p className="text-primary text-[10px] font-black uppercase tracking-widest">{t.report.forecast}</p>
-          </div>
-          {summary.forecast ? (
+      {/* The four headline numbers. */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+        <div className="min-w-0 rounded-3xl bg-card p-4">
+          <p className="text-[12px] font-bold text-mute">{v.intoGoalsTile}</p>
+          <Amount cents={figures.putInCents} size="md" className="mt-1" />
+          <p className={`mt-1 text-[12px] font-semibold ${change === null ? 'text-mute' : change >= 0 ? 'text-pos' : 'text-neg'}`}>
+            {change === null
+              ? range.previous
+                ? r.nothingPrevious
+                : r.everythingOnRecord
+              : r.vsPrevious(`${change >= 0 ? '+' : ''}${change}`)}
+          </p>
+        </div>
+        <div className="min-w-0 rounded-3xl bg-card p-4">
+          <p className="text-[12px] font-bold text-mute">{r.perDay}</p>
+          <Amount cents={perDay} size="md" className="mt-1" />
+          <p className="mt-1 text-[12px] font-semibold text-mute">{r.transactions(summary.transactions)}</p>
+        </div>
+        <div className="min-w-0 rounded-3xl bg-card p-4">
+          <p className="text-[12px] font-bold text-mute">{r.topGoal}</p>
+          {top ? (
             <>
-              <p className="text-white text-base font-bold leading-relaxed">
-                {t.report.pace.lead}
-                <span className="text-primary">{t.report.pace.rate(formatMoney(summary.forecast.dailyRate))}</span>
-                {t.report.pace.into}
-                <span className="text-primary">{summary.forecast.name}</span>
-                {t.report.pace.reach}
-                <span className="bg-primary/15 text-primary px-2 py-0.5 rounded-lg">{t.report.pace.days(summary.forecast.days)}</span>
-                {t.report.pace.tail(longDate(summary.forecast.date))}
-              </p>
-              <p className="text-slate-500 text-xs font-medium mt-3">
-                {t.report.stillToGo(formatMoney(summary.forecast.remaining), PERIODS.find((p) => p.key === period)?.label ?? '')}
+              <p className="mt-1 truncate text-[17px] font-extrabold">{top.bank.name}</p>
+              <p className="mt-1 flex items-center gap-2 text-[12px] font-semibold text-mute">
+                <span className="rounded-full bg-mint px-2 py-0.5 font-extrabold text-pos">{percent(top.credited, creditedTotal)}%</span>
+                {money(top.credited)}
               </p>
             </>
           ) : (
-            <p className="text-slate-400 text-sm font-medium leading-relaxed">
-              {t.report.noPace}
-            </p>
+            <p className="mt-2 text-[13px] font-semibold text-mute">{r.noDepositsYet}</p>
           )}
-        </Card>
+        </div>
+        <div className="min-w-0 rounded-3xl bg-card p-4">
+          <p className="text-[12px] font-bold text-mute">{r.allGoals}</p>
+          {summary.collective.funded === null ? (
+            <p className="mt-2 text-[13px] font-semibold text-mute">{r.noTargetSet}</p>
+          ) : (
+            <>
+              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-pos">{summary.collective.funded}%</p>
+              <p className="mt-1 text-[12px] font-semibold text-mute">{r.reachedOf(summary.collective.reached, summary.collective.goals)}</p>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Where the money went, with every line a number the ledger holds. */}
+      <Heading title={r.inAndOut} hint={r.inAndOutHint} className="mt-7" />
+      <Card className="mt-2.5 !py-3">
+        <Line label={v.income} cents={figures.incomeCents} />
+        {summary.repaid > 0 && <Line label={r.coveredEarlier} cents={-Math.round(summary.repaid * 100)} muted />}
+        <Line label={v.intoGoals} cents={figures.putInCents} />
+        {figures.spentCents > 0 && (
+          <>
+            <Line label={r.spent} cents={-figures.spentCents} />
+            {figures.spentFromWalletCents > 0 && <Line label={v.fromWallet} cents={-figures.spentFromWalletCents} sub />}
+            {figures.spentFromGoalsCents > 0 && <Line label={v.fromGoals} cents={-figures.spentFromGoalsCents} sub />}
+            {summary.borrowed > 0 && <Line label={t.common.spentAhead} cents={-Math.round(summary.borrowed * 100)} sub />}
+          </>
+        )}
+        {summary.invested > 0 && <Line label={r.movedIntoShares} cents={-Math.round(summary.invested * 100)} />}
+        {summary.cameBack > 0 && (
+          <>
+            <Line label={r.cameBackFromShares} cents={Math.round(summary.cameBack * 100)} />
+            {sharesToDebt > 0 && <Line label={r.coveredEarlier} cents={-Math.round(sharesToDebt * 100)} sub />}
+          </>
+        )}
+        <Line label={r.goalsGrewBy} cents={grewBy} rule strong />
+        <Line label={v.walletNow} cents={walletCents} strong />
+        {(summary.invested > 0 || summary.cameBack > 0) && (
+          <p className="mt-3 text-[11.5px] font-medium leading-relaxed text-mute">{r.sharesNote}</p>
+        )}
+        {summary.borrowed > 0 && <p className="mt-3 text-[11.5px] font-medium leading-relaxed text-mute">{r.borrowNote}</p>}
+      </Card>
+
+      {spending.length > 0 && (
+        <>
+          <Heading title={r.whereItWent} hint={r.spentInPeriod(money(spentTotal))} className="mt-7" />
+          <Card className="mt-2.5">
+            <div className="flex h-3.5 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={r.whereItWent}>
+              {spending.map((row, i) => (
+                <i
+                  key={row.key}
+                  className={`block h-full min-w-[3px] ${CAT_BG[i % CAT_BG.length]}`}
+                  style={{ width: `${(row.cents / spentTotal) * 100}%` }}
+                />
+              ))}
+            </div>
+
+            {totalRow && totalRow.limitCents !== null && (
+              <div className="mt-4 rounded-2xl bg-line/5 px-4 py-3">
+                <div className="flex items-baseline justify-between gap-3 text-[14px] font-extrabold">
+                  <span>{v.totalBudget}</span>
+                  <span className="tabular-nums">
+                    {v.usedOf(money(totalRow.spentCents), money(totalRow.limitCents))}
+                  </span>
+                </div>
+                <Meter percent={totalRow.used ?? 0} status={totalRow.status} label={v.totalBudget} className="mt-2" />
+                <p className={`mt-1.5 text-[12px] font-semibold ${totalRow.status === 'over' ? 'text-neg' : 'text-mute'}`}>
+                  {(totalRow.leftCents ?? 0) >= 0 ? v.budgetLeft(money(totalRow.leftCents ?? 0)) : v.budgetOver(money(-(totalRow.leftCents ?? 0)))}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-2 divide-y divide-line/10">
+              {spending.map((row, i) => {
+                const lim = limitOf(row.key);
+                const limited = lim && lim.limitCents !== null;
+                return (
+                  <div key={row.key} className="py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`size-2.5 shrink-0 rounded-full ${CAT_BG[i % CAT_BG.length]}`} />
+                      <span className="min-w-0 flex-1 truncate text-[14.5px] font-bold">
+                        {categoryOf(row.key).label}
+                        {limited && (
+                          <span
+                            className={`ml-2 rounded-full px-2 py-0.5 align-middle text-[10.5px] font-extrabold ${
+                              lim.status === 'over' ? 'bg-peach text-neg' : lim.status === 'near' ? 'bg-sun' : 'bg-mint text-pos'
+                            }`}
+                          >
+                            {lim.status === 'over' ? v.overTag : v.usedPct(lim.used ?? 0)}
+                          </span>
+                        )}
+                      </span>
+                      <span className={`shrink-0 whitespace-nowrap text-[14.5px] font-extrabold tabular-nums ${lim?.status === 'over' ? 'text-neg' : ''}`}>
+                        {money(row.cents)}
+                      </span>
+                    </div>
+                    {limited && <Meter percent={lim.used ?? 0} status={lim.status} label={categoryOf(row.key).label} className="ml-5 mt-2" />}
+                    <div className="ml-5 mt-1 flex justify-between gap-3 text-[12px] font-medium text-mute">
+                      <span className="min-w-0 truncate">
+                        {limited
+                          ? `${v.budgetOf(money(lim.limitCents ?? 0))} · ${
+                              (lim.leftCents ?? 0) >= 0 ? v.budgetLeft(money(lim.leftCents ?? 0)) : v.budgetOver(money(-(lim.leftCents ?? 0)))
+                            }`
+                          : isMonth
+                            ? v.noBudget
+                            : ''}
+                      </span>
+                      <span className="shrink-0">{v.shareTimes(row.share, r.times(row.entries))}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {isMonth && (
+              <button
+                type="button"
+                onClick={onOpenBudgets}
+                className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-full bg-line/10 px-4 text-[13.5px] font-extrabold active:opacity-80"
+              >
+                {Object.keys(budgets.categories).length === 0 && budgets.total.length === 0 ? v.setBudgets : v.allBudgets}
+                <Icon name="chev" size={16} />
+              </button>
+            )}
+          </Card>
+        </>
+      )}
+
+      {/* Where this period's deposits went. */}
+      <Heading title={r.allocation} hint={r.allocationHint} className="mt-7" />
+      <Card className="mt-2.5 !py-2">
+        {bankStats.length === 0 && <p className="py-4 text-center text-[13px] font-medium text-mute">{r.noGoalsYet}</p>}
+        <div className="divide-y divide-line/10">
+          {bankStats.map((s, i) => {
+            const width = s.funded === null ? 0 : Math.min(100, Math.max(0, s.funded));
+            return (
+              <div key={s.bank.id} className="py-3">
+                <div className="flex items-center gap-3">
+                  <span className={`grid size-9 shrink-0 place-items-center rounded-xl text-ink ${TINT_BG[i % TINT_BG.length]}`}>
+                    <span className="material-symbols-rounded text-[20px]">{safeGoalIcon(s.bank.icon)}</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-[14.5px] font-bold">{s.bank.name}</span>
+                      {s.credited > 0 && (
+                        <span className="shrink-0 rounded-full bg-line/10 px-2 py-0.5 text-[10.5px] font-extrabold">
+                          {percent(s.credited, creditedTotal)}%
+                        </span>
+                      )}
+                    </span>
+                    <span className="block truncate text-[11.5px] font-medium text-mute">
+                      {s.credited > 0 ? r.credited(money(s.credited)) : r.nothingCredited}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    {s.funded === null ? (
+                      <span className="text-[13px] font-bold text-mute">{formatMoney(s.bank.currentAmount, { decimals: 0 })}</span>
+                    ) : (
+                      <>
+                        <span className={`block text-[14.5px] font-extrabold tabular-nums ${s.bank.currentAmount < 0 ? 'text-neg' : ''}`}>
+                          {s.funded}%
+                        </span>
+                        <span className="block text-[11px] font-medium text-mute">{r.ofTarget(formatMoney(s.bank.targetAmount, { decimals: 0 }))}</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                {s.funded !== null && (
+                  <div className="ml-12 mt-2.5 h-2 overflow-hidden rounded-full bg-line/10">
+                    <div className={`h-full rounded-full ${CAT_BG[s.index % CAT_BG.length]}`} style={{ width: `${width}%` }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* How regularly money is reaching the goals. */}
+      <Heading title={r.pacing} hint={r.pacingHint} className="mt-7" />
+      <div className="mt-2.5 grid grid-cols-3 gap-2.5">
+        {[
+          {
+            // Only a window of history is loaded, so a streak reaching its first day may be longer than it can be counted to.
+            value: streak.capped ? r.streakAtLeast(streak.days) : r.streakValue(streak.days),
+            label: r.streak,
+          },
+          { value: `${summary.activeDays}/${range.days}`, label: r.daysSaved },
+          { value: formatMoney(summary.maxDay, { decimals: 0 }), label: r.bestDay },
+        ].map((s) => (
+          <div key={s.label} className="min-w-0 rounded-3xl bg-card px-2 py-4 text-center">
+            <p className="truncate text-[18px] font-extrabold tabular-nums">{s.value}</p>
+            <p className="mt-0.5 truncate text-[11.5px] font-bold text-mute">{s.label}</p>
+          </div>
+        ))}
+      </div>
+      <Card className="mt-2.5">
+        <div className="flex h-[8.5rem] items-end gap-1.5 pt-6">
+          {summary.buckets.map((b, i) => {
+            const h = maxBucket > 0 ? Math.max(b.amount > 0 ? 6 : 2, (b.amount / maxBucket) * 100) : 2;
+            const on = picked === i;
+            return (
+              <button
+                key={`${b.label}-${i}`}
+                type="button"
+                onClick={() => setPicked(on ? null : i)}
+                aria-pressed={on}
+                aria-label={`${b.label}: ${formatMoney(b.amount)}`}
+                className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5"
+              >
+                <span className="relative flex w-full flex-1 items-end">
+                  {on && (
+                    <span
+                      className="absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-cta px-2 py-1 text-[10.5px] font-extrabold text-cta-fg"
+                      // A full-height bar would push the readout out of the card, so it sits just inside the top instead.
+                      style={{ bottom: `calc(${Math.min(h, 92)}% + 5px)` }}
+                    >
+                      {formatMoney(b.amount)}
+                    </span>
+                  )}
+                  <span
+                    className={`block w-full rounded-t-lg ${b.amount > 0 ? 'bg-pos' : 'bg-line/10'} ${b.current || on ? '' : 'opacity-60'}`}
+                    style={{ height: `${h}%` }}
+                  />
+                </span>
+                <span className={`${summary.buckets.length > 8 ? 'text-[9px]' : 'text-[10.5px]'} font-extrabold ${on ? 'text-ink' : b.current ? 'text-pos' : 'text-mute'}`}>
+                  {b.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-center text-[11.5px] font-semibold text-mute">
+          {picked === null
+            ? r.bestAndTotal(formatMoney(maxBucket), formatMoney(summary.distributed))
+            : r.pickedBar(summary.buckets[picked].label, formatMoney(summary.buckets[picked].amount))}
+        </p>
+      </Card>
+
+      {/* Forecast */}
+      <div className="mt-2.5 rounded-3xl bg-mint p-5">
+        <p className="flex items-center gap-2 text-[12.5px] font-extrabold">
+          <Icon name="spark" size={16} />
+          {r.forecast}
+        </p>
+        {forecast ? (
+          <>
+            <p className="mt-2 text-[15.5px] font-bold leading-relaxed">
+              {r.pace.lead}
+              <b className="font-extrabold">{r.pace.rate(formatMoney(forecast.dailyRate))}</b>
+              {r.pace.into}
+              <b className="font-extrabold">{forecast.name}</b>
+              {r.pace.reach}
+              <b className="font-extrabold">{r.pace.days(forecast.days)}</b>
+              {r.pace.tail(longDate(forecast.date))}
+            </p>
+            <p className="mt-2 text-[12.5px] font-medium text-mute">
+              {r.stillToGo(formatMoney(forecast.remaining), PERIODS.find((p) => p.key === period)?.label ?? '')}
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-[13.5px] font-medium leading-relaxed text-mute">{r.noPace}</p>
+        )}
       </div>
 
       {/* Actions */}
-      <div className="px-6 mt-6 space-y-3">
-        <button
-          onClick={onOpenStrategy}
-          className="w-full h-16 rounded-[2rem] bg-primary text-black font-black flex items-center justify-center gap-3 active:scale-95 transition-transform"
-        >
-          <span className="material-symbols-rounded">tune</span>
-          {t.report.adjustSplit}
-        </button>
-
-        <button
-          onClick={onOpenStatements}
-          className="w-full flex items-center gap-4 p-5 rounded-[2rem] glass border border-white/10 active:scale-[0.985] transition-transform text-left"
-        >
-          <span className="size-11 shrink-0 rounded-2xl bg-primary/15 text-primary flex items-center justify-center">
-            <span className="material-symbols-rounded">description</span>
-          </span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-white text-sm font-black">{t.report.statements}</span>
-            <span className="block text-slate-500 text-[11px] font-bold mt-0.5 leading-relaxed">
-              {t.report.statementsHint}
-            </span>
-          </span>
-          <span className="material-symbols-rounded text-slate-600">chevron_right</span>
-        </button>
-
-        <p className="text-slate-600 text-[10px] font-bold text-center leading-relaxed">
-          {t.report.periodNote}
-        </p>
-      </div>
-
-      {message && (
-        <div className="fixed left-0 right-0 bottom-28 z-40 flex justify-center px-6 pointer-events-none">
-          <p className="bg-surface border border-white/10 text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-2xl max-w-md text-center">
-            {message}
-          </p>
-        </div>
-      )}
-
-    </div>
+      <Button className="mt-6" onClick={onOpenStrategy}>
+        <Icon name="pie" size={18} />
+        {r.adjustSplit}
+      </Button>
+      <button
+        type="button"
+        onClick={onOpenStatements}
+        className="mt-2.5 flex w-full items-center gap-3 rounded-3xl bg-card p-4 text-left active:opacity-80"
+      >
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-mint">
+          <Icon name="doc" size={20} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14.5px] font-extrabold">{r.statements}</span>
+          <span className="mt-0.5 block text-[12px] font-medium leading-snug text-mute">{r.statementsHint}</span>
+        </span>
+        <Icon name="chev" size={18} className="text-mute" />
+      </button>
+      <p className="mt-4 px-2 text-center text-[11.5px] font-medium leading-relaxed text-mute">{r.periodNote}</p>
+    </>
   );
 };
 

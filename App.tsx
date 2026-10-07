@@ -15,6 +15,8 @@ import SetupNotice from './components/SetupNotice';
 import RedeemInvite from './components/RedeemInvite';
 import AutoPage from './components/AutoPage';
 import Report from './components/Report';
+import MonthReview from './components/MonthReview';
+import BudgetPage from './components/BudgetPage';
 import Alerts from './components/Alerts';
 import Statements from './components/Statements';
 import Trades from './components/Trades';
@@ -88,6 +90,9 @@ const App: React.FC = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [showStatements, setShowStatements] = useState(false);
+  /** The month open in the review page: any day in it. */
+  const [reviewMonth, setReviewMonth] = useState<Date | null>(null);
+  const [showBudgets, setShowBudgets] = useState(false);
   /* Which half of the app the bar and Home body are showing. The card the
      user swipes to on Home sets it; nothing else does. */
   const [mode, setMode] = useState<Mode>('save');
@@ -116,7 +121,7 @@ const App: React.FC = () => {
     else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
   }, [activeTab]);
 
-  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, budgets, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -355,7 +360,9 @@ const App: React.FC = () => {
     if (trade) setTradeDraft({ mode: 'edit', trade });
   };
   useBackHandler(true, () => {
-    if (showStatements) setShowStatements(false);
+    if (showBudgets) setShowBudgets(false);
+    else if (reviewMonth) setReviewMonth(null);
+    else if (showStatements) setShowStatements(false);
     else if (showCreateGoal) setShowCreateGoal(false);
     else if (showAutoDeposits) setShowAutoDeposits(false);
     else if (showAlerts) setShowAlerts(false);
@@ -503,6 +510,18 @@ const App: React.FC = () => {
     const job = source === 'wallet' ? api.spendFromWallet(uid, amount, note, category, { at, notBefore }) : api.withdraw(uid, amount, source, note, category, { at, notBefore });
     await settleOrQueue(job).catch(refuse);
     toast.show({ message: t.app.toast.spent(formatMoney(amount)), tone: 'success' });
+  };
+
+  /** Sets one monthly limit from a month on (0 takes it away). A transaction, so it needs a connection and says why when it has none. */
+  const handleSaveBudget = async (target: string, from: string, cents: number) => {
+    if (!uid) return;
+    try {
+      await api.saveBudget(uid, target, from, cents);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: cents > 0 ? t.review.saved : t.review.removed, tone: 'success' });
   };
 
   const handleMoveWallet = async (amount: number, move: WalletMove) => {
@@ -813,7 +832,11 @@ const App: React.FC = () => {
   const selectedGoal = banks.find((b) => b.id === selectedGoalId);
   // The screen on top decides the look. Sheets (money, entry, new goal) are not
   // listed: they follow whatever is under them.
-  const topOverlay = selectedGoal
+  const topOverlay = showBudgets
+    ? 'budgets'
+    : reviewMonth
+      ? 'monthReview'
+      : selectedGoal
     ? 'goalDetail'
     : showAlerts
       ? 'alerts'
@@ -826,6 +849,10 @@ const App: React.FC = () => {
             : showAutoDeposits
               ? 'autoDeposits'
               : null;
+  // Every screen shares one scrolling column, so a new screen would open at wherever the last one was left.
+  useEffect(() => {
+    document.querySelector('main')?.scrollTo({ top: 0 });
+  }, [topOverlay, activeTab]);
   // Home's savings half is a redesigned screen; its investing half is not yet.
   useScreenLook({ tab: activeTab === Tab.HOME && mode === 'save' ? 'homeSave' : activeTab, overlays: topOverlay ? [topOverlay] : [] });
 
@@ -907,6 +934,24 @@ const App: React.FC = () => {
           onBack={() => setShowMonthlyBuy(false)}
           onRecordBuy={(d) => openTrade({ mode: 'new', kind: 'buy', ...d })}
           onEditStyle={() => setSetup({ step: 'style', pending: null, editing: true })}
+        />
+      );
+    }
+
+    if (showBudgets) {
+      return <BudgetPage activities={activities} budgets={budgets} onBack={() => setShowBudgets(false)} onSave={handleSaveBudget} />;
+    }
+
+    if (reviewMonth) {
+      return (
+        <MonthReview
+          activities={activities}
+          ledger={ledger}
+          budgets={budgets}
+          month={reviewMonth}
+          onBack={() => setReviewMonth(null)}
+          onOpenBudgets={() => setShowBudgets(true)}
+          onOpenEntry={(id) => setEntryId(id)}
         />
       );
     }
@@ -1039,6 +1084,8 @@ const App: React.FC = () => {
             loans={loans}
             wallet={wallet}
             bills={visibleBills}
+            budgets={budgets}
+            onOpenBudgets={() => setShowBudgets(true)}
             onRecordBill={handleRecordBill}
             onSkipBill={handleSkipBill}
             onOpenAuto={() => setShowAutoDeposits(true)}
@@ -1074,6 +1121,10 @@ const App: React.FC = () => {
             activities={activities}
             ledger={ledger}
             streak={streak.run}
+            budgets={budgets}
+            walletCents={toCents(wallet.balance)}
+            onOpenReview={(month) => setReviewMonth(month)}
+            onOpenBudgets={() => setShowBudgets(true)}
             onOpenStrategy={() => setActiveTab(Tab.BANKS)}
             onOpenProfile={() => setShowProfile(true)}
             onOpenStatements={() => setShowStatements(true)}
@@ -1431,7 +1482,7 @@ const App: React.FC = () => {
 
   return shell(
     renderContent(),
-    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !dataLoading
+    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !reviewMonth && !showBudgets && !dataLoading
   );
 };
 

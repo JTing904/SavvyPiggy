@@ -1,6 +1,7 @@
 import { DEFAULT_WALLET } from '../services/wallet';
+import { EMPTY_BUDGETS } from '../services/budgets';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings, Bill } from '../types';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings, Bill, Budgets } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
@@ -14,6 +15,7 @@ import {
   subscribeToTrades,
   subscribeToInvest,
   subscribeToWallet,
+  subscribeToBudgets,
   subscribeToBills,
   migrateHoldingsToTrades,
   DEFAULT_INVEST,
@@ -36,6 +38,7 @@ export const usePiggyData = (uid: string | undefined) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [invest, setInvest] = useState<InvestSettings>(DEFAULT_INVEST);
   const [wallet, setWallet] = useState<WalletSettings>(DEFAULT_WALLET);
+  const [budgets, setBudgets] = useState<Budgets>(EMPTY_BUDGETS);
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
@@ -218,6 +221,15 @@ export const usePiggyData = (uid: string | undefined) => {
     return subscribeToWallet(uid, setWallet, (e) => setError(e.message));
   }, [uid, attempt]);
 
+  // Budgets never hold the screens back: until they arrive there are none, and nothing is judged.
+  useEffect(() => {
+    if (!uid) {
+      setBudgets(EMPTY_BUDGETS);
+      return;
+    }
+    return subscribeToBudgets(uid, setBudgets, (e) => setError(e.message));
+  }, [uid, attempt]);
+
   // Bills never hold the screens back either: until they arrive there are simply none.
   useEffect(() => {
     if (!uid) {
@@ -287,6 +299,7 @@ export const usePiggyData = (uid: string | undefined) => {
     invest,
     wallet,
     bills,
+    budgets,
     loading: loading || !activitiesReady,
     offline,
     error,

@@ -9,10 +9,10 @@
 export type Look = 'new' | 'legacy';
 
 /** Tabs that have been redesigned. */
-export const NEW_LOOK_TABS: readonly string[] = ['log', 'homeSave'];
+export const NEW_LOOK_TABS: readonly string[] = ['log', 'homeSave', 'stats'];
 
 /** Full-screen views and sheets that have been redesigned. */
-export const NEW_LOOK_OVERLAYS: readonly string[] = ['goalDetail', 'createGoal', 'autoDeposits'];
+export const NEW_LOOK_OVERLAYS: readonly string[] = ['goalDetail', 'createGoal', 'autoDeposits', 'monthReview', 'budgets'];
 
 export interface ScreenState {
   /** The active tab. */

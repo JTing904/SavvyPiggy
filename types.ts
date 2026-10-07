@@ -428,3 +428,19 @@ export interface WalletSettings {
   /** Ringgit, like a goal balance. Negative means overdrawn. */
   balance: number;
 }
+
+/** A monthly limit that holds from `from` ("2026-10") until the next step. 0 means no limit. */
+export interface BudgetStep {
+  from: string;
+  cents: number;
+}
+
+/**
+ * What the person allows themselves to spend each month: one total, and a limit
+ * per spending category. Each is a history of steps, so changing a limit only
+ * affects the months from then on and past months keep the limit they had.
+ */
+export interface Budgets {
+  total: BudgetStep[];
+  categories: Record<string, BudgetStep[]>;
+}

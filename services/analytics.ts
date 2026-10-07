@@ -323,6 +323,37 @@ export const bucketsFor = (period: Period, range: PeriodRange): { label: string;
   return out;
 };
 
+/**
+ * Pace is each goal's own average, so targeted deposits count for the goal
+ * they went to rather than being smeared across the strategy. The goal that
+ * would be full soonest is the one reported.
+ */
+export const forecastFor = (
+  stats: Pick<BankStat, 'bankId' | 'name' | 'credited' | 'target' | 'current'>[],
+  days: number,
+  now: Date
+): Forecast | null => {
+  let forecast: Forecast | null = null;
+  for (const stat of stats) {
+    if (stat.target <= 0 || stat.credited <= 0) continue;
+    const remaining = toCents(stat.target) - toCents(stat.current);
+    if (remaining <= 0) continue;
+    const dailyRate = toCents(stat.credited) / days;
+    const needed = Math.ceil(remaining / dailyRate);
+    if (!forecast || needed < forecast.days) {
+      forecast = {
+        bankId: stat.bankId,
+        name: stat.name,
+        dailyRate: fromCents(Math.floor(dailyRate)),
+        remaining: fromCents(remaining),
+        days: needed,
+        date: addDays(startOfDay(now), needed),
+      };
+    }
+  }
+  return forecast;
+};
+
 export const summarize = (
   activities: Activity[],
   banks: PiggyBank[],
@@ -424,26 +455,7 @@ export const summarize = (
     current: inRange(now, bucket.range),
   }));
 
-  // Pace is each goal's own average, so targeted deposits count for the goal
-  // they went to rather than being smeared across the strategy.
-  let forecast: Forecast | null = null;
-  for (const stat of bankStats) {
-    if (stat.target <= 0 || stat.credited <= 0) continue;
-    const remaining = toCents(stat.target) - toCents(stat.current);
-    if (remaining <= 0) continue;
-    const dailyRate = toCents(stat.credited) / range.days;
-    const days = Math.ceil(remaining / dailyRate);
-    if (!forecast || days < forecast.days) {
-      forecast = {
-        bankId: stat.bankId,
-        name: stat.name,
-        dailyRate: fromCents(Math.floor(dailyRate)),
-        remaining: fromCents(remaining),
-        days,
-        date: addDays(startOfDay(now), days),
-      };
-    }
-  }
+  const forecast = forecastFor(bankStats, range.days, now);
 
   const run = streakRun(activities, now);
 

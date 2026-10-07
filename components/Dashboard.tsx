@@ -1,6 +1,6 @@
 
 import SavingsHome from './SavingsHome';
-import type { Bill, WalletSettings } from '../types';
+import type { Bill, Budgets, WalletSettings } from '../types';
 import type { IncomeChoice } from '../services/moneySheet';
 import type { WalletMove } from '../services/wallet';
 import { safeGoalIcon } from '../services/goalIcons';
@@ -14,7 +14,7 @@ import { sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
 import Avatar from './Avatar';
-import { portfolioTotals, type Quotes } from '../services/holdings';
+import { byValueDesc, portfolioTotals, type Quotes } from '../services/holdings';
 import HoldingStack from './HoldingStack';
 import PickCard from './invest/PickCard';
 import PotCard from './invest/PotCard';
@@ -65,6 +65,8 @@ interface DashboardProps {
   onRecordBill: (bill: Bill, day: string, amount: number) => void | Promise<void>;
   onSkipBill: (bill: Bill, day: string) => void | Promise<void>;
   onOpenAuto: () => void;
+  budgets: Budgets;
+  onOpenBudgets: () => void;
   /** `choice` is `rule`, `split`, `wallet` or a goal's id; `at` is only given for a day other than today. */
   onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
   /** `source` is `wallet` or a goal's id. */
@@ -664,7 +666,7 @@ const LegacyHome: React.FC<DashboardProps> = ({
 
               <div className="mt-5">
                 <HoldingStack
-                  holdings={holdings}
+                  holdings={byValueDesc(holdings, (h) => quotes[h.symbol])}
                   quotes={quotes}
                   missing={portfolio.missing}
                   onTrade={onTrade}
@@ -715,6 +717,8 @@ const Dashboard: React.FC<DashboardProps> = (props) =>
       onRecordBill={props.onRecordBill}
       onSkipBill={props.onSkipBill}
       onOpenAuto={props.onOpenAuto}
+      budgets={props.budgets}
+      onOpenBudgets={props.onOpenBudgets}
       savings={props.savings}
       totalBalance={props.totalBalance}
       unreadAlerts={props.unreadAlerts}

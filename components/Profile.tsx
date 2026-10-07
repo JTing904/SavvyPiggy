@@ -124,7 +124,8 @@ const Profile: React.FC<ProfileProps> = ({
   const joined = user.metadata.creationTime ? new Date(user.metadata.creationTime) : null;
 
   const active = banks.filter((b) => !isArchived(b));
-  const archived = banks.filter(isArchived);
+  // The one put away most recently first.
+  const archived = banks.filter(isArchived).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
   const totalBalance = banks.reduce((sum, b) => sum + b.currentAmount, 0);
   const archivedTotal = archived.reduce((sum, b) => sum + b.currentAmount, 0);
   const withTarget = active.filter((b) => b.targetAmount > 0);

@@ -197,6 +197,13 @@ input[type=number] {
     --dot2: 111 181 159;
     --dot3: 157 164 232;
     --tog: 214 221 216;
+    --warn: 176 112 0;
+    --cat1: 39 85 192;
+    --cat2: 11 110 68;
+    --cat3: 176 112 0;
+    --cat4: 150 70 160;
+    --cat5: 20 130 150;
+    --cat6: 130 142 136;
 }
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
@@ -221,6 +228,13 @@ input[type=number] {
         --dot2: 111 181 159;
         --dot3: 157 164 232;
         --tog: 52 65 59;
+        --warn: 240 201 74;
+        --cat1: 141 174 242;
+        --cat2: 111 217 166;
+        --cat3: 240 201 74;
+        --cat4: 200 150 230;
+        --cat5: 110 200 215;
+        --cat6: 148 163 155;
     }
 }
 [data-theme="dark"] {
@@ -245,6 +259,13 @@ input[type=number] {
     --dot2: 111 181 159;
     --dot3: 157 164 232;
     --tog: 52 65 59;
+    --warn: 240 201 74;
+    --cat1: 141 174 242;
+    --cat2: 111 217 166;
+    --cat3: 240 201 74;
+    --cat4: 200 150 230;
+    --cat5: 110 200 215;
+    --cat6: 148 163 155;
 }
 /* index.html asks for `color-scheme: light dark`; screens that are not
    redesigned yet were always rendered with the default (light) form

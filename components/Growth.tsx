@@ -3,6 +3,7 @@ import type { Snapshot, Trade } from '../types';
 import {
   averageCostCents,
   buildHoldings,
+  byValueDesc,
   costByMonth,
   marketValueCents,
   performance,
@@ -41,7 +42,7 @@ const tone = (cents: number) => (cents < 0 ? 'text-red-400' : cents > 0 ? 'text-
 const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) => {
   const t = useT();
   const total = useMemo(() => performance(trades, quotes), [trades, quotes]);
-  const holdings = useMemo(() => buildHoldings(trades), [trades]);
+  const holdings = useMemo(() => byValueDesc(buildHoldings(trades), (h) => quotes[h.symbol]), [trades, quotes]);
 
   /* The chart. Cost is replayed; value only exists where a snapshot does. */
   const months = useMemo(() => costByMonth(trades), [trades]);
