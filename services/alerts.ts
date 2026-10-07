@@ -52,6 +52,7 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   reminderTime: '20:00',
   digest: true,
   exDates: true,
+  bills: true,
 };
 
 /** Everything but `read`, which is always false when an alert is born. */

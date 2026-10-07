@@ -1,8 +1,10 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
-import type { Dividend, NotificationPrefs, Schedule, Trade } from '../types';
+import type { Bill, Dividend, NotificationPrefs, Schedule, Trade } from '../types';
 import { parseTime } from './alerts';
 import { nextOccurrence } from './schedules';
+import { billSchedule, WALLET_SOURCE } from './bills';
+import { toCents } from './money';
 import { unitsOnExDate } from './holdings';
 import { dividendId, exchangeDay } from './dividends';
 import { formatMoney } from '../services/money';
@@ -37,6 +39,7 @@ export const DIGEST_ID = 2;
 const SPAN = 1_000_000;
 const DUE_BASE = 1_000_000;
 const EX_BASE = 10_000_000;
+const BILL_BASE = 20_000_000;
 
 /** A small stable number from a string, so an id survives reordering. */
 const slot = (key: string, span: number) => {
@@ -134,13 +137,23 @@ export const requestExactAlarms = async () => {
   }
 };
 
+/** What the bill alarms need that the settings alone do not say. */
+export interface BillExtras {
+  bills: Bill[];
+  /** What the wallet holds now, in cents. */
+  walletCents: number;
+  /** What each bill usually costs, in cents, by bill id. */
+  expected: Record<string, number>;
+}
+
 /** What the phone should hold, given the settings and the auto-deposit rules. */
 export const plannedNotifications = (
   prefs: NotificationPrefs,
   schedules: Schedule[],
   dividends: Dividend[] = [],
   trades: Trade[] = [],
-  now = new Date()
+  now = new Date(),
+  extras?: BillExtras
 ): LocalNotificationSchema[] => {
   const out: LocalNotificationSchema[] = [];
   // Written in the current language; a change of language changes the plan's
@@ -182,6 +195,44 @@ export const plannedNotifications = (
       extra: { open: 'home' satisfies OpenTarget },
     });
   });
+
+  /**
+   * Bills. A variable one asks on its day (the app cannot know the amount); a
+   * fixed one records itself and says nothing, except the day before, when the
+   * wallet as it stands could not cover it.
+   */
+  if (prefs.bills && extras) {
+    for (const bill of extras.bills) {
+      if (!bill.enabled) continue;
+      const next = nextOccurrence(billSchedule(bill), now);
+      if (!next) continue;
+      const expected = extras.expected[bill.id] ?? toCents(bill.amount);
+
+      if (bill.mode === 'variable') {
+        const at = new Date(next);
+        at.setHours(MORNING, 0, 0, 0);
+        out.push({
+          id: BILL_BASE + slot(`due:${bill.id}`, SPAN),
+          title: words.billDueTitle(bill.name),
+          body: expected > 0 ? words.billDueBody(formatMoney(expected / 100)) : words.billDueBodyNoAmount,
+          schedule: { at },
+          extra: { open: 'home' satisfies OpenTarget },
+        });
+      } else if (bill.sourceId === WALLET_SOURCE && toCents(bill.amount) > extras.walletCents) {
+        const at = new Date(next);
+        at.setDate(at.getDate() - 1);
+        at.setHours(MORNING, 0, 0, 0);
+        if (at.getTime() <= now.getTime()) continue;
+        out.push({
+          id: BILL_BASE + slot(`short:${bill.id}`, SPAN),
+          title: words.billShortTitle,
+          body: words.billShortBody(bill.name, formatMoney(bill.amount), formatMoney(Math.max(0, extras.walletCents) / 100)),
+          schedule: { at },
+          extra: { open: 'home' satisfies OpenTarget },
+        });
+      }
+    }
+  }
 
   /**
    * The ex-date is the one day that decides a dividend: hold the shares the
@@ -255,7 +306,8 @@ export const syncNotifications = async (
   schedules: Schedule[],
   dividends: Dividend[] = [],
   trades: Trade[] = [],
-  now = new Date()
+  now = new Date(),
+  extras?: BillExtras
 ) => {
   if (!native() || (await checkPermission()) !== 'granted') return;
   await ensureChannel();
@@ -264,7 +316,7 @@ export const syncNotifications = async (
   // phone dozes, which is no use for "remind me at 8pm" — so take a real one
   // whenever the phone already allows it, and fall back quietly when it does not.
   const isExactNotification = await exactAllowed();
-  const planned = plannedNotifications(prefs, schedules, dividends, trades, now).map((n) => ({
+  const planned = plannedNotifications(prefs, schedules, dividends, trades, now, extras).map((n) => ({
     ...n,
     channelId: CHANNEL_ID,
     isExactNotification,

@@ -1,6 +1,6 @@
 import { DEFAULT_WALLET } from '../services/wallet';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings } from '../types';
+import type { PiggyBank, Activity, Schedule, Loan, Alert, Trade, NotificationPrefs, SavingsSettings, InvestSettings, WalletSettings, Bill } from '../types';
 import { buildHoldings } from '../services/holdings';
 import { DEFAULT_PREFS, DEFAULT_SAVINGS } from '../services/alerts';
 import {
@@ -14,6 +14,7 @@ import {
   subscribeToTrades,
   subscribeToInvest,
   subscribeToWallet,
+  subscribeToBills,
   migrateHoldingsToTrades,
   DEFAULT_INVEST,
   ALERTS_LIMIT,
@@ -35,6 +36,7 @@ export const usePiggyData = (uid: string | undefined) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [invest, setInvest] = useState<InvestSettings>(DEFAULT_INVEST);
   const [wallet, setWallet] = useState<WalletSettings>(DEFAULT_WALLET);
+  const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [activitiesReady, setActivitiesReady] = useState(false);
   /**
@@ -216,6 +218,15 @@ export const usePiggyData = (uid: string | undefined) => {
     return subscribeToWallet(uid, setWallet, (e) => setError(e.message));
   }, [uid, attempt]);
 
+  // Bills never hold the screens back either: until they arrive there are simply none.
+  useEffect(() => {
+    if (!uid) {
+      setBills([]);
+      return;
+    }
+    return subscribeToBills(uid, setBills, (e) => setError(e.message));
+  }, [uid, attempt]);
+
   /*
     Only the last three months are listened to (see liveWindowStart). The start
     is fixed for this subscription, so the listener opens once per app open —
@@ -275,6 +286,7 @@ export const usePiggyData = (uid: string | undefined) => {
     holdings,
     invest,
     wallet,
+    bills,
     loading: loading || !activitiesReady,
     offline,
     error,

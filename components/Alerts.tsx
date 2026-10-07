@@ -460,6 +460,13 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
               </div>
               <Switch on={prefs.exDates} onChange={(on) => void enableSystem({ exDates: on })} />
             </div>
+            <div className="p-5 flex items-center gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-white font-bold text-sm">{t.alerts.billReminders}</p>
+                <p className="text-slate-500 text-xs font-medium mt-0.5">{t.alerts.billRemindersHint}</p>
+              </div>
+              <Switch on={prefs.bills} onChange={(on) => void enableSystem({ bills: on })} />
+            </div>
           </Card>
           <p className="text-slate-600 text-[11px] font-medium leading-relaxed px-1 mt-3">
             {t.alerts.footer}

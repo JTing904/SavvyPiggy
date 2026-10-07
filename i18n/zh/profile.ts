@@ -32,10 +32,10 @@ export const profile: typeof English = {
   settings: '设置',
   savingSince: (date) => `从${date}开始存钱`,
 
-  automatedSavings: '自动储蓄',
-  noAutoDeposits: '还没有自动存入',
-  rulesRunning: (n) => `${n} 条规则运行中`,
-  setAside: '定时把钱存起来',
+  automatedSavings: '自动',
+  noAutoDeposits: '还没有自动的事项',
+  rulesRunning: (n) => `${n} 项运行中`,
+  setAside: '账单自己记，钱按时存起来',
   nextOn: (date) => `下次：${date} · 打开 app 时入账`,
   postsOnOpen: '打开 app 时入账',
   overflowTitle: '存满后转移份额',
@@ -72,7 +72,7 @@ export const profile: typeof English = {
 
   deletedGoal: '已删除的钱罐',
   splitByStrategy: '按分配比例',
-  autoDeposits: '自动存入',
+  autoDeposits: '自动',
   recurring: '定期存入',
   recurringIntro: '钱会在你选的日子存入。错过的日子，下次打开 app 时会补上。',
   noRecurring: '还没有定期存入',

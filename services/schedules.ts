@@ -86,6 +86,17 @@ export const dueOccurrences = (s: Schedule, now = new Date()): string[] => {
   return out;
 };
 
+/** Every day from `from` to `to` (both included, YYYY-MM-DD) the rule fires on, whatever has been posted. */
+export const occurrencesBetween = (s: Schedule, from: string, to: string): string[] => {
+  const cursor = parseDay(from);
+  const out: string[] = [];
+  while (formatDay(cursor) <= to && out.length < MAX_CATCH_UP) {
+    if (matches(s, cursor)) out.push(formatDay(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
+};
+
 /**
  * The first day after today (and after whatever is already posted) that the
  * rule fires on, as the phone's midnight on it. Today itself is never

@@ -46,10 +46,10 @@ export const profile = {
   settings: 'Settings',
   savingSince: (date: string) => `Saving since ${date}`,
 
-  automatedSavings: 'Automated savings',
-  noAutoDeposits: 'No auto deposits yet',
-  rulesRunning: (n: number) => `${n} rules running`,
-  setAside: 'Set money aside on a schedule',
+  automatedSavings: 'Automatic',
+  noAutoDeposits: 'Nothing automatic yet',
+  rulesRunning: (n: number) => `${n} running`,
+  setAside: 'Bills that record themselves, and money set aside on a schedule',
   nextOn: (date: string) => `Next on ${date} · posts when you open the app`,
   postsOnOpen: 'Posts when you open the app',
   overflowTitle: 'Move a full goal’s share on',
@@ -89,7 +89,7 @@ export const profile = {
 
   deletedGoal: 'Deleted goal',
   splitByStrategy: 'Split by shares',
-  autoDeposits: 'Auto Deposits',
+  autoDeposits: 'Auto',
   recurring: 'Recurring',
   recurringIntro: 'Money is added on the days you pick. Missed days are filled in the next time you open the app.',
   noRecurring: 'No recurring deposits',

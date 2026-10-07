@@ -80,6 +80,7 @@ export const EntryRow: React.FC<EntryRowProps> = ({ activity, banks, onOpen }) =
     case 'withdraw':
       parts.push(categoryOf(activity.category).label);
       if ((activity.wallet ?? 0) < 0) parts.push(t.history.fromWallet);
+      if (activity.auto) parts.push(t.bills.autoTag);
       break;
     case 'walletMove':
       if (goals.length === 1) parts.push((activity.wallet ?? 0) < 0 ? t.history.walletToGoals(nameOf(goals[0].bankId)) : t.history.goalToWallet(nameOf(goals[0].bankId)));

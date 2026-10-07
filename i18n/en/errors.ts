@@ -30,6 +30,8 @@ export const errors = {
   coveringUnavailable:
     'The deposits that covered this spent ahead couldn’t be loaded — you may be offline. Nothing was deleted. Try again when you are online.',
 
+  billGoalGone: (count: number) =>
+    `${count} bill${count === 1 ? '' : 's'} still come${count === 1 ? 's' : ''} out of a goal that was deleted or put away, so ${count === 1 ? 'it was' : 'they were'} not recorded. Choose another source in Auto.`,
   potRowUseOwnUndo: 'Money moved to or from your investing cash is taken back from the Investing screen, not by deleting the entry here.',
   transferLocked: 'This entry records money moved when a goal was deleted, so it can’t be changed or deleted.',
 

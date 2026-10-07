@@ -13,7 +13,7 @@ import EntrySheet from './components/EntrySheet';
 import FirstRun from './components/FirstRun';
 import SetupNotice from './components/SetupNotice';
 import RedeemInvite from './components/RedeemInvite';
-import AutoDeposits from './components/AutoDeposits';
+import AutoPage from './components/AutoPage';
 import Report from './components/Report';
 import Alerts from './components/Alerts';
 import Statements from './components/Statements';
@@ -51,6 +51,8 @@ import type { ActivityEdit } from './services/activityEdit';
 import type { PotReturn } from './services/potTransfers';
 import type { IncomeChoice } from './services/moneySheet';
 import type { WalletMove } from './services/wallet';
+import { expectedCents } from './services/bills';
+import type { Bill } from './types';
 import { staleAlerts, staleAlertsCutoff, streakAlertFor } from './services/alerts';
 import { coveringRows, knownStreak } from './services/ledgerWindow';
 import { readStreakMemory, writeStreakMemory } from './hooks/useOlderLedger';
@@ -114,7 +116,7 @@ const App: React.FC = () => {
     else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
   }, [activeTab]);
 
-  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, loading: dataLoading, offline, error, retry } =
+  const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
 
   // Prices and dividends both key off the counters in the log; a sold-out
@@ -190,6 +192,33 @@ const App: React.FC = () => {
       window.removeEventListener('online', catchUp);
     };
   }, [uid, dataLoading, offline, schedules, banks, loans, prefs, savings, wallet]);
+
+  // Fixed bills record themselves when the app opens, like auto deposits: each due day in its own
+  // transaction dated that day, the ones older than the history are only passed over.
+  const recordingBills = useRef(false);
+  useEffect(() => {
+    if (!uid || dataLoading || offline || bills.length === 0) return;
+    const run = async () => {
+      if (recordingBills.current || document.visibilityState !== 'visible' || !navigator.onLine) return;
+      recordingBills.current = true;
+      try {
+        const recorded = await api.runDueBills(uid, bills, { notBefore: ledger.liveFrom });
+        if (recorded.length > 0) toast.show({ message: t.bills.caughtUp(recorded.length), tone: 'success' });
+      } catch (e) {
+        if ((e as { code?: string } | null)?.code === 'unavailable') return;
+        fail(e);
+      } finally {
+        recordingBills.current = false;
+      }
+    };
+    void run();
+    document.addEventListener('visibilitychange', run);
+    window.addEventListener('online', run);
+    return () => {
+      document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('online', run);
+    };
+  }, [uid, dataLoading, offline, bills, ledger.liveFrom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /*
     The saving streak, shared by the alert, Profile and the Report.
@@ -283,7 +312,11 @@ const App: React.FC = () => {
         }
         if (!asked) await requestPermission().catch(() => undefined);
       }
-      await syncNotifications(prefs, schedules, dividends, trades).catch(() => {});
+      await syncNotifications(prefs, schedules, dividends, trades, new Date(), {
+        bills,
+        walletCents: toCents(wallet.balance),
+        expected: Object.fromEntries(bills.map((b) => [b.id, expectedCents(b, activities)])),
+      }).catch(() => {});
     };
     const onVisible = () => void sync();
     onVisible();
@@ -291,7 +324,7 @@ const App: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisible);
     // The language is in the list because every alarm's words are: switching
     // re-arms each one in the new language.
-  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang]);
+  }, [uid, dataLoading, prefs, schedules, dividends, trades, lang, bills, wallet.balance, activities]);
 
   // Android's back gesture: close whatever is open, step back to Home, and
   // only then leave the app. Sheets inside a screen take it first — they push
@@ -496,6 +529,41 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCreateBill = async (bill: api.NewBill) => {
+    if (!uid) return;
+    await settleOrQueue(api.createBill(uid, bill)).catch(refuse);
+    toast.show({ message: t.bills.saved, tone: 'success' });
+  };
+
+  const handleUpdateBill = async (id: string, patch: Partial<Bill>) => {
+    if (!uid) return;
+    await settleOrQueue(api.updateBill(uid, id, patch)).catch(refuse);
+    toast.show({ message: t.bills.saved, tone: 'success' });
+  };
+
+  /** A bill that changes each time was confirmed: this is a transaction, so it needs a connection and says why when it has none. */
+  const handleRecordBill = async (bill: Bill, day: string, amount: number) => {
+    if (!uid) return;
+    try {
+      await api.recordBillDay(uid, bill, day, amount);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.bills.recorded(bill.name, formatMoney(amount)), tone: 'success' });
+  };
+
+  const handleSkipBill = async (bill: Bill, day: string) => {
+    if (!uid) return;
+    try {
+      await api.skipBillDay(uid, bill, day);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+    toast.show({ message: t.bills.skipped(bill.name), tone: 'success' });
+  };
+
   const openCreateGoal = (prefill?: { name?: string; icon?: string }) => {
     setGoalPrefill(prefill);
     setShowCreateGoal(true);
@@ -662,6 +730,40 @@ const App: React.FC = () => {
       flush();
     };
   }, []);
+  type PendingBillDelete = { id: string; bill: Bill };
+  const billQueue = useRef<ReturnType<typeof createUndoQueue<PendingBillDelete>> | null>(null);
+  if (!billQueue.current) {
+    billQueue.current = createUndoQueue<PendingBillDelete>({
+      commit: async ({ id }) => {
+        if (latest.current.uid) await api.deleteBill(latest.current.uid, id);
+      },
+      onRestore: (_item, error) => {
+        fail(error);
+        toast.show({ message: t.app.toast.deleteFailed, tone: 'error' });
+      },
+      onChange: () => bumpHidden((n) => n + 1),
+    });
+  }
+  useEffect(() => {
+    const queue = billQueue.current!;
+    const flush = () => void queue.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+  const hiddenBills = billQueue.current.hiddenIds();
+  const visibleBills = useMemo(
+    () => (hiddenBills.size === 0 ? bills : bills.filter((x) => !hiddenBills.has(x.id))),
+    [bills, hiddenBills.size] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const hiddenRules = scheduleQueue.current.hiddenIds();
   const visibleSchedules = useMemo(
     () => (hiddenRules.size === 0 ? schedules : schedules.filter((x) => !hiddenRules.has(x.id))),
@@ -838,6 +940,7 @@ const App: React.FC = () => {
           activities={activities}
           streak={streak.run}
           schedules={schedules}
+          liveBills={bills.filter((b) => b.enabled).length}
           savings={savings}
           unreadAlerts={unread}
           onBack={() => setShowProfile(false)}
@@ -874,12 +977,14 @@ const App: React.FC = () => {
 
     if (showAutoDeposits) {
       return (
-        <AutoDeposits
+        <AutoPage
           schedules={visibleSchedules}
+          bills={visibleBills}
           banks={banks}
-          onCancel={() => setShowAutoDeposits(false)}
-          onCreate={handleCreateSchedule}
-          onUpdate={(id, patch) =>
+          activities={visibleActivities}
+          onBack={() => setShowAutoDeposits(false)}
+          onCreateSchedule={handleCreateSchedule}
+          onUpdateSchedule={(id, patch) =>
             uid &&
             settleOrQueue(api.updateSchedule(uid, id, patch)).then(
               () => {
@@ -888,7 +993,7 @@ const App: React.FC = () => {
               fail
             )
           }
-          onToggle={(id, enabled) =>
+          onToggleSchedule={(id, enabled) =>
             uid &&
             settleOrQueue(api.updateSchedule(uid, id, { enabled })).then(
               () => {
@@ -897,13 +1002,25 @@ const App: React.FC = () => {
               fail
             )
           }
-          onDelete={(id) => {
+          onDeleteSchedule={(id) => {
             const rule = schedules.find((x) => x.id === id);
             if (!rule) return;
             scheduleQueue.current!.push({ id, rule }, t.app.toast.autoDepositDeleted);
             toast.show({
               message: t.app.toast.autoDepositDeleted,
               action: { label: t.ui.undo, run: () => scheduleQueue.current!.undo() },
+              durationMs: 5000,
+            });
+          }}
+          onCreateBill={handleCreateBill}
+          onUpdateBill={handleUpdateBill}
+          onDeleteBill={(id) => {
+            const bill = bills.find((x) => x.id === id);
+            if (!bill) return;
+            billQueue.current!.push({ id, bill }, t.bills.deleted);
+            toast.show({
+              message: t.bills.deleted,
+              action: { label: t.ui.undo, run: () => billQueue.current!.undo() },
               durationMs: 5000,
             });
           }}
@@ -927,6 +1044,10 @@ const App: React.FC = () => {
             activities={visibleActivities}
             loans={loans}
             wallet={wallet}
+            bills={visibleBills}
+            onRecordBill={handleRecordBill}
+            onSkipBill={handleSkipBill}
+            onOpenAuto={() => setShowAutoDeposits(true)}
             onDeposit={handleDeposit}
             onWithdraw={handleWithdraw}
             onMoveWallet={handleMoveWallet}

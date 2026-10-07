@@ -29,6 +29,7 @@ export const errors: typeof English = {
   recordGone: '这笔记录已在另一台设备上被改动或删除，请重新打开页面。',
   coveringUnavailable: '补回这笔预支的存入记录读取不到，可能是没有网络。什么都没有删除，请联网后再试。',
 
+  billGoalGone: (count) => `有 ${count} 个账单的扣款钱罐已被删除或封存，所以没有记录。请到「自动」页换一个来源。`,
   potRowUseOwnUndo: '转入或转出投资资金的记录，要在「投资」页面撤回，不能在这里直接删除。',
   transferLocked: '这笔记录是删除钱罐时搬动的钱，不能修改或删除。',
 

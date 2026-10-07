@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Activity, Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
+import type { Activity, Bill, Loan, PiggyBank, SavingsSettings, WalletSettings } from '../types';
 import { formatMoney, fromCents, percentReached, toCents } from '../services/money';
 import { totalDebtCents } from '../services/ledger';
 import { safeGoalIcon } from '../services/goalIcons';
 import { walletCents, type WalletMove } from '../services/wallet';
+import { expectedCents, pendingVariable, upcomingBills, walletShortfall, type PendingBill } from '../services/bills';
+import { localDate } from '../services/schedules';
+import { dateLocale } from '../i18n';
 import type { IncomeChoice } from '../services/moneySheet';
 import { noteText } from '../i18n';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,6 +15,7 @@ import type { Mode as NavMode } from './Navigation';
 import Avatar from './Avatar';
 import MoneySheet from './MoneySheet';
 import WalletMoveSheet from './WalletMoveSheet';
+import ConfirmBillSheet from './ConfirmBillSheet';
 import { EntryRow } from './history/EntryRow';
 import { Group } from './ui/Group';
 import { Row } from './ui/Row';
@@ -29,6 +33,7 @@ interface SavingsHomeProps {
   activities: Activity[];
   loans: Loan[];
   wallet: WalletSettings;
+  bills: Bill[];
   savings: SavingsSettings;
   /** What the goals hold together, in ringgit. */
   totalBalance: number;
@@ -40,6 +45,10 @@ interface SavingsHomeProps {
   onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
   onWithdraw: (amount: number, source: string, note: string, category: string, at?: Date) => void | Promise<void>;
   onMoveWallet: (amount: number, move: WalletMove) => void | Promise<void>;
+  /** Records one day of a bill that changes each time. */
+  onRecordBill: (bill: Bill, day: string, amount: number) => void | Promise<void>;
+  onSkipBill: (bill: Bill, day: string) => void | Promise<void>;
+  onOpenAuto: () => void;
   onViewAll: () => void;
   onSelectGoal: (id: string) => void;
   onAddGoal: () => void;
@@ -71,6 +80,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   activities,
   loans,
   wallet,
+  bills,
   savings,
   totalBalance,
   unreadAlerts,
@@ -81,6 +91,9 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   onDeposit,
   onWithdraw,
   onMoveWallet,
+  onRecordBill,
+  onSkipBill,
+  onOpenAuto,
   onViewAll,
   onSelectGoal,
   onAddGoal,
@@ -95,6 +108,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   const t = useT();
   const w = t.wallet;
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [confirming, setConfirming] = useState<PendingBill | null>(null);
 
   const displayName = user?.displayName || user?.email?.split('@')[0] || t.home.defaultName;
   const held = walletCents(wallet);
@@ -103,6 +117,13 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
   const openLoans = loans.filter((l) => l.outstanding > 0);
   const debtCents = totalDebtCents(openLoans);
   const money = (cents: number) => formatMoney(fromCents(cents));
+
+  // Bills: what is waiting for an answer, and what the next week holds against the wallet.
+  const now = new Date();
+  const waiting = pendingVariable(bills, now, liveFrom);
+  const week = upcomingBills(bills, activities, now, 7);
+  const short = walletShortfall(week, held);
+  const dayLabel = (day: string) => localDate(day).toLocaleDateString(dateLocale('en-GB'), { day: 'numeric', month: 'short' });
 
   // The nav's round button lives outside this screen, so it asks through a prop.
   useEffect(() => {
@@ -171,6 +192,7 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
         </p>
         <Amount cents={held} size="xl" tone={overdrawn ? 'neg' : 'ink'} className="mt-1 block" />
         {overdrawn && <p className="mt-2 text-[12.5px] font-semibold leading-snug">{w.overdrawnNote}</p>}
+        {short && <p className="mt-2 text-[12.5px] font-bold leading-snug text-neg">{t.bills.short(money(short.totalCents))}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button full={false} onClick={() => setSheet('deposit')}>
             <Icon name="plus" size={16} strokeWidth={2.4} />
@@ -195,6 +217,54 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
           <Amount cents={goalsCents + held} size="sm" tone="mute" />
         </div>
       </div>
+
+      {waiting.slice(0, 2).map((p) => {
+        const last = expectedCents(p.bill, activities);
+        return (
+          <div key={p.bill.id} className="mt-3 rounded-3xl bg-sun px-5 py-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[12.5px] font-bold">{t.bills.dueHeading}</p>
+              {waiting.length > 2 && <span className="rounded-full bg-card px-2 py-0.5 text-[11px] font-extrabold">{waiting.length}</span>}
+            </div>
+            <p className="mt-1 text-[18px] font-extrabold">{t.bills.dueTitle(p.bill.name, dayLabel(p.day))}</p>
+            <p className="mt-0.5 text-[12.5px] font-medium opacity-80">{last > 0 ? t.bills.dueLast(money(last)) : t.bills.dueNone}</p>
+            {p.waiting > 1 && <p className="mt-0.5 text-[12px] font-semibold opacity-80">{t.bills.dueMore(p.waiting - 1)}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button full={false} onClick={() => setConfirming(p)}>
+                {t.bills.recordPlain}
+              </Button>
+              <Button full={false} variant="ghost" onClick={() => void onSkipBill(p.bill, p.day)}>
+                {t.bills.skipThis}
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+
+      {week.length > 0 && (
+        <>
+          <div className="mb-2 mt-6 flex items-center justify-between px-1">
+            <h3 className="text-[16px] font-extrabold">{t.bills.upcomingHeading}</h3>
+            <button type="button" onClick={onOpenAuto} className="min-h-11 text-[13px] font-bold text-mute">
+              {t.bills.all}
+            </button>
+          </div>
+          <Group>
+            {week.slice(0, 4).map((u) => (
+              <Row
+                key={`${u.bill.id}-${u.day}`}
+                icon={u.bill.mode === 'fixed' ? 'repeat' : 'bell'}
+                tint={u.bill.mode === 'fixed' ? 'mint' : 'sun'}
+                title={u.bill.name}
+                sub={`${dayLabel(u.day)} · ${u.bill.mode === 'fixed' ? t.bills.fixedTag : t.bills.askTag}`}
+                trailing={u.cents > 0 ? (u.bill.mode === 'fixed' ? money(u.cents) : t.bills.about(money(u.cents))) : t.bills.unknownAmount}
+                tone="ink"
+                onClick={onOpenAuto}
+              />
+            ))}
+          </Group>
+        </>
+      )}
 
       {debtCents > 0 && (
         <div className="mt-3 rounded-3xl bg-sun px-5 py-3.5">
@@ -281,6 +351,17 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
           onDeposit={onDeposit}
           onWithdraw={onWithdraw}
           onClose={() => setSheet(null)}
+        />
+      )}
+      {confirming && (
+        <ConfirmBillSheet
+          pending={confirming}
+          banks={banks}
+          activities={activities}
+          walletCents={held}
+          onRecord={(amount) => onRecordBill(confirming.bill, confirming.day, amount)}
+          onSkip={() => onSkipBill(confirming.bill, confirming.day)}
+          onClose={() => setConfirming(null)}
         />
       )}
       {sheet === 'move' && <WalletMoveSheet banks={banks} wallet={wallet} savings={savings} onMove={onMoveWallet} onClose={() => setSheet(null)} />}

@@ -73,6 +73,8 @@ export const alerts = {
   monthlyReport: 'Monthly report',
   monthlyReportHint: 'On the 1st at 9:00 AM, opening last month’s Report.',
   exDates: 'Ex-dividend days',
+  billReminders: 'Bills',
+  billRemindersHint: 'A bill that asks for its amount, on its day, and a heads-up the day before a bill your wallet cannot cover.',
   exDatesHint:
     'Two days before a counter you hold goes ex-dividend — the day that decides whether the payment is yours.',
   footer:
@@ -88,6 +90,11 @@ export const alerts = {
     digestBody: 'See where last month’s deposits went and how fast you saved.',
     dueTitle: (amount: string) => `Auto deposit of ${amount} due today`,
     dueBody: 'Open SavvyPiggy to post it to your goals.',
+    billDueTitle: (name: string) => `${name} is due today`,
+    billDueBody: (amount: string) => `Last time it was ${amount}. Open SavvyPiggy to confirm the amount and record it.`,
+    billDueBodyNoAmount: 'Open SavvyPiggy to enter the amount and record it.',
+    billShortTitle: 'Your wallet may not cover tomorrow’s bill',
+    billShortBody: (name: string, amount: string, held: string) => `${name} ${amount} comes out tomorrow, and your wallet holds ${held}.`,
     exTitle: (symbol: string) => `${symbol} goes ex-dividend in 2 days`,
     exBodyHeld: (rate: string, units: string) => `${rate} a unit. You hold ${units}.`,
     exBodyNone: (rate: string) => `${rate} a unit. Buy before the ex-date to qualify.`,

@@ -18,6 +18,8 @@ interface ProfileProps {
   /** The current saving streak, counted by the app. */
   streak: StreakRun;
   schedules: Schedule[];
+  /** How many bills are switched on. */
+  liveBills: number;
   savings: SavingsSettings;
   unreadAlerts: number;
   onBack: () => void;
@@ -95,6 +97,7 @@ const Profile: React.FC<ProfileProps> = ({
   activities,
   streak: streakRun,
   schedules,
+  liveBills,
   savings,
   unreadAlerts,
   onBack,
@@ -237,9 +240,15 @@ const Profile: React.FC<ProfileProps> = ({
           <Card className="divide-y divide-white/5">
             <Row
               icon="event_repeat"
-              title={liveRules.length === 0 ? t.profile.noAutoDeposits : liveRules.length === 1 ? describe(liveRules[0]) : t.profile.rulesRunning(liveRules.length)}
+              title={
+                liveRules.length + liveBills === 0
+                  ? t.profile.noAutoDeposits
+                  : liveBills === 0 && liveRules.length === 1
+                    ? describe(liveRules[0])
+                    : t.profile.rulesRunning(liveRules.length + liveBills)
+              }
               subtitle={
-                liveRules.length === 0
+                liveRules.length + liveBills === 0
                   ? t.profile.setAside
                   : nextRun
                     ? t.profile.nextOn(shortDate(nextRun))

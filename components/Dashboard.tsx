@@ -1,6 +1,6 @@
 
 import SavingsHome from './SavingsHome';
-import type { WalletSettings } from '../types';
+import type { Bill, WalletSettings } from '../types';
 import type { IncomeChoice } from '../services/moneySheet';
 import type { WalletMove } from '../services/wallet';
 import { safeGoalIcon } from '../services/goalIcons';
@@ -61,6 +61,10 @@ interface DashboardProps {
   loans: Loan[];
   /** The wallet: money that has arrived and is not in a goal yet. */
   wallet: WalletSettings;
+  bills: Bill[];
+  onRecordBill: (bill: Bill, day: string, amount: number) => void | Promise<void>;
+  onSkipBill: (bill: Bill, day: string) => void | Promise<void>;
+  onOpenAuto: () => void;
   /** `choice` is `rule`, `split`, `wallet` or a goal's id; `at` is only given for a day other than today. */
   onDeposit: (amount: number, choice: IncomeChoice, at?: Date) => void | Promise<void>;
   /** `source` is `wallet` or a goal's id. */
@@ -707,6 +711,10 @@ const Dashboard: React.FC<DashboardProps> = (props) =>
       activities={props.activities}
       loans={props.loans}
       wallet={props.wallet}
+      bills={props.bills}
+      onRecordBill={props.onRecordBill}
+      onSkipBill={props.onSkipBill}
+      onOpenAuto={props.onOpenAuto}
       savings={props.savings}
       totalBalance={props.totalBalance}
       unreadAlerts={props.unreadAlerts}

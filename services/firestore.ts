@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../lib/firebase';
-import type { InvestSettings, WalletSettings } from '../types';
+import type { Bill, InvestSettings, WalletSettings } from '../types';
 import { planTradeMoney, stampOf, type MoneyChoice, type TradeMoneyProblem } from './tradeMoney';
 import type { Activity, ActivityType, Alert, Dividend, Holding, Loan, NotificationPrefs, PiggyBank, SavingsSettings, Schedule, Snapshot, Trade, TradeMoney, AlertKind } from '../types';
 import { allowedRetention, retentionCutoff } from './analytics';
@@ -43,6 +43,7 @@ import { planBankEdit, type BankEdit } from './bankEdit';
 import { GOAL_ICON_SET } from './goalIcons';
 import { firstGoalSplit } from './firstGoalSplit';
 import { liveWindowStart } from './ledgerWindow';
+import { billNote, outsideHistory, planFixedRun, WALLET_SOURCE } from './bills';
 import { cleanWallet, planIncome, planWalletMove, planWalletSpend, walletCents, type IncomeTarget, type WalletMove } from './wallet';
 import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from './potTransfers';
 import { planDividendCorrection, planDividendRemoval } from './dividendCorrection';
@@ -79,6 +80,8 @@ const savingsRef = (uid: string) => doc(db, 'users', uid, 'settings', 'savings')
 const generalRef = (uid: string) => doc(db, 'users', uid, 'settings', 'general');
 const investRef = (uid: string) => doc(db, 'users', uid, 'settings', 'invest');
 const walletRef = (uid: string) => doc(db, 'users', uid, 'settings', 'wallet');
+const billsCol = (uid: string) => collection(db, 'users', uid, 'bills');
+const billRef = (uid: string, id: string) => doc(db, 'users', uid, 'bills', id);
 
 /** Which alerts a deposit is allowed to raise. */
 export type AlertOptions = Pick<NotificationPrefs, 'receipts' | 'milestones'>;
@@ -1112,6 +1115,13 @@ export const subscribeToInvest = (
 
 export const saveInvest = (uid: string, patch: Partial<InvestSettings>) => setDoc(investRef(uid), patch, { merge: true });
 
+export const subscribeToBills = (uid: string, onChange: (bills: Bill[]) => void, onError: (e: FirestoreError) => void): Unsubscribe =>
+  onSnapshot(
+    query(billsCol(uid), orderBy('createdAt', 'asc')),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bill)),
+    onError
+  );
+
 export const subscribeToWallet = (
   uid: string,
   onChange: (wallet: WalletSettings) => void,
@@ -1839,6 +1849,126 @@ export const runDueSchedules = async (
   }
   if (aimedAtNothing > 0) throw new Error(messages().errors.scheduleGoalGone(aimedAtNothing));
   return posted;
+};
+
+/* -------------------------------------------------------------- recurring bills */
+
+export type NewBill = Omit<Bill, 'id' | 'createdAt' | 'lastRunAt'>;
+
+/** Starts counting from now, like an auto deposit: making a bill never backfills history. */
+export const createBill = (uid: string, bill: NewBill) =>
+  addDoc(billsCol(uid), { ...bill, lastRunAt: new Date().toISOString(), createdAt: Date.now() });
+
+const BILL_RESCHEDULES: (keyof Bill)[] = ['frequency', 'weekday', 'dayOfMonth', 'month'];
+
+/**
+ * Changing a bill. Anything that alters when it falls, or switching it back on,
+ * restarts its clock, so the change applies from the next time and never
+ * backwards (a bill paused for months must not record every month on resume).
+ */
+export const updateBill = (uid: string, id: string, patch: Partial<Bill>) => {
+  const restarts = patch.enabled === true || BILL_RESCHEDULES.some((key) => patch[key] !== undefined);
+  return updateDoc(billRef(uid, id), { ...patch, ...(restarts ? { lastRunAt: new Date().toISOString() } : {}) });
+};
+
+export const deleteBill = (uid: string, id: string) => deleteDoc(billRef(uid, id));
+
+/** The day's own noon, never later than now: an entry is dated on its day, and never in the future. */
+const billMoment = (day: string, now: Date) => {
+  const [y, m, d] = day.split('-').map(Number);
+  const noon = new Date(y, m - 1, d, 12);
+  return noon.getTime() > now.getTime() ? now : noon;
+};
+
+/**
+ * Records one day of a bill as spending, and moves the bill's clock to that day,
+ * in one transaction that first re-reads the bill: two devices opening on the
+ * same day both see it as due, and only one of them gets to record it.
+ * Returns false when it was already handled (or the bill is gone or paused).
+ *
+ * Spending out of the wallet may take it below zero, as spending always may.
+ */
+export const recordBillDay = async (
+  uid: string,
+  bill: Bill,
+  day: string,
+  amount: number,
+  { auto = false, note, now = new Date() }: { auto?: boolean; note?: string; now?: Date } = {}
+): Promise<boolean> => {
+  const cents = toCents(amount);
+  if (!(cents > 0)) throw new Error(messages().errors.enterWithdrawAmount);
+  const entry = doc(activitiesCol(uid));
+  const done = await runTransaction(db, async (tx) => {
+    const fresh = await tx.get(billRef(uid, bill.id));
+    if (!fresh.exists() || fresh.data().enabled === false) return false;
+    const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+    if (last === null || last >= day) return false;
+
+    const fromGoal = bill.sourceId !== WALLET_SOURCE;
+    const goal = fromGoal ? await tx.get(bankRef(uid, bill.sourceId)) : null;
+    if (fromGoal && (!goal?.exists() || goal.data().archivedAt)) throw new Error(messages().errors.billGoalGone(1));
+
+    tx.set(entry, {
+      type: 'withdraw' satisfies ActivityType,
+      date: billMoment(day, now).toISOString(),
+      amount: fromCents(cents),
+      distributions: fromGoal ? [{ bankId: bill.sourceId, amount: -fromCents(cents), percentage: 100 }] : [],
+      ...(fromGoal ? {} : { wallet: -fromCents(cents) }),
+      note: note ?? billNote(bill),
+      category: bill.category,
+      billId: bill.id,
+      ...(auto ? { auto: true } : {}),
+    });
+    if (fromGoal && goal) tx.update(bankRef(uid, bill.sourceId), { currentAmount: fromCents(toCents(goal.data().currentAmount ?? 0) - cents) });
+    else tx.set(walletRef(uid), { balance: increment(-fromCents(cents)) }, { merge: true });
+    tx.update(billRef(uid, bill.id), { lastRunAt: runStamp(day) });
+    return true;
+  });
+  if (done) activityRowsChanged([{ id: entry.id, server: true }]);
+  return done;
+};
+
+/** Passes over a day (and everything before it) without recording anything. */
+export const skipBillDay = (uid: string, bill: Bill, day: string) =>
+  runTransaction(db, async (tx) => {
+    const fresh = await tx.get(billRef(uid, bill.id));
+    if (!fresh.exists()) return false;
+    const last = scheduleDay(fresh.data().lastRunAt ?? 0);
+    if (last !== null && last >= day) return false;
+    tx.update(billRef(uid, bill.id), { lastRunAt: runStamp(day) });
+    return true;
+  });
+
+/**
+ * What the app does for bills when it opens. Days older than the history it
+ * keeps are only passed over, for every bill; fixed bills then record each day
+ * that is due. A variable bill is never recorded here: it waits to be asked.
+ * Returns what was recorded, so the screen can say so.
+ */
+export const runDueBills = async (uid: string, bills: Bill[], { now = new Date(), notBefore }: { now?: Date; notBefore: Date }) => {
+  const recorded: { name: string; day: string }[] = [];
+  let aimedAtNothing = 0;
+  for (const bill of bills) {
+    if (!bill.enabled) continue;
+    const old = outsideHistory(bill, now, notBefore);
+    if (old.length > 0) await skipBillDay(uid, bill, old[old.length - 1]);
+
+    for (const day of planFixedRun(bill, now, notBefore).post) {
+      try {
+        if (await recordBillDay(uid, bill, day, bill.amount, { auto: true, now })) recorded.push({ name: bill.name, day });
+        else break;
+      } catch (e) {
+        // A goal that has gone leaves the bill unrecorded; the rest still run, and it is reported once at the end.
+        if (e instanceof Error && e.message === messages().errors.billGoalGone(1)) {
+          aimedAtNothing += 1;
+          break;
+        }
+        throw e;
+      }
+    }
+  }
+  if (aimedAtNothing > 0) throw new Error(messages().errors.billGoalGone(aimedAtNothing));
+  return recorded;
 };
 
 /* ------------------------------------------------------------ sample data */

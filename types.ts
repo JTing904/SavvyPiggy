@@ -45,6 +45,10 @@ export interface Activity {
   amount: number;
   /** Signed per bank: money in is positive, money out is negative. */
   distributions: { bankId: string; amount: number; percentage: number }[];
+  /** Set on an entry a recurring bill made: which bill, so its past amounts can be read back. */
+  billId?: string;
+  /** The app recorded this by itself (a fixed bill on its day) rather than the person. */
+  auto?: boolean;
   /**
    * What this entry did to the wallet, signed ringgit: income kept in it (or
    * clearing an overdraft) is positive, spending from it negative. Absent on
@@ -95,6 +99,36 @@ export interface Loan {
 }
 
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+/**
+ * Money that goes out on a repeating day, every day, week, month or year.
+ * `fixed` is recorded by the app on its day; `variable` only asks, with the
+ * last amount filled in.
+ */
+export type BillMode = 'fixed' | 'variable';
+
+export interface Bill {
+  id: string;
+  name: string;
+  mode: BillMode;
+  /** Ringgit. What a fixed bill records; for a variable one only a reference, 0 for none. */
+  amount: number;
+  frequency: Frequency;
+  /** 0 = Sunday .. 6 = Saturday. Used by `weekly`. */
+  weekday: number;
+  /** 1..31, clamped to the month's length. Used by `monthly` and `yearly`. */
+  dayOfMonth: number;
+  /** 1..12. Used by `yearly`. */
+  month: number;
+  /** `wallet`, or the id of a goal. */
+  sourceId: string;
+  /** A key from services/categories.ts. */
+  category: string;
+  enabled: boolean;
+  createdAt: number;
+  /** ISO: the latest day already recorded or passed over; only later days are due. */
+  lastRunAt: string;
+}
 
 export interface Schedule {
   id: string;
@@ -338,6 +372,8 @@ export interface NotificationPrefs {
    * who the payment belongs to, so it is the one worth interrupting for.
    */
   exDates: boolean;
+  /** Variable bills on their day, and a heads-up the day before a bill the wallet cannot cover. */
+  bills: boolean;
 }
 
 export enum Tab {
