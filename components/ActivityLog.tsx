@@ -5,8 +5,12 @@ import { dateLocale } from '../i18n';
 import { dayKey } from '../services/analytics';
 import { groupByDay, monthSummary } from '../services/historyDays';
 import { cursorForMonth, shiftDay, shiftMonth } from '../services/monthCells';
+import { monthFigures } from '../services/review';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
+import { formatMoney, fromCents } from '../services/money';
 import { EmptyState } from './ui/EmptyState';
+import { QuickAction, IconTile } from './ui/IconTile';
+import { PageBand } from './ui/PageBand';
 import { Icon } from './ui/Icon';
 import { CalendarHeader, HistoryCalendar } from './history/HistoryCalendar';
 import { DayGroup } from './history/DayGroup';
@@ -27,6 +31,10 @@ interface ActivityLogProps {
   onOpenTrade?: (tradeId: string) => void;
   /** The empty History's one action. */
   onDeposit: () => void;
+  onOpenReport: () => void;
+  onOpenBudgets: () => void;
+  onOpenBills: () => void;
+  onOpenStatements: () => void;
 }
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -44,7 +52,7 @@ const fromKey = (key: string) => {
  * until it is here the page shows a skeleton or the notice, never a month that
  * only looks empty.
  */
-const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, onOpenEntry, onOpenTrade, onDeposit }) => {
+const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, onOpenEntry, onOpenTrade, onDeposit, onOpenReport, onOpenBudgets, onOpenBills, onOpenStatements }) => {
   const t = useT();
   const now = new Date();
   const today = startOfDay(now);
@@ -71,7 +79,11 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, on
 
   const days = useMemo(() => groupByDay(activities, { year, month }), [activities, year, month]);
   const dayMap = useMemo(() => new Map(days.map((d) => [d.key, d])), [days]);
-  const summary = useMemo(() => monthSummary(activities, year, month), [activities, year, month]);
+  // Spent is the same figure as Home and the Report: a loan's principal leaves the wallet but is not spending.
+  const summary = useMemo(
+    () => ({ ...monthSummary(activities, year, month), outCents: monthFigures(activities, new Date(year, month, 1)).spentCents }),
+    [activities, year, month]
+  );
 
   const keptDay = startOfDay(ledger.keptFrom);
   const clamp = (d: Date) => (d.getTime() > today.getTime() ? today : d.getTime() < keptDay.getTime() ? keptDay : d);
@@ -118,8 +130,32 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, on
   const canNextDay = !!selectedDate && shiftDay(selectedDate, 1).getTime() <= today.getTime();
 
   return (
-    <div className="flex min-h-full flex-col px-5 pb-32 pt-3 font-figtree text-ink safe-pt">
-      <h1 className="mb-1 mt-1.5 text-[32px] font-extrabold leading-[1.1] tracking-[-0.035em]">{t.history.title}</h1>
+    <div className="flex min-h-full flex-col pb-24 font-figtree text-ink">
+      <PageBand title={t.history.title} overlap={16} />
+      <div className="-mt-[58px] grid grid-cols-2 gap-2 px-4">
+        <div className="flex items-center gap-2.5 rounded-3xl bg-card p-3 shadow-[0_2px_10px_rgba(20,35,58,0.1)]">
+          <IconTile icon="dep" tint="teal" size={36} />
+          <span className="min-w-0">
+            <span className="block text-[12.5px] font-semibold text-mute">{t.pro.records.income}</span>
+            <span className="block truncate text-[15.5px] font-bold tabular-nums">{formatMoney(fromCents(summary.inCents))}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2.5 rounded-3xl bg-card p-3 shadow-[0_2px_10px_rgba(20,35,58,0.1)]">
+          <IconTile icon="out" tint="coral" size={36} />
+          <span className="min-w-0">
+            <span className="block text-[12.5px] font-semibold text-mute">{t.pro.records.spent}</span>
+            <span className="block truncate text-[15.5px] font-bold tabular-nums">{formatMoney(fromCents(summary.outCents))}</span>
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col px-4">
+      <div className="mt-2.5 grid grid-cols-4 rounded-3xl bg-card px-1 py-2.5">
+        <QuickAction icon="chart" tint="blue" label={t.pro.records.report} onClick={onOpenReport} />
+        <QuickAction icon="pie" tint="teal" label={t.pro.records.budgets} onClick={onOpenBudgets} />
+        <QuickAction icon="doc" tint="amber" label={t.pro.records.bills} onClick={onOpenBills} />
+        <QuickAction icon="dep" tint="violet" label={t.pro.records.exports} onClick={onOpenStatements} />
+      </div>
 
       <CalendarHeader
         title={monthShort}
@@ -246,6 +282,7 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, on
           onClose={() => setPicker(false)}
         />
       )}
+      </div>
     </div>
   );
 };

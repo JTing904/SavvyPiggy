@@ -390,8 +390,8 @@ export enum Tab {
   BANKS = 'banks',
   SETTINGS = 'settings',
   LOG = 'log',
-  /* The investing half of the bar. Home is shared: the card you swipe to
-     there is what decides which set of destinations the bar offers. */
+  INVEST = 'invest',
+  /* Pages reached from Investing; the bar stays on it. */
   TRADES = 'trades',
   DIVIDENDS = 'dividends',
   GROWTH = 'growth'

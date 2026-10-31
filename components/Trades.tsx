@@ -12,7 +12,8 @@ import { dateLocale, type Messages } from '../i18n';
 import { totalFees } from '../services/fees';
 import { Chip } from './ui/Chip';
 import { EmptyState } from './ui/EmptyState';
-import { Icon } from './ui/Icon';
+import { IconTile, type IconTint } from './ui/IconTile';
+import { PageBand } from './ui/PageBand';
 
 interface TradesProps {
   uid: string;
@@ -72,11 +73,11 @@ const dayLabel = (d: Date, now: Date, t: Messages) => {
   return t.invest.dayHeading(t.common.weekdaysLong[d.getDay()], date);
 };
 
-/** How each kind of line looks: a tinted square, and whether its amount is money coming in. */
-const KIND: Record<Trade['kind'], { icon: string; square: string; inflow: boolean }> = {
-  buy: { icon: 'plus', square: 'bg-lav', inflow: false },
-  sell: { icon: 'minus', square: 'bg-peach', inflow: true },
-  dividend: { icon: 'coin', square: 'bg-sun', inflow: true },
+/** How each kind of line looks: a tinted tile, and whether its amount is money coming in. */
+const KIND: Record<Trade['kind'], { icon: string; tint: IconTint; inflow: boolean }> = {
+  buy: { icon: 'plus', tint: 'blue', inflow: false },
+  sell: { icon: 'minus', tint: 'coral', inflow: true },
+  dividend: { icon: 'coin', tint: 'amber', inflow: true },
 };
 
 type Filter = 'all' | Trade['kind'];
@@ -132,76 +133,71 @@ const Trades: React.FC<TradesProps> = ({
   }, [shown]);
 
   return (
-    <div className="flex min-h-full flex-col px-4 pb-40 pt-3 safe-pt font-figtree text-ink">
-      <div className="mb-1 flex items-center gap-3 px-1">
-        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
-          <Icon name="back" size={20} />
-        </button>
-      </div>
-      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.invest.tradesTitle}</h1>
+    <div className="flex min-h-full flex-col pb-40 font-figtree text-ink">
+      <PageBand title={t.invest.tradesTitle} onBack={onBack} />
 
-      {note && (
-        <div role="status" className="mt-3 rounded-3xl bg-mint px-5 py-3">
-          <p className="text-[13px] font-extrabold">{note}</p>
-        </div>
-      )}
-
-      {trades.length === 0 ? (
-        <EmptyState
-          icon="list"
-          title={t.invest.noTrades}
-          body={t.invest.noTradesBody}
-          action={onRecordBuy ? { label: t.invest.noTradesAction, onClick: onRecordBuy } : undefined}
-          className="mt-6"
-        />
-      ) : (
-        <>
-          <div className="no-scrollbar -mx-4 mt-4 flex gap-2 overflow-x-auto px-4">
-            {FILTERS.map((f) => (
-              <Chip key={f} selected={filter === f} onClick={() => setFilter(f)}>
-                {f === 'all' ? t.alerts.filters.all : t.invest.tag[f]}
-              </Chip>
-            ))}
+      <div className="flex flex-col gap-2.5 px-4 pt-3">
+        {note && (
+          <div role="status" className="rounded-3xl bg-mint px-3.5 py-2.5">
+            <p className="text-[13px] font-bold">{note}</p>
           </div>
+        )}
 
-          {days.map((day) => (
-            <section key={day.key} className="mt-5">
-              <h2 className="mb-2 px-1 text-[14px] font-extrabold">{dayLabel(day.date, now, t)}</h2>
-              <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
-                {day.rows.map((trade) => {
-                  const kind = KIND[trade.kind];
-                  const fees = totalFees(trade.fees);
-                  return (
-                    <button key={trade.id} type="button" onClick={() => setDraft({ mode: 'edit', trade })} className="flex min-h-16 w-full items-center gap-3 py-3 text-left active:opacity-70">
-                      <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${kind.square}`}>
-                        <Icon name={kind.icon} size={18} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[15px] font-bold">{trade.name}</span>
-                        <span className="block truncate text-[12px] font-medium text-mute">
-                          {t.invest.tag[trade.kind]} · {t.common.units(trade.units.toLocaleString('en-US'))} {trade.kind === 'dividend' ? '×' : '@'} {rate(trade)}
-                        </span>
-                        {fees > 0 && (
-                          <span className="block text-[11.5px] font-medium text-mute">
-                            {t.invest.fees} {money(fees)}
+        {trades.length === 0 ? (
+          <EmptyState
+            icon="list"
+            title={t.invest.noTrades}
+            body={t.invest.noTradesBody}
+            action={onRecordBuy ? { label: t.invest.noTradesAction, onClick: onRecordBuy } : undefined}
+            className="mt-3"
+          />
+        ) : (
+          <>
+            <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+              {FILTERS.map((f) => (
+                <Chip key={f} selected={filter === f} onClick={() => setFilter(f)}>
+                  {f === 'all' ? t.alerts.filters.all : t.invest.tag[f]}
+                </Chip>
+              ))}
+            </div>
+
+            {days.map((day) => (
+              <section key={day.key}>
+                <h2 className="mb-1 px-1 text-[12.5px] font-bold text-mute">{dayLabel(day.date, now, t)}</h2>
+                <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
+                  {day.rows.map((trade) => {
+                    const kind = KIND[trade.kind];
+                    const fees = totalFees(trade.fees);
+                    return (
+                      <button key={trade.id} type="button" onClick={() => setDraft({ mode: 'edit', trade })} className="flex min-h-[60px] w-full items-center gap-2.5 py-2 text-left active:opacity-70">
+                        <IconTile icon={kind.icon} tint={kind.tint} size={38} round />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14.5px] font-bold">{trade.name}</span>
+                          <span className="block truncate text-[12.5px] font-semibold text-mute">
+                            {t.invest.tag[trade.kind]} · {t.common.units(trade.units.toLocaleString('en-US'))} {trade.kind === 'dividend' ? '×' : '@'} {rate(trade)}
                           </span>
-                        )}
-                      </span>
-                      {/* The money that actually moved: a buy with its fees, a sale after them. */}
-                      <span className={`shrink-0 text-[14.5px] font-extrabold tabular-nums ${kind.inflow ? 'text-pos' : ''}`}>
-                        {/* A sale below its fees came to less than nothing: the sign follows the figure. */}
-                        {trade.kind === 'buy' ? money(tradeTotalCents(trade)) : money(tradeTotalCents(trade), { signed: true })}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                          {fees > 0 && (
+                            <span className="block text-[12.5px] font-semibold text-mute">
+                              {t.invest.fees} {money(fees)}
+                            </span>
+                          )}
+                        </span>
+                        {/* The money that actually moved: a buy with its fees, a sale after them. */}
+                        <span className={`shrink-0 text-[14.5px] font-bold tabular-nums ${kind.inflow ? 'text-pos' : ''}`}>
+                          {/* A sale below its fees came to less than nothing: the sign follows the figure. */}
+                          {trade.kind === 'buy' ? money(tradeTotalCents(trade)) : money(tradeTotalCents(trade), { signed: true })}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
 
-          <p className="mt-6 px-3 text-center text-[12px] font-medium leading-relaxed text-mute">{t.invest.tradesFooter}</p>
-        </>
-      )}
+            <p className="mt-1 px-3 text-center text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.tradesFooter}</p>
+          </>
+        )}
+      </div>
 
       {draft && row.status !== 'ready' && (
         <OlderRecordsSheet status={row.status} onRetry={row.retry} onClose={() => setDraft(null)} />

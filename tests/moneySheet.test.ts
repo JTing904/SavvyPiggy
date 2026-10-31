@@ -20,16 +20,14 @@ const a = bank('a');
 const b = bank('b');
 const gone = (id: string) => bank(id, { archivedAt: 5 });
 
-// --- spend source: never guessed when there is a choice
+// --- spend source: the goal used last time, otherwise the wallet
 eq('spend: last used goal', defaultSpendSource([a, b], 'b'), 'b');
 eq('spend: last used wallet', defaultSpendSource([a, b], 'wallet'), 'wallet');
-eq('spend: a goal and the wallet is a real choice, so nothing', defaultSpendSource([a]), undefined);
-eq('spend: two goals and no history is nothing', defaultSpendSource([a, b]), undefined);
-eq('spend: stale last with two goals is nothing', defaultSpendSource([a, b], 'zzz'), undefined);
-eq('spend: no goals leaves the wallet as the only source', defaultSpendSource([]), 'wallet');
+eq('spend: no history starts from the wallet', defaultSpendSource([a]), 'wallet');
+eq('spend: a goal that is gone falls back to the wallet', defaultSpendSource([a, b], 'zzz'), 'wallet');
+eq('spend: no goals is the wallet', defaultSpendSource([]), 'wallet');
 eq('spend: only archived goals leave the wallet too', defaultSpendSource([gone('c')]), 'wallet');
-eq('spend: an archived last is not used', defaultSpendSource([a, gone('c')], 'c'), undefined);
-eq('spend: two active and an archived is nothing', defaultSpendSource([a, b, gone('c')]), undefined);
+eq('spend: an archived last is not used', defaultSpendSource([a, gone('c')], 'c'), 'wallet');
 
 // --- income
 eq('income: the wallet by default', defaultIncomeChoice([a, b]), 'wallet');

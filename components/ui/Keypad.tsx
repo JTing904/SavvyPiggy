@@ -11,6 +11,8 @@ import { formatTyped, pressKey } from '../../services/keypad';
 interface KeypadProps {
   value: string;
   onChange: (value: string) => void;
+  /** Keys only, a size smaller: the page above it shows the amount. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -21,10 +23,10 @@ const BackspaceIcon = () => (
   </svg>
 );
 
-const KEY =
-  'grid h-12 place-items-center rounded-[18px] bg-card text-[21px] font-bold text-ink active:bg-line/10';
+const KEY_BASE = 'grid place-items-center bg-card text-[21px] font-semibold text-ink active:bg-page';
 
-export const Keypad: React.FC<KeypadProps> = ({ value, onChange, className }) => {
+export const Keypad: React.FC<KeypadProps> = ({ value, onChange, compact = false, className }) => {
+  const KEY = `${KEY_BASE} ${compact ? 'h-11 sm:h-[60px]' : 'h-12'}`;
   const t = useT();
   const { whole, cents, typed } = formatTyped(value);
   const spoken = `${t.ui.amountEntered} RM ${whole}.${cents}`;
@@ -43,9 +45,9 @@ export const Keypad: React.FC<KeypadProps> = ({ value, onChange, className }) =>
 
   return (
     <div className={`font-figtree ${className ?? ''}`}>
-      <div aria-live="polite" aria-atomic="true" className="my-3.5 text-center font-extrabold tabular-nums text-ink">
+      <div aria-live="polite" aria-atomic="true" className={compact ? 'sr-only' : 'my-3.5 text-center font-extrabold tabular-nums text-ink'}>
         <span className="sr-only">{spoken}</span>
-        <span aria-hidden="true" className="inline-flex items-baseline whitespace-nowrap">
+        <span aria-hidden="true" className={compact ? 'hidden' : 'inline-flex items-baseline whitespace-nowrap'}>
           <span className="mr-1 self-start pt-2 text-[18px] font-bold text-mute">RM</span>
           <span className={`text-[54px] leading-none tracking-[-0.04em] ${typed ? '' : 'opacity-40'}`}>{whole}</span>
           <span className={`text-[54px] leading-none tracking-[-0.04em] text-mute ${typed ? '' : 'opacity-40'}`}>
@@ -54,7 +56,7 @@ export const Keypad: React.FC<KeypadProps> = ({ value, onChange, className }) =>
         </span>
       </div>
 
-      <div role="group" aria-label={t.ui.keypad} className="grid grid-cols-3 gap-2">
+      <div role="group" aria-label={t.ui.keypad} className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-line/15 bg-line/15">
         {digits.map(([k, label]) => (
           <button key={k} type="button" aria-label={label} onClick={() => onChange(pressKey(value, k))} className={KEY}>
             {k}

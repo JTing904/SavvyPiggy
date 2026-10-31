@@ -8,11 +8,11 @@ import React from 'react';
 type Style = React.CSSProperties;
 
 const OUTLINE: { id: string; node: (props: Record<string, unknown>) => React.ReactNode; delay: string; time: string }[] = [
-  { id: 'body', node: (p) => <ellipse cx="74" cy="66" rx="44" ry="34" {...p} />, delay: '0s', time: '.7s' },
-  { id: 'ear', node: (p) => <path d="M92 38 L100 17 Q114 21 116 44 Z" {...p} />, delay: '.3s', time: '.5s' },
-  { id: 'snout', node: (p) => <rect x="112" y="55" width="28" height="24" rx="11" {...p} />, delay: '.4s', time: '.5s' },
-  { id: 'legL', node: (p) => <rect x="44" y="92" width="17" height="21" rx="6.5" {...p} />, delay: '.55s', time: '.4s' },
-  { id: 'legR', node: (p) => <rect x="88" y="92" width="17" height="21" rx="6.5" {...p} />, delay: '.62s', time: '.4s' },
+  { id: 'body', node: (p) => <ellipse cx="74" cy="66" rx="44" ry="34" {...p} />, delay: '0s', time: '.35s' },
+  { id: 'ear', node: (p) => <path d="M92 38 L100 17 Q114 21 116 44 Z" {...p} />, delay: '.15s', time: '.25s' },
+  { id: 'snout', node: (p) => <rect x="112" y="55" width="28" height="24" rx="11" {...p} />, delay: '.2s', time: '.25s' },
+  { id: 'legL', node: (p) => <rect x="44" y="92" width="17" height="21" rx="6.5" {...p} />, delay: '.27s', time: '.2s' },
+  { id: 'legR', node: (p) => <rect x="88" y="92" width="17" height="21" rx="6.5" {...p} />, delay: '.31s', time: '.2s' },
 ];
 const TAIL = 'M31 57 Q14 54 18 41 Q21 32 11 30';
 
@@ -43,7 +43,7 @@ export const PiggyMark: React.FC<PiggyMarkProps> = ({ mode = 'still', tone = 'br
           {OUTLINE.map((s) => (
             <React.Fragment key={s.id}>{s.node({ className: 'o', pathLength: 1, style: { '--dl': s.delay, '--t': s.time } as Style })}</React.Fragment>
           ))}
-          <path className="o tl" pathLength={1} d={TAIL} style={{ '--dl': '.7s', '--t': '.5s' } as Style} />
+          <path className="o tl" pathLength={1} d={TAIL} style={{ '--dl': '.35s', '--t': '.25s' } as Style} />
         </g>
       )}
       <g className="solid" fill={fill} stroke={fill} strokeWidth={3} strokeLinejoin="round">

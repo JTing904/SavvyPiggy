@@ -9,51 +9,43 @@ import { safeGoalIcon } from '../services/goalIcons';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 import OlderRecordsNotice from './OlderRecordsNotice';
 import EditGoalSheet from './EditGoalSheet';
-import { formatMoney, percentReached, toCents } from '../services/money';
+import { formatMoney, fromCents, percentReached, toCents } from '../services/money';
+import { addMonthsTo, monthKeyOf, monthStartOf } from '../services/review';
 import { useT } from '../contexts/LanguageContext';
 import { deviceDateLocale, noteText, type Messages } from '../i18n';
-import { Amount } from './ui/Amount';
 import { Button } from './ui/Button';
+import { Ring, type ChartColor } from './ui/Charts';
 import { EmptyState } from './ui/EmptyState';
 import { Group } from './ui/Group';
 import { Icon } from './ui/Icon';
-import { Row, type RowTone } from './ui/Row';
+import { IconTile, type IconTint } from './ui/IconTile';
+import { PageBand } from './ui/PageBand';
+import { Row } from './ui/Row';
 import { Sheet } from './ui/Sheet';
-import type { TileTint } from './ui/Tile';
 
 /** Which kind of entry reads as what: its icon, its square's tint, and how its figure is coloured. */
 interface Style {
   label: (t: Messages) => string;
   icon: string;
-  tint: TileTint;
+  tint: IconTint;
   /** Money in and out go by sign; moves to and from shares are the investing colour. */
   tone: 'sign' | 'info';
 }
 
 /** Labels are looked up at render, so they follow the language. */
 const STYLES: Record<ActivityType, Style> = {
-  'auto-save': { label: (t) => t.goals.scheduledDeposit, icon: 'repeat', tint: 'mint', tone: 'sign' },
-  manual: { label: (t) => t.common.activity.manual, icon: 'dep', tint: 'mint', tone: 'sign' },
-  withdraw: { label: (t) => t.common.activity.withdraw, icon: 'out', tint: 'peach', tone: 'sign' },
-  borrow: { label: (t) => t.common.activity.borrow, icon: 'out', tint: 'sun', tone: 'sign' },
-  invest: { label: (t) => t.common.activity.invest, icon: 'trend', tint: 'lav', tone: 'info' },
-  divest: { label: (t) => t.common.activity.divest, icon: 'trend', tint: 'lav', tone: 'info' },
-  transfer: { label: (t) => t.common.activity.transfer, icon: 'swap', tint: 'mint', tone: 'sign' },
-  toInvest: { label: (t) => t.common.activity.toInvest, icon: 'swap', tint: 'lav', tone: 'info' },
-  fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'swap', tint: 'lav', tone: 'info' },
-  walletMove: { label: (t) => t.common.activity.walletMove, icon: 'swap', tint: 'lav', tone: 'info' },
-  loanPayment: { label: (t) => t.common.activity.loanPayment, icon: 'out', tint: 'peach', tone: 'sign' },
+  'auto-save': { label: (t) => t.goals.scheduledDeposit, icon: 'repeat', tint: 'teal', tone: 'sign' },
+  manual: { label: (t) => t.common.activity.manual, icon: 'dep', tint: 'teal', tone: 'sign' },
+  withdraw: { label: (t) => t.common.activity.withdraw, icon: 'out', tint: 'coral', tone: 'sign' },
+  borrow: { label: (t) => t.common.activity.borrow, icon: 'out', tint: 'amber', tone: 'sign' },
+  invest: { label: (t) => t.common.activity.invest, icon: 'trend', tint: 'violet', tone: 'info' },
+  divest: { label: (t) => t.common.activity.divest, icon: 'trend', tint: 'violet', tone: 'info' },
+  transfer: { label: (t) => t.common.activity.transfer, icon: 'swap', tint: 'teal', tone: 'sign' },
+  toInvest: { label: (t) => t.common.activity.toInvest, icon: 'swap', tint: 'violet', tone: 'info' },
+  fromInvest: { label: (t) => t.common.activity.fromInvest, icon: 'swap', tint: 'violet', tone: 'info' },
+  walletMove: { label: (t) => t.common.activity.walletMove, icon: 'swap', tint: 'violet', tone: 'info' },
+  loanPayment: { label: (t) => t.common.activity.loanPayment, icon: 'out', tint: 'coral', tone: 'sign' },
 };
-
-// Full literal strings so the build keeps every class.
-const HERO: Record<TileTint, string> = {
-  peach: 'bg-peach',
-  mint: 'bg-mint',
-  lav: 'bg-lav',
-  sun: 'bg-sun',
-};
-// The same order the money sheet colours its goal tiles in.
-const TINTS: TileTint[] = ['peach', 'lav', 'sun', 'mint'];
 
 interface GoalDetailProps {
   uid: string;
@@ -73,6 +65,10 @@ interface GoalDetailProps {
   onOpenEntry: (id: string) => void;
   /** A trade's row is corrected through its trade, so tapping one opens it. */
   onOpenTrade?: (tradeId: string) => void;
+  /** Opens a move with this goal as where the money starts. */
+  onMove?: () => void;
+  /** Opens a spend with this goal as where it comes from. */
+  onSpend?: () => void;
 }
 
 const GoalDetail: React.FC<GoalDetailProps> = ({
@@ -89,8 +85,11 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
   onEditGoal,
   onOpenEntry,
   onOpenTrade,
+  onMove,
+  onSpend,
 }) => {
   const t = useT();
+  const p = t.pro.goal;
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,13 +128,11 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
 
   const overspent = toCents(bank.currentAmount) < 0;
   const hasTarget = bank.targetAmount > 0;
-  const progress = hasTarget
-    ? Math.min(100, Math.max(0, (bank.currentAmount / bank.targetAmount) * 100))
-    : 0;
   const remaining = bank.targetAmount - bank.currentAmount;
-  const tint = TINTS[Math.max(0, banks.findIndex((b) => b.id === bank.id)) % TINTS.length];
 
   const archived = isArchived(bank);
+  // The colour the goal has on the goals page: its place among those not put away.
+  const color = ((Math.max(0, banks.filter((b) => !isArchived(b)).findIndex((b) => b.id === bank.id)) % 5) + 1) as ChartColor;
   // What archiving would do to the strategy, so the sheet can spell it out.
   const share = isInSplit(bank) ? bank.splitPercentage : 0;
   const handovers = archiveStrategy(banks, bank.id)
@@ -152,33 +149,46 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
     { label: t.goals.entries, value: complete ? String(entries.length) : '—' },
   ];
 
+  // What went in month by month, from the entries themselves, in the months the
+  // kept history covers. Until all of it is read the bars wait, as the totals do.
+  const thisMonth = monthStartOf(new Date());
+  const monthly = [-5, -4, -3, -2, -1, 0]
+    .map((back) => addMonthsTo(thisMonth, back))
+    .filter((start) => start.getTime() >= monthStartOf(ledger.keptFrom).getTime())
+    .map((start) => ({
+      start,
+      cents: entries
+        .filter((e) => e.amount > 0 && monthKeyOf(new Date(e.activity.date)) === monthKeyOf(start))
+        .reduce((sum, e) => sum + toCents(e.amount), 0),
+    }));
+  const topMonth = Math.max(0, ...monthly.map((m) => m.cents));
+  const latest = monthly[monthly.length - 1];
+  const plain = (ringgit: number) => formatMoney(ringgit, { symbol: false });
+  const reached = percentReached(bank.currentAmount, bank.targetAmount);
+
   return (
-    <div className="flex min-h-full flex-col bg-page pb-40 font-figtree text-ink safe-pt">
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-page px-5 py-2">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label={t.common.back}
-          className="grid size-11 place-items-center rounded-full bg-card text-ink active:opacity-70"
-        >
-          <Icon name="back" size={20} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          aria-label={t.goalEdit.editGoal}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-card px-4 text-[13.5px] font-bold text-ink active:opacity-70"
-        >
-          <Icon name="pencil" size={16} />
-          {t.goalEdit.edit}
-        </button>
-      </div>
+    <div className="flex min-h-full flex-col bg-page pb-40 font-figtree text-ink">
+      <PageBand
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="material-symbols-rounded shrink-0 text-[22px] leading-none" aria-hidden="true">
+              {safeGoalIcon(bank.icon)}
+            </span>
+            <span className="min-w-0 truncate">{bank.name}</span>
+          </span>
+        }
+        onBack={onBack}
+        overlap={16}
+        trailing={
+          <button type="button" onClick={() => setEditing(true)} aria-label={t.goalEdit.editGoal} className="-mr-2.5 grid size-11 shrink-0 place-items-center active:opacity-70">
+            <Icon name="pencil" size={21} strokeWidth={1.9} />
+          </button>
+        }
+      />
 
-      <div className="space-y-3 px-5">
-        <h1 className="break-words text-[30px] font-extrabold leading-tight tracking-[-0.035em]">{bank.name}</h1>
-
+      <div className="-mt-[58px] flex flex-col gap-2.5 px-4">
         {/* The goal at a glance. The cover photo, when there is one, sits across the top. */}
-        <div className={`overflow-hidden rounded-[28px] ${HERO[tint]}`}>
+        <div className="overflow-hidden rounded-3xl bg-card shadow-[0_2px_10px_rgba(20,35,58,0.1)]">
           {bank.imageUrl && (
             <img
               key={bank.imageUrl}
@@ -190,55 +200,26 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
               }}
             />
           )}
-          <div className="p-5">
-            <div className="flex items-center justify-between gap-3">
-              <span className="grid size-11 place-items-center rounded-full bg-card/70 text-ink" aria-hidden="true">
-                <span className="material-symbols-rounded" style={{ fontSize: 24 }}>
-                  {safeGoalIcon(bank.icon)}
-                </span>
-              </span>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  void pickPhoto(e.target.files?.[0]);
-                  e.target.value = '';
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInput.current?.click()}
-                disabled={uploading}
-                className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-card/70 px-4 text-[13px] font-bold text-ink active:opacity-70 disabled:opacity-50"
-              >
-                <Icon name="camera" size={16} />
-                {uploading ? t.goals.saving : bank.imageUrl ? t.goals.change : t.goals.addPhoto}
-              </button>
+          <div className="flex items-center gap-4 p-3.5">
+            <Ring percent={hasTarget ? reached : null} color={color} size={112} width={12} label={hasTarget ? p.ring(bank.name, reached) : bank.name}>
+              {hasTarget ? (
+                <span className="text-[24px] font-bold tabular-nums">{reached}%</span>
+              ) : (
+                <span className="material-symbols-rounded text-[34px] leading-none text-mute">{safeGoalIcon(bank.icon)}</span>
+              )}
+            </Ring>
+            <div className="min-w-0 flex-1 tabular-nums">
+              <p className="text-[13px] font-semibold text-mute">{overspent ? t.goals.overspent : t.goals.saved}</p>
+              <p className={`mt-px truncate text-[24px] font-bold leading-tight ${overspent ? 'text-neg' : ''}`}>{formatMoney(bank.currentAmount)}</p>
+              {hasTarget ? (
+                <>
+                  <p className="mt-2 truncate text-[13px] font-semibold text-mute">{p.target(plain(bank.targetAmount))}</p>
+                  <p className="mt-0.5 truncate text-[13px] font-semibold text-mute">{toCents(remaining) > 0 ? p.stillToGo(plain(remaining)) : t.goals.targetReached}</p>
+                </>
+              ) : (
+                <p className="mt-2 text-[13px] font-semibold text-mute">{t.goals.noFinishLine}</p>
+              )}
             </div>
-
-            <p className="mt-4 text-[12.5px] font-bold text-mute">{overspent ? t.goals.overspent : t.goals.saved}</p>
-            <Amount cents={toCents(bank.currentAmount)} size="xl" tone={overspent ? 'neg' : 'ink'} />
-
-            {hasTarget && !overspent && (
-              <div
-                className="mt-4 h-2 w-full overflow-hidden rounded-full bg-line/10"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(progress)}
-              >
-                <div className="h-full rounded-full bg-ink" style={{ width: `${progress}%` }} />
-              </div>
-            )}
-            <p className="mt-2 text-[12.5px] font-semibold text-mute">
-              {hasTarget
-                ? toCents(remaining) > 0
-                  ? t.goals.toGo(formatMoney(remaining), percentReached(bank.currentAmount, bank.targetAmount))
-                  : t.goals.targetReached
-                : t.goals.noFinishLine}
-            </p>
           </div>
         </div>
 
@@ -248,15 +229,68 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
           </p>
         )}
 
+        {/* An archived goal is off the money pages, so these wait until it is back. */}
+        {!archived && onMove && onSpend && (
+          <div className="grid grid-cols-2 gap-2">
+            <Button onClick={onMove} className="!px-2">
+              <Icon name="swap" size={20} strokeWidth={2} />
+              {t.pro.home.move}
+            </Button>
+            <Button variant="ghost" onClick={onSpend} className="!px-2">
+              <Icon name="out" size={20} strokeWidth={2} className="text-tcoral" />
+              {p.spendHere}
+            </Button>
+          </div>
+        )}
+
+        {complete && topMonth > 0 && (
+          <div className="rounded-3xl bg-card px-3.5 py-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-[15px] font-bold">{p.monthly}</h2>
+              <span className="truncate text-[13px] font-semibold tabular-nums text-mute">
+                {p.monthAmount(t.report.monthsShort[latest.start.getMonth()], formatMoney(fromCents(latest.cents), { symbol: false }))}
+              </span>
+            </div>
+            <div role="img" aria-label={p.monthlyChart(monthly.map((m) => `${t.report.monthsShort[m.start.getMonth()]} ${formatMoney(fromCents(m.cents))}`).join('，'))}>
+              <div className="mt-2.5 flex h-[72px] items-end gap-3 border-b border-track" aria-hidden="true">
+                {monthly.map((m) => (
+                  <span
+                    key={m.start.getTime()}
+                    className={`block min-w-0 flex-1 rounded-t ${m === latest ? 'bg-c1' : 'bg-c1/30'}`}
+                    style={{ height: m.cents > 0 ? `${Math.max(4, (m.cents / topMonth) * 100)}%` : 0 }}
+                  />
+                ))}
+              </div>
+              <div className="mt-1 flex gap-3" aria-hidden="true">
+                {monthly.map((m) => (
+                  <span key={m.start.getTime()} className="min-w-0 flex-1 truncate text-center text-[11.5px] font-semibold text-mute">
+                    {t.report.monthsShort[m.start.getMonth()]}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-2">
           {stats.map((s) => (
             <div key={s.label} className="min-w-0 rounded-2xl bg-card px-3 py-2.5">
-              <p className="truncate text-[11.5px] font-semibold text-mute">{s.label}</p>
-              <p className="truncate text-[15px] font-extrabold tabular-nums">{s.value}</p>
+              <p className="truncate text-[12.5px] font-semibold text-mute">{s.label}</p>
+              <p className="truncate text-[15px] font-bold tabular-nums">{s.value}</p>
             </div>
           ))}
         </div>
 
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            void pickPhoto(e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
         <Group>
           <Row
             icon="pie"
@@ -265,6 +299,14 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
             sub={t.goalEdit.shareHint}
             trailing={<Icon name="chev" size={18} className="text-mute" />}
             onClick={onEditStrategy}
+          />
+          <Row
+            icon="camera"
+            tint="lav"
+            title={t.goalEdit.coverPhoto}
+            sub={uploading ? t.goals.saving : bank.imageUrl ? t.goals.change : t.goals.addPhoto}
+            trailing={<Icon name="chev" size={18} className="text-mute" />}
+            onClick={uploading ? undefined : () => fileInput.current?.click()}
           />
           {archived ? (
             <Row
@@ -286,10 +328,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
             />
           )}
         </Group>
-      </div>
 
-      <div className="mt-7 px-5">
-        <h2 className="mb-2.5 px-1 text-[17px] font-extrabold tracking-tight">{t.goals.activity}</h2>
+        <h2 className="mt-2 px-1 text-[15px] font-bold">{t.goals.activity}</h2>
         {history !== 'ready' && <OlderRecordsNotice status={history} onRetry={ledger.retry} />}
         {entries.length === 0 && history !== 'ready' ? null : entries.length === 0 ? (
           <div className="rounded-3xl bg-card">
@@ -327,18 +367,16 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
                   : activity.type === 'transfer' && activity.fromGoal
                     ? t.common.movedFrom(style.label(t), activity.fromGoal)
                     : (activity.note && noteText(activity.note)) || style.label(t);
-              const tone: RowTone = style.tone === 'info' ? 'info' : amount < 0 ? 'neg' : 'pos';
+              const tone = style.tone === 'info' ? 'text-info' : amount < 0 ? 'text-neg' : 'text-pos';
               return (
-                <Row
-                  key={activity.id}
-                  icon={style.icon}
-                  tint={style.tint}
-                  title={title}
-                  sub={meta}
-                  trailing={formatMoney(amount, { signed: true })}
-                  tone={tone}
-                  onClick={open}
-                />
+                <button key={activity.id} type="button" onClick={open} className="flex min-h-[58px] w-full items-center gap-2.5 py-2 text-left active:opacity-70">
+                  <IconTile icon={style.icon} tint={style.tint} size={38} round />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14.5px] font-bold">{title}</span>
+                    <span className="block truncate text-[12.5px] font-semibold text-mute">{meta}</span>
+                  </span>
+                  <span className={`shrink-0 text-[14.5px] font-bold tabular-nums ${tone}`}>{formatMoney(amount, { signed: true })}</span>
+                </button>
               );
             })}
           </Group>

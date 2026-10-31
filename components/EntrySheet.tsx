@@ -3,12 +3,13 @@ import type { Activity, Loan, PiggyBank, SavingsSettings } from '../types';
 import { Sheet } from './ui/Sheet';
 import { Button } from './ui/Button';
 import { Chip } from './ui/Chip';
-import { Field } from './ui/Field';
 import { Group } from './ui/Group';
+import { PageBand } from './ui/PageBand';
+import { PageSheet } from './ui/PageSheet';
 import { Tile, type TileTint } from './ui/Tile';
 import { EntryRow } from './history/EntryRow';
 import { PlanPreview, type PreviewRow } from './history/PlanPreview';
-import { AmountField, GoalChips, SectionLabel, WhenFields, useOnline } from './history/EntryFields';
+import { AmountFigure, AmountKeys, DetailRow, GoalChips, NoteRow, WhenFields, useOnline } from './history/EntryFields';
 import GoneShareSheet from './GoneShareSheet';
 import ReceiptStrip from './ReceiptStrip';
 import { useT } from '../contexts/LanguageContext';
@@ -17,7 +18,7 @@ import { planActivityEdit, type ActivityEdit } from '../services/activityEdit';
 import { planPotTransferDelete, planPotTransferEdit, type PotReturn } from '../services/potTransfers';
 import { activityEditProblemText, potTransferProblemText } from '../services/problemText';
 import { goneShareCents, type GoneShareChoice } from '../services/ledger';
-import { CATEGORIES } from '../services/categories';
+import { CATEGORIES, categoryOf } from '../services/categories';
 import { formatMoney, fromCents, toCents } from '../services/money';
 import {
   buildActivityEdit,
@@ -65,9 +66,9 @@ const failure = (error: unknown, t: Strings) => {
 };
 
 const DELETE_BUTTON =
-  'inline-flex min-h-12 flex-1 items-center justify-center rounded-full bg-card px-6 font-figtree text-[15.5px] font-extrabold text-neg active:opacity-80 disabled:opacity-40';
+  'inline-flex min-h-[52px] items-center justify-center rounded-[14px] bg-card px-3 font-figtree text-[15px] font-bold text-neg active:opacity-80 disabled:opacity-40';
 
-/** The footer both editors share: any message, then Delete beside Save. */
+/** The footer both editors share: any message, then Save beside Delete. */
 const EditFooter: React.FC<{
   error: string | null;
   online: boolean;
@@ -85,13 +86,13 @@ const EditFooter: React.FC<{
           {error}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="grid grid-cols-[2fr_1fr] gap-2">
+        <Button loading={busy} disabled={!canSave} onClick={onSave}>
+          {t.entry.save}
+        </Button>
         <button type="button" onClick={onDelete} disabled={busy} className={DELETE_BUTTON}>
           {t.entry.delete}
         </button>
-        <Button full={false} loading={busy} disabled={!canSave} onClick={onSave} className="flex-[2]">
-          {t.entry.save}
-        </Button>
       </div>
     </div>
   );
@@ -102,20 +103,16 @@ const Outcome: React.FC<{ problem: string | null; changed: boolean; rows: Previe
   const t = useT();
   if (problem) {
     return (
-      <Tile tint="sun" className="mt-5">
+      <Tile tint="sun">
         <p role="status" className="text-[13.5px] font-semibold leading-snug">
           {problem}
         </p>
       </Tile>
     );
   }
-  if (!changed) return <p className="mt-5 text-center text-[12.5px] font-semibold text-mute">{t.entry.nothingChanged}</p>;
-  if (rows.length === 0) return <p className="mt-5 text-center text-[12.5px] font-semibold text-mute">{t.entry.noMoneyMoves}</p>;
-  return (
-    <div className="mt-5">
-      <PlanPreview rows={rows} />
-    </div>
-  );
+  if (!changed) return <p className="text-center text-[12.5px] font-semibold text-mute">{t.entry.nothingChanged}</p>;
+  if (rows.length === 0) return <p className="text-center text-[12.5px] font-semibold text-mute">{t.entry.noMoneyMoves}</p>;
+  return <PlanPreview rows={rows} />;
 };
 
 /* ------------------------------------------------------------ deposits, spending, spending ahead */
@@ -141,6 +138,8 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
   const [settling, setSettling] = useState(false);
   /** The keypad is open: the preview waits, or every key press would shift the keys under the finger. */
   const [typing, setTyping] = useState(false);
+  /** Which detail is being chosen, in a sheet over the page. */
+  const [picking, setPicking] = useState<'category' | 'source' | 'target' | null>(null);
   const set = (patch: Partial<EntryForm>) => {
     setError(null);
     setForm((f) => ({ ...f, ...patch }));
@@ -193,8 +192,12 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
     activity.type === 'borrow'
       ? t.history.undoBorrow
       : isWithdraw
-        ? t.history.undoOutgoing(formatMoney(activity.amount))
-        : t.history.undoIncoming(formatMoney(activity.amount));
+        ? (activity.wallet ?? 0) < 0
+          ? t.history.undoOutgoingWallet(formatMoney(activity.amount))
+          : t.history.undoOutgoing(formatMoney(activity.amount))
+        : (activity.wallet ?? 0) > 0 && activity.distributions.length === 0
+          ? t.history.undoIncomingWallet(formatMoney(activity.amount))
+          : t.history.undoIncoming(formatMoney(activity.amount));
 
   const remove = () => {
     // Part of it sits in a goal that is gone: that sheet asks where it is settled, and is the confirmation.
@@ -213,82 +216,135 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
     .map((d) => `${banks.find((b) => b.id === d.bankId)?.name ?? t.history.deletedGoal}${activity.distributions.length > 1 ? ` ${d.percentage}%` : ''}`)
     .join(' · ');
 
+  const category = categoryOf(form.category);
+  const target = form.target;
+  const goesTo = !target ? t.entry.asItWas : target.mode === 'goal' ? (banks.find((b) => b.id === target.goalId)?.name ?? t.history.deletedGoal) : t.entry.byYourSplit;
+
   return (
     <>
-    <Sheet
-      title={t.entry.editTitle}
+    <PageSheet
+      band={
+        <PageBand title={t.entry.editTitle} onClose={() => !busy && onClose()}>
+          <AmountFigure value={form.amount} onOpen={() => setTyping(true)} />
+        </PageBand>
+      }
       onClose={onClose}
       dismissible={!busy}
       footer={<EditFooter error={error} online={online} busy={busy} canSave={changed && !problem && !!plan} onSave={save} onDelete={remove} />}
     >
-      <AmountField value={form.amount} onChange={(amount) => set({ amount })} onOpenChange={setTyping} />
-      <WhenFields day={form.day} time={form.time} notBefore={notBefore} onDay={(day) => set({ day })} onTime={(time) => set({ time })} />
+      {typing && <AmountKeys value={form.amount} onChange={(amount) => set({ amount })} onDone={() => setTyping(false)} />}
 
-      {isWithdraw && (
-        <>
-          <SectionLabel>{t.entry.takenFrom}</SectionLabel>
-          {(activity.wallet ?? 0) < 0 ? (
-            <Chip selected onClick={() => undefined}>
+      <Group>
+        {isWithdraw && (
+          <DetailRow
+            icon={<span className="material-symbols-rounded text-[20px] leading-none">{category.icon}</span>}
+            tint="blue"
+            round
+            label={t.entry.category}
+            onClick={() => setPicking('category')}
+          >
+            {category.label}
+          </DetailRow>
+        )}
+        {isWithdraw &&
+          ((activity.wallet ?? 0) < 0 ? (
+            <DetailRow icon="wallet" tint="teal" label={t.entry.takenFrom}>
               {t.wallet.name}
-            </Chip>
+            </DetailRow>
           ) : (
-            <>
-              {form.source === null && <p className="mb-2 text-[12.5px] font-semibold text-mute">{t.entry.severalGoals}</p>}
-              <GoalChips goals={sources} value={form.source} onChange={(source) => set({ source })} ariaLabel={t.entry.takenFrom} />
-            </>
-          )}
+            <DetailRow icon="wallet" tint="teal" label={t.entry.takenFrom} onClick={() => setPicking('source')}>
+              {banks.find((b) => b.id === form.source)?.name ?? t.entry.severalGoals}
+            </DetailRow>
+          ))}
+        {isDeposit && (
+          <DetailRow icon="target" tint="teal" label={t.entry.goesTo} onClick={() => setPicking('target')}>
+            {goesTo}
+          </DetailRow>
+        )}
+        <WhenFields day={form.day} time={form.time} notBefore={notBefore} onDay={(day) => set({ day })} onTime={(time) => set({ time })} />
+        <NoteRow value={form.note} onChange={(note) => set({ note })} />
+      </Group>
 
-          <SectionLabel>{t.entry.category}</SectionLabel>
-          <div role="group" aria-label={t.entry.category} className="flex flex-wrap gap-2">
-            {CATEGORIES.map((c) => (
-              <Chip key={c.key} selected={form.category === c.key} onClick={() => set({ category: c.key })}>
-                {c.label}
-              </Chip>
-            ))}
-          </div>
-        </>
-      )}
-
-      {isDeposit && (
-        <>
-          <SectionLabel>{t.entry.goesTo}</SectionLabel>
-          <GoalChips
-            goals={targets}
-            value={form.target?.mode === 'goal' ? form.target.goalId : null}
-            onChange={(goalId) => set({ target: { mode: 'goal', goalId } })}
-            ariaLabel={t.entry.goesTo}
-            lead={
-              <>
-                <Chip selected={form.target === null} onClick={() => set({ target: null })}>
-                  {t.entry.asItWas}
-                </Chip>
-                <Chip selected={form.target?.mode === 'split'} onClick={() => set({ target: { mode: 'split' } })}>
-                  {t.entry.byYourSplit}
-                </Chip>
-              </>
-            }
-          />
-          {form.target === null && kept && <p className="mt-2 text-[12.5px] font-semibold text-mute">{kept}</p>}
-        </>
-      )}
-
-      <div className="mt-5">
-        <Field
-          label={t.entry.note}
-          value={form.note}
-          onChange={(note) => set({ note })}
-          placeholder={t.entry.notePlaceholder}
-          autoComplete="off"
-        />
-      </div>
+      {isDeposit && form.target === null && kept && <p className="px-1 text-[12.5px] font-semibold text-mute">{kept}</p>}
 
       {isWithdraw && !typing && <ReceiptStrip ownerId={activity.id} ids={activity.receipts ?? []} />}
 
       {!typing && <Outcome problem={problem ? activityEditProblemText(problem, t, banks) : null} changed={changed} rows={rows} />}
 
-      <p className="mb-2 mt-6 px-1 text-[12px] font-semibold leading-snug text-mute">{consequence}</p>
+      <p className="px-1 text-[13px] font-medium leading-relaxed text-mute">{consequence}</p>
 
-    </Sheet>
+      {picking === 'category' && (
+        <Sheet title={t.entry.category} z={60} onClose={() => setPicking(null)}>
+          <div role="group" aria-label={t.entry.category} className="flex flex-wrap gap-2 pb-2">
+            {CATEGORIES.map((c) => (
+              <Chip
+                key={c.key}
+                selected={form.category === c.key}
+                onClick={() => {
+                  set({ category: c.key });
+                  setPicking(null);
+                }}
+              >
+                {c.label}
+              </Chip>
+            ))}
+          </div>
+        </Sheet>
+      )}
+      {picking === 'source' && (
+        <Sheet title={t.entry.takenFrom} z={60} onClose={() => setPicking(null)}>
+          {form.source === null && <p className="mb-2 text-[12.5px] font-semibold text-mute">{t.entry.severalGoals}</p>}
+          <div className="pb-2">
+            <GoalChips
+              goals={sources}
+              value={form.source}
+              onChange={(source) => {
+                set({ source });
+                setPicking(null);
+              }}
+              ariaLabel={t.entry.takenFrom}
+            />
+          </div>
+        </Sheet>
+      )}
+      {picking === 'target' && (
+        <Sheet title={t.entry.goesTo} z={60} onClose={() => setPicking(null)}>
+          <div className="pb-2">
+            <GoalChips
+              goals={targets}
+              value={form.target?.mode === 'goal' ? form.target.goalId : null}
+              onChange={(goalId) => {
+                set({ target: { mode: 'goal', goalId } });
+                setPicking(null);
+              }}
+              ariaLabel={t.entry.goesTo}
+              lead={
+                <>
+                  <Chip
+                    selected={form.target === null}
+                    onClick={() => {
+                      set({ target: null });
+                      setPicking(null);
+                    }}
+                  >
+                    {t.entry.asItWas}
+                  </Chip>
+                  <Chip
+                    selected={form.target?.mode === 'split'}
+                    onClick={() => {
+                      set({ target: { mode: 'split' } });
+                      setPicking(null);
+                    }}
+                  >
+                    {t.entry.byYourSplit}
+                  </Chip>
+                </>
+              }
+            />
+          </div>
+        </Sheet>
+      )}
+    </PageSheet>
     {settling && (
       <GoneShareSheet
         distributions={activity.distributions}
@@ -322,6 +378,7 @@ const PotEntry: React.FC<EntrySheetProps> = ({ activity, banks, savings, notBefo
   /** Asking where the money goes, because the goal this move named is gone. */
   const [choosing, setChoosing] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [pickingSource, setPickingSource] = useState(false);
   const [choice, setChoice] = useState<PotReturn>(null);
   const set = (patch: Partial<EntryForm>) => {
     setError(null);
@@ -458,8 +515,12 @@ const PotEntry: React.FC<EntrySheetProps> = ({ activity, banks, savings, notBefo
     : [];
 
   return (
-    <Sheet
-      title={t.entry.editPotTitle}
+    <PageSheet
+      band={
+        <PageBand title={t.entry.editPotTitle} onClose={() => !busy && onClose()}>
+          <AmountFigure value={form.amount} onOpen={() => setTyping(true)} />
+        </PageBand>
+      }
       onClose={onClose}
       dismissible={!busy}
       footer={
@@ -473,20 +534,16 @@ const PotEntry: React.FC<EntrySheetProps> = ({ activity, banks, savings, notBefo
         />
       }
     >
-      <AmountField value={form.amount} onChange={(amount) => set({ amount })} onOpenChange={setTyping} />
-      <WhenFields day={form.day} time={form.time} notBefore={notBefore} onDay={(day) => set({ day })} onTime={(time) => set({ time })} />
+      {typing && <AmountKeys value={form.amount} onChange={(amount) => set({ amount })} onDone={() => setTyping(false)} />}
 
-      {toPot && (
-        <>
-          <SectionLabel>{t.entry.takenFrom}</SectionLabel>
-          <GoalChips
-            goals={pickableGoals(banks, sourceOf(activity))}
-            value={form.source}
-            onChange={(source) => set({ source })}
-            ariaLabel={t.entry.takenFrom}
-          />
-        </>
-      )}
+      <Group>
+        {toPot && (
+          <DetailRow icon="wallet" tint="teal" label={t.entry.takenFrom} onClick={() => setPickingSource(true)}>
+            {banks.find((b) => b.id === form.source)?.name ?? t.entry.severalGoals}
+          </DetailRow>
+        )}
+        <WhenFields day={form.day} time={form.time} notBefore={notBefore} onDay={(day) => set({ day })} onTime={(time) => set({ time })} />
+      </Group>
 
       {!typing && (
         <Outcome
@@ -496,13 +553,29 @@ const PotEntry: React.FC<EntrySheetProps> = ({ activity, banks, savings, notBefo
         />
       )}
 
-      <div className="mb-2 mt-6 space-y-1 px-1 text-[12px] font-semibold leading-snug text-mute">
+      <div className="space-y-1 px-1 text-[13px] font-medium leading-relaxed text-mute">
         {effects.map((line) => (
           <p key={line}>{line}</p>
         ))}
         {removalProblem && <p>{removalProblem}</p>}
       </div>
-    </Sheet>
+
+      {pickingSource && (
+        <Sheet title={t.entry.takenFrom} z={60} onClose={() => setPickingSource(false)}>
+          <div className="pb-2">
+            <GoalChips
+              goals={pickableGoals(banks, sourceOf(activity))}
+              value={form.source}
+              onChange={(source) => {
+                set({ source });
+                setPickingSource(false);
+              }}
+              ariaLabel={t.entry.takenFrom}
+            />
+          </div>
+        </Sheet>
+      )}
+    </PageSheet>
   );
 };
 
@@ -535,7 +608,8 @@ const WalletMoveEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete,
       title={t.common.activity.walletMove}
       onClose={onClose}
       footer={
-        <div className="flex gap-2">
+        <div className="grid grid-cols-[2fr_1fr] gap-2">
+          <Button onClick={onClose}>{t.ui.close}</Button>
           <button
             type="button"
             onClick={() => {
@@ -546,9 +620,6 @@ const WalletMoveEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete,
           >
             {t.entry.delete}
           </button>
-          <Button full={false} onClick={onClose} className="flex-[2]">
-            {t.ui.close}
-          </Button>
         </div>
       }
     >
@@ -568,7 +639,8 @@ const LoanPaymentEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete
       title={t.net.paymentTitle(activity.note || t.net.deletedDebt)}
       onClose={onClose}
       footer={
-        <div className="flex gap-2">
+        <div className="grid grid-cols-[2fr_1fr] gap-2">
+          <Button onClick={onClose}>{t.ui.close}</Button>
           <button
             type="button"
             onClick={() => {
@@ -579,9 +651,6 @@ const LoanPaymentEntry: React.FC<EntrySheetProps> = ({ activity, banks, onDelete
           >
             {t.entry.delete}
           </button>
-          <Button full={false} onClick={onClose} className="flex-[2]">
-            {t.ui.close}
-          </Button>
         </div>
       }
     >

@@ -14,11 +14,13 @@ import type { GoalMoneyChoice } from '../services/ledger';
 import { Button } from './ui/Button';
 import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
+import { PageBand } from './ui/PageBand';
 import { NumberPad } from './ui/NumberPad';
 import { Sheet } from './ui/Sheet';
 import { Toggle } from './ui/Toggle';
 
 interface StrategyEditorProps {
+  onBack: () => void;
   banks: PiggyBank[];
   onUpdateBanks: (banks: PiggyBank[]) => void;
   /**
@@ -106,6 +108,7 @@ const PercentSheet: React.FC<{ name: string; initial: number; onDone: (value: nu
 };
 
 const StrategyEditor: React.FC<StrategyEditorProps> = ({
+  onBack,
   banks,
   onUpdateBanks,
   onDeleteBank,
@@ -220,9 +223,10 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   const dirtyOrInvalid = isDirty || !isValid;
 
   return (
-    <div className={`flex min-h-full flex-col px-4 pt-3 safe-pt font-figtree text-ink ${dirtyOrInvalid ? 'pb-72' : 'pb-40'}`}>
-      <h1 className="px-1 pt-2 text-[30px] font-extrabold tracking-tight">{t.goals.strategyTitle}</h1>
-      <p className="mt-0.5 px-1 text-[13.5px] font-semibold text-mute">{t.goals.strategySubtitle}</p>
+    <div className={`flex min-h-full flex-col font-figtree text-ink ${dirtyOrInvalid ? 'pb-72' : 'pb-24'}`}>
+      <PageBand title={t.goals.strategyTitle} onBack={onBack} />
+      <div className="flex flex-col px-4 pt-3">
+      <p className="px-1 text-[13.5px] font-semibold text-mute">{t.goals.strategySubtitle}</p>
 
       {/* One bar for the whole 100%: each goal's share of it, and whether it adds up. */}
       {localBanks.length > 0 && (
@@ -365,7 +369,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
       {/* The save bar only exists while there is something to save, and sits just above the bottom bar. */}
       {localBanks.length > 0 && dirtyOrInvalid && (
         <div className="pointer-events-none fixed bottom-0 left-0 right-0 px-4" style={{ paddingBottom: 'calc(6.2rem + env(safe-area-inset-bottom))' }}>
-          <div className="pointer-events-auto mx-auto max-w-md">
+          <div className="pointer-events-auto mx-auto max-w-xl">
             <div className="flex items-center gap-3 rounded-[2rem] bg-card p-3 pl-5 shadow-[0_6px_28px_rgba(0,0,0,0.18)]">
               <div className="min-w-0 flex-1">
                 <p className={`text-[20px] font-extrabold tabular-nums ${isValid ? 'text-pos' : 'text-neg'}`}>{totalAllocation}%</p>
@@ -381,6 +385,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
 
       {typingBank && <PercentSheet name={typingBank.name} initial={typingBank.splitPercentage} onDone={(v) => edit(typingBank, { splitPercentage: v })} onClose={() => setTyping(null)} />}
       {moveSheet}
+      </div>
     </div>
   );
 };

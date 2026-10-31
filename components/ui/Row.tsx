@@ -13,10 +13,10 @@ const TONE: Record<RowTone, string> = {
   info: 'text-info',
 };
 const TINT: Record<TileTint, string> = {
-  peach: 'bg-peach',
-  mint: 'bg-mint',
-  lav: 'bg-lav',
-  sun: 'bg-sun',
+  peach: 'bg-peach text-tcoral',
+  mint: 'bg-mint text-tteal',
+  lav: 'bg-lav text-tviolet',
+  sun: 'bg-sun text-tamber',
 };
 
 interface RowProps {
@@ -37,20 +37,20 @@ export const Row: React.FC<RowProps> = ({ icon, tint = 'mint', title, sub, trail
   const body = (
     <>
       {icon !== undefined && (
-        <span className={`grid size-9 shrink-0 place-items-center rounded-xl text-ink ${TINT[tint]}`}>
-          {typeof icon === 'string' ? <Icon name={icon} size={18} /> : icon}
+        <span className={`grid size-10 shrink-0 place-items-center rounded-[13px] ${TINT[tint]}`}>
+          {typeof icon === 'string' ? <Icon name={icon} size={20} strokeWidth={2} /> : icon}
         </span>
       )}
       <span className="min-w-0 flex-1 text-left">
         <span className="block truncate text-[14.5px] font-bold">{title}</span>
-        {sub && <span className="block truncate text-[11.5px] font-medium text-mute">{sub}</span>}
+        {sub && <span className="block truncate text-[12.5px] font-semibold text-mute">{sub}</span>}
       </span>
       {trailing !== undefined && (
-        <span className={`shrink-0 whitespace-nowrap text-right text-[14.5px] font-extrabold ${TONE[tone]}`}>{trailing}</span>
+        <span className={`shrink-0 whitespace-nowrap text-right text-[14.5px] font-bold tabular-nums ${TONE[tone]}`}>{trailing}</span>
       )}
     </>
   );
-  const layout = `flex min-h-11 w-full items-center gap-3 py-2.5 ${className ?? ''}`;
+  const layout = `flex min-h-14 w-full items-center gap-2.5 py-2 ${className ?? ''}`;
   if (!onClick) return <div className={layout}>{body}</div>;
   return (
     <button type="button" onClick={onClick} className={`${layout} active:opacity-70`}>

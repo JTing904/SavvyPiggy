@@ -14,8 +14,8 @@ export const Splash: React.FC<{ label: string }> = ({ label }) => {
   if (elapsed.current === null) {
     const now = Date.now();
     if (startedAt === null) startedAt = now;
-    // Past the 3 s the animation lasts, it is simply the finished picture.
-    elapsed.current = Math.min((now - startedAt) / 1000, 3);
+    // Past the 1.5 s the animation lasts, it is simply the finished picture.
+    elapsed.current = Math.min((now - startedAt) / 1000, 1.5);
   }
   const el = elapsed.current;
   return (

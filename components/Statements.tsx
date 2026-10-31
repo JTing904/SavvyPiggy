@@ -25,7 +25,9 @@ import { Group } from './ui/Group';
 import { Row } from './ui/Row';
 import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
+import { IconTile } from './ui/IconTile';
 import { Notice } from './ui/Notice';
+import { PageBand } from './ui/PageBand';
 
 interface StatementsProps {
   activities: Activity[];
@@ -215,55 +217,51 @@ const Statements: React.FC<StatementsProps> = ({
       onClick={() => void download(month, kind)}
       disabled={busy !== null}
       aria-label={t.profile.downloadLabel(kind, month.label)}
-      className="min-h-11 min-w-14 shrink-0 rounded-full bg-line/10 px-3.5 text-[12.5px] font-extrabold active:opacity-70 disabled:opacity-40"
+      className="min-h-11 min-w-14 shrink-0 rounded-xl bg-page px-3 text-[13px] font-bold active:opacity-70 disabled:opacity-40"
     >
       {busy === `${month.key}:${kind}` ? '…' : kind === 'pdf' ? 'PDF' : 'Excel'}
     </button>
   );
 
-  const badge = 'shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-extrabold';
+  const badge = 'shrink-0 rounded-md px-1.5 py-0.5 text-[11.5px] font-bold';
 
   return (
-    <div className="flex min-h-full flex-col px-4 pb-40 pt-3 safe-pt font-figtree text-ink">
-      <div className="mb-1 flex items-center gap-3 px-1">
-        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
-          <Icon name="back" size={20} />
-        </button>
-      </div>
-      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.profile.statements}</h1>
-      <p className="mt-0.5 px-1 text-[13.5px] font-semibold text-mute">{t.profile.statementsSubtitle}</p>
+    <div className="flex min-h-full flex-col pb-40 font-figtree text-ink">
+      <PageBand title={t.profile.statements} onBack={onBack}>
+        <p className="truncate text-[13.5px] font-semibold text-band-sub">{t.profile.statementsSubtitle}</p>
+      </PageBand>
 
-      {note && (
-        <div role="status" className="mt-4 rounded-3xl bg-mint px-5 py-3">
-          <p className="text-[13px] font-extrabold">{note}</p>
-        </div>
-      )}
+      <div className="flex flex-col gap-2.5 px-4 pt-3">
+        {note && (
+          <div role="status" className="rounded-3xl bg-mint px-3.5 py-2.5">
+            <p className="text-[13px] font-bold">{note}</p>
+          </div>
+        )}
 
-      <Group className="mt-4">
-        <Row
-          icon="dep"
-          tint="mint"
-          title={t.backup.rowTitle}
-          sub={t.backup.rowSub}
-          trailing={<Icon name="chev" size={18} className="text-mute" />}
-          tone="mute"
-          onClick={() => setShowBackup(true)}
-        />
-      </Group>
+        <Group>
+          <Row
+            icon="dep"
+            tint="mint"
+            title={t.backup.rowTitle}
+            sub={t.backup.rowSub}
+            trailing={<Icon name="chev" size={18} className="text-mute" />}
+            tone="mute"
+            onClick={() => setShowBackup(true)}
+          />
+        </Group>
 
-      <div className="mt-4">
         {kept !== 'ready' ? (
           <Notice status={kept} onRetry={ledger.retry} />
         ) : months.length === 0 ? (
           <EmptyState icon="doc" title={t.profile.nothingToReport} body={t.profile.nothingToReportHint} />
         ) : (
-          <div className="space-y-2.5">
+          <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
             {months.map((month) => (
-              <div key={month.key} className={`flex items-center gap-2 rounded-3xl p-3 pl-4 ${month.current ? 'bg-hero' : 'bg-card'}`}>
+              <div key={month.key} className="flex min-h-[60px] items-center gap-2 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <p className="truncate text-[15px] font-extrabold">{month.label}</p>
-                    {month.current && <span className={`${badge} bg-line/10`}>{t.profile.soFar}</span>}
+                    <p className="truncate text-[14.5px] font-bold">{month.label}</p>
+                    {month.current && <span className={`${badge} bg-hero text-tblue`}>{t.profile.soFar}</span>}
                     {month.due && month.activities > 0 ? (
                       <span className={`${badge} bg-peach text-neg`}>{t.profile.dueBadge}</span>
                     ) : (
@@ -271,9 +269,9 @@ const Statements: React.FC<StatementsProps> = ({
                     )}
                   </div>
                   {month.due && month.activities > 0 && month.clearedOn && (
-                    <p className="mt-0.5 text-[11.5px] font-bold text-neg">{t.profile.dueDetail(longDate(month.clearedOn))}</p>
+                    <p className="mt-0.5 text-[12.5px] font-bold text-neg">{t.profile.dueDetail(longDate(month.clearedOn))}</p>
                   )}
-                  <p className="mt-0.5 text-[12px] font-medium text-mute">
+                  <p className="mt-0.5 text-[12.5px] font-semibold text-mute">
                     {t.profile.records(month.activities)}
                     {month.activities > 0 && (
                       <>
@@ -295,63 +293,65 @@ const Statements: React.FC<StatementsProps> = ({
             ))}
           </div>
         )}
-      </div>
 
-      {olderNote && <p className="mt-3 px-1 text-[12px] font-medium leading-relaxed text-mute">{olderNote}</p>}
+        {olderNote && <p className="px-1 text-[12.5px] font-medium leading-relaxed text-mute">{olderNote}</p>}
 
-      <p className="mt-3 px-1 text-center text-[11.5px] font-semibold text-mute">
-        PDF · {t.profile.pdfStatement} &nbsp;&nbsp; Excel · {t.profile.excelRecords}
-      </p>
-
-      {/* ------------------------------------------------------ housekeeping */}
-
-      <h2 className="mt-8 px-1 text-[16px] font-extrabold">{t.profile.keepingQuick}</h2>
-      <p className="mt-1 px-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.profile.keepingQuickHint}</p>
-
-      <div className="mt-3 rounded-3xl bg-sun p-5">
-        {kept !== 'ready' ? (
-          <p className="text-[12.5px] font-bold leading-relaxed">{kept === 'loading' ? t.common.older.loading : t.common.older.failed}</p>
-        ) : going ? (
-          <>
-            <p className="text-[15px] font-extrabold">{t.profile.nextToClear}</p>
-            <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed">
-              <span className="font-extrabold">{going.label}</span>
-              {going.due ? t.profile.dueToClearDetail(going.activities) : t.profile.nextToClearDetail(going.activities, longDate(going.clearedOn!))}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-[15px] font-extrabold">{t.profile.nothingDue}</p>
-            <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed">{t.profile.nothingDueHint}</p>
-          </>
-        )}
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {RETENTION_CHOICES.map((choice) => {
-            const on = savings.retentionMonths === choice.months;
-            return (
-              <Chip
-                key={choice.label}
-                selected={on}
-                // Choosing a window is not consent to clearing what it newly
-                // leaves out: the months past the new cutoff are read and
-                // listed first, and only then acknowledged.
-                onClick={() => onSaveSettings({ retentionMonths: choice.months })}
-                className={on ? '' : 'bg-card/70 text-ink'}
-              >
-                {choice.label}
-              </Chip>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-start gap-3 rounded-3xl bg-mint p-4">
-        <Icon name="shield" size={20} className="mt-0.5" />
-        <p className="text-[12.5px] font-medium leading-relaxed">
-          <span className="font-extrabold">{t.profile.moneyUntouched}</span>
-          {t.profile.moneyUntouchedHint}
+        <p className="px-1 text-center text-[12.5px] font-semibold text-mute">
+          PDF · {t.profile.pdfStatement} &nbsp;&nbsp; Excel · {t.profile.excelRecords}
         </p>
+
+        {/* ------------------------------------------------------ housekeeping */}
+
+        <div className="mt-3 px-1">
+          <h2 className="text-[15px] font-bold">{t.profile.keepingQuick}</h2>
+          <p className="text-[12.5px] font-medium leading-relaxed text-mute">{t.profile.keepingQuickHint}</p>
+        </div>
+
+        <div className="rounded-3xl bg-card p-3.5">
+          {kept !== 'ready' ? (
+            <p className="text-[12.5px] font-bold leading-relaxed">{kept === 'loading' ? t.common.older.loading : t.common.older.failed}</p>
+          ) : going ? (
+            <>
+              <p className="text-[15px] font-bold">{t.profile.nextToClear}</p>
+              <p className="mt-1 text-[12.5px] font-medium leading-relaxed text-mute">
+                <span className="font-bold text-ink">{going.label}</span>
+                {going.due ? t.profile.dueToClearDetail(going.activities) : t.profile.nextToClearDetail(going.activities, longDate(going.clearedOn!))}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[15px] font-bold">{t.profile.nothingDue}</p>
+              <p className="mt-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.profile.nothingDueHint}</p>
+            </>
+          )}
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {RETENTION_CHOICES.map((choice) => {
+              const on = savings.retentionMonths === choice.months;
+              return (
+                <Chip
+                  key={choice.label}
+                  selected={on}
+                  // Choosing a window is not consent to clearing what it newly
+                  // leaves out: the months past the new cutoff are read and
+                  // listed first, and only then acknowledged.
+                  onClick={() => onSaveSettings({ retentionMonths: choice.months })}
+                  className={on ? '' : '!bg-page !text-ink'}
+                >
+                  {choice.label}
+                </Chip>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2.5 rounded-3xl bg-card p-3.5">
+          <IconTile icon="shield" tint="teal" size={38} />
+          <p className="min-w-0 flex-1 text-[12.5px] font-medium leading-relaxed text-mute">
+            <span className="font-bold text-ink">{t.profile.moneyUntouched}</span>
+            {t.profile.moneyUntouchedHint}
+          </p>
+        </div>
       </div>
 
       {showBackup && <BackupSheet onClose={() => setShowBackup(false)} />}

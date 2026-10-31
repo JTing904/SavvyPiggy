@@ -16,6 +16,8 @@ import { getThemePreference, setThemePreference, type ThemePreference } from '..
 import { Button } from './ui/Button';
 import { Group } from './ui/Group';
 import { Icon } from './ui/Icon';
+import { IconTile } from './ui/IconTile';
+import { PageBand } from './ui/PageBand';
 import { Row } from './ui/Row';
 import { Toggle } from './ui/Toggle';
 
@@ -23,6 +25,11 @@ import { Toggle } from './ui/Toggle';
 const RECEIPT_WARN = 5400;
 
 interface ProfileProps {
+  /** The version on this phone; empty where there is nothing to update. */
+  version?: string;
+  checking?: boolean;
+  upToDate?: boolean | null;
+  onCheckUpdate?: () => void;
   banks: PiggyBank[];
   activities: Activity[];
   /** The current saving streak, counted by the app. */
@@ -47,8 +54,8 @@ const monthYear = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month
 const shortDate = (d: Date) => d.toLocaleDateString(dateLocale('en-US'), { month: 'short', day: 'numeric' });
 
 const Section: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <section className="mt-6">
-    <h2 className="mb-2 px-1 text-[15px] font-extrabold">{label}</h2>
+  <section className="mt-1">
+    <h2 className="mb-1.5 px-1 text-[15px] font-bold">{label}</h2>
     {children}
   </section>
 );
@@ -63,6 +70,10 @@ const Profile: React.FC<ProfileProps> = ({
   liveBills,
   savings,
   unreadAlerts,
+  version,
+  checking = false,
+  upToDate = null,
+  onCheckUpdate,
   onBack,
   onToggleOverflow,
   onUnarchive,
@@ -168,249 +179,251 @@ const Profile: React.FC<ProfileProps> = ({
   const rules = liveRules.length + liveBills;
 
   return (
-    <div className="flex min-h-full flex-col px-4 pb-24 pt-3 safe-pt font-figtree text-ink">
-      <div className="mb-1 flex items-center gap-3 px-1">
-        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
-          <Icon name="back" size={20} />
-        </button>
-      </div>
-      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.profile.settings}</h1>
+    <div className="flex min-h-full flex-col pb-24 font-figtree text-ink">
+      <PageBand title={t.profile.settings} onBack={onBack} overlap={16} />
 
-      {/* Who */}
-      <div className="mt-4 rounded-3xl bg-card p-5">
-        <div className="flex items-center gap-4">
-          {user.photoURL ? (
-            <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="size-16 rounded-3xl object-cover" />
-          ) : (
-            <span className="grid size-16 shrink-0 place-items-center rounded-3xl bg-mint text-[26px] font-extrabold">{initial}</span>
-          )}
-          <div className="min-w-0">
-            <p className="truncate text-[18px] font-extrabold">{label}</p>
-            <p className="truncate text-[12.5px] font-medium text-mute">{user.email}</p>
-            {joined && <p className="mt-0.5 text-[12px] font-bold text-pos">{t.profile.savingSince(monthYear(joined))}</p>}
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {/* A third of a phone's width, so everything here wraps rather than truncating on a large system font. */}
-          {stats.map((s) => (
-            <div key={s.label} className="min-w-0 rounded-2xl bg-line/5 px-2 py-3 text-center">
-              <p className="whitespace-nowrap text-[15px] font-extrabold tabular-nums leading-tight">{s.value}</p>
-              <p className="mt-1 text-[11px] font-bold leading-tight text-mute">{s.label}</p>
-              <p className={`mt-1 text-[10.5px] font-bold leading-tight ${s.tone}`}>{s.hint}</p>
+      <div className="-mt-[58px] flex flex-col gap-2.5 px-4">
+        {/* Who */}
+        <div className="rounded-3xl bg-card p-3.5 shadow-[0_2px_10px_rgba(20,35,58,0.1)]">
+          <div className="flex items-center gap-3">
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="size-[52px] shrink-0 rounded-full object-cover" />
+            ) : (
+              <span className="grid size-[52px] shrink-0 place-items-center rounded-full bg-hero text-[18px] font-extrabold text-tblue">{initial}</span>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-[16px] font-bold">{label}</p>
+              <p className="truncate text-[12.5px] font-semibold text-mute">{user.email}</p>
+              {joined && <p className="text-[12.5px] font-semibold text-pos">{t.profile.savingSince(monthYear(joined))}</p>}
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Light, dark, or the phone's own */}
-      <Section label={appearance.title}>
-        <div className="rounded-3xl bg-card p-3">
-          <div role="tablist" aria-label={appearance.title} className="flex rounded-full bg-line/10 p-1">
-            {THEMES.map((o) => {
-              const on = o.value === theme;
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => {
-                    setTheme(o.value);
-                    setThemePreference(o.value);
-                  }}
-                  className={`min-h-11 min-w-0 flex-1 whitespace-nowrap rounded-full px-1 text-[13px] font-extrabold ${on ? 'bg-card text-ink' : 'text-mute'}`}
-                >
-                  {o.label}
-                </button>
-              );
-            })}
           </div>
-          <p className="mt-2 px-2 text-[12px] font-medium leading-snug text-mute">{appearance.hint}</p>
-        </div>
-      </Section>
-
-      {/* Automatic */}
-      <Section label={t.profile.automatedSavings}>
-        <Group>
-          <Row
-            icon="repeat"
-            tint="mint"
-            title={
-              rules === 0
-                ? t.profile.noAutoDeposits
-                : liveBills === 0 && liveRules.length === 1
-                  ? describe(liveRules[0])
-                  : t.profile.rulesRunning(rules)
-            }
-            sub={rules === 0 ? t.profile.setAside : nextRun ? t.profile.nextOn(shortDate(nextRun)) : t.profile.postsOnOpen}
-            trailing={
-              liveRules.length > 0 ? (
-                <span className="rounded-full bg-mint px-3 py-1 text-[11.5px] font-extrabold">{formatMoney(liveRules.reduce((sum, s) => sum + s.amount, 0))}</span>
-              ) : (
-                <Chevron />
-              )
-            }
-            tone="mute"
-            onClick={onOpenAutoDeposits}
-          />
-          <div className="flex items-center gap-3 py-2.5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-lav text-ink">
-              <Icon name="swap" size={18} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14.5px] font-bold">{t.profile.overflowTitle}</span>
-              <span className="block text-[11.5px] font-medium leading-snug text-mute">{t.profile.overflowHint}</span>
-            </span>
-            <Toggle checked={savings.overflow} onChange={onToggleOverflow} label={t.profile.overflowTitle} />
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {/* A third of a phone's width, so everything here wraps rather than truncating on a large system font. */}
+            {stats.map((s) => (
+              <div key={s.label} className="min-w-0 rounded-2xl bg-page px-2 py-2.5 text-center">
+                <p className="whitespace-nowrap text-[15px] font-bold tabular-nums leading-tight">{s.value}</p>
+                <p className="mt-1 text-[12px] font-semibold leading-tight text-mute">{s.label}</p>
+                <p className={`mt-0.5 text-[11.5px] font-semibold leading-tight ${s.tone}`}>{s.hint}</p>
+              </div>
+            ))}
           </div>
-          <Row
-            icon="pie"
-            tint="sun"
-            title={t.profile.distributionSplit}
-            sub={allocated === 100 ? t.profile.fullyAllocated : t.profile.allocatedUnassigned(allocated, 100 - allocated)}
-            trailing={<Chevron />}
-            tone="mute"
-            onClick={onOpenStrategy}
-          />
-        </Group>
-      </Section>
+        </div>
 
-      {/* Goals: one way in; the split itself lives on its own page */}
-      <Section label={t.common.goals}>
-        <Group>
-          <Row
-            icon="target"
-            tint="peach"
-            title={t.profile.manageAll(active.length)}
-            sub={t.profile.activeAmount(formatMoney(totalBalance - archivedTotal, { decimals: 0 }))}
-            trailing={<Chevron />}
-            tone="mute"
-            onClick={onOpenStrategy}
-          />
-          {archived.length > 0 && (
-            <>
-              <Row
-                icon="archive"
-                tint="lav"
-                title={t.profile.archivedGoals(archived.length)}
-                sub={t.profile.putAway(formatMoney(archivedTotal, { decimals: 0 }))}
-                trailing={<Icon name="chev" size={18} className={`text-mute transition-transform ${showArchive ? 'rotate-90' : ''}`} />}
-                tone="mute"
-                onClick={() => setShowArchive((v) => !v)}
-              />
-              {showArchive && (
-                <div className="space-y-1 pb-2">
-                  {archived.map((b) => (
-                    <div key={b.id} className="flex min-w-0 items-center gap-3 py-1.5">
-                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-line/5 text-mute">
-                        <span className="material-symbols-rounded" style={{ fontSize: 20 }}>
-                          {safeGoalIcon(b.icon)}
-                        </span>
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-bold">{b.name}</span>
-                        <span className="block truncate text-[11.5px] font-medium text-mute">
-                          {formatMoney(b.currentAmount)}
-                          {b.archivedAt ? t.profile.archivedOn(shortDate(new Date(b.archivedAt))) : ''}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => onUnarchive(b.id)}
-                        className="min-h-11 shrink-0 rounded-full bg-line/10 px-4 text-[12.5px] font-extrabold active:opacity-70"
-                      >
-                        {t.profile.restore}
-                      </button>
-                    </div>
-                  ))}
-                  <p className="px-1 pt-1 text-[11.5px] font-medium leading-relaxed text-mute">{t.profile.archiveNote}</p>
-                </div>
-              )}
-            </>
-          )}
-        </Group>
-      </Section>
-
-      {/* App */}
-      <Section label={t.profile.app}>
-        <Group>
-          <Row
-            icon="bell"
-            tint="peach"
-            title={t.profile.notificationCenter}
-            sub={t.profile.notificationHint}
-            trailing={
-              <span className="flex items-center gap-2">
-                {unreadAlerts > 0 && <span className="size-2.5 rounded-full bg-neg" aria-label={String(unreadAlerts)} />}
-                <Chevron />
-              </span>
-            }
-            tone="mute"
-            onClick={onOpenAlerts}
-          />
-          <Row
-            icon="trend"
-            tint="mint"
-            title={t.profile.investments}
-            sub={holdingCount === 0 ? t.profile.investmentsEmpty : t.profile.investmentsCount(holdingCount)}
-            trailing={<Chevron />}
-            tone="mute"
-            onClick={onOpenHoldings}
-          />
-          {receipts > 0 && (
+        {/* Automatic */}
+        <Section label={t.profile.automatedSavings}>
+          <Group>
             <Row
-              icon="image"
-              tint="lav"
-              title={t.net.receiptsRow}
-              sub={receipts >= RECEIPT_WARN ? t.net.receiptsNearFull : t.net.receiptsUsed(receipts, `${((receipts * 150) / 1024).toFixed(1)} MB`)}
-            />
-          )}
-          <Row icon="doc" tint="lav" title={t.profile.statementsExports} sub={t.profile.statementsHint} trailing={<Chevron />} tone="mute" onClick={onOpenReport} />
-          {isAdminUser(user) && (
-            <Row
-              icon="userplus"
+              icon="repeat"
               tint="mint"
-              title={t.invite.rowTitle}
-              sub={t.invite.rowSub}
+              title={
+                rules === 0
+                  ? t.profile.noAutoDeposits
+                  : liveBills === 0 && liveRules.length === 1
+                    ? describe(liveRules[0])
+                    : t.profile.rulesRunning(rules)
+              }
+              sub={rules === 0 ? t.profile.setAside : nextRun ? t.profile.nextOn(shortDate(nextRun)) : t.profile.postsOnOpen}
+              trailing={
+                liveRules.length > 0 ? (
+                  <span className="rounded-md bg-mint px-2 py-0.5 text-[12.5px] font-bold">{formatMoney(liveRules.reduce((sum, s) => sum + s.amount, 0))}</span>
+                ) : (
+                  <Chevron />
+                )
+              }
+              tone="mute"
+              onClick={onOpenAutoDeposits}
+            />
+            <div className="flex min-h-14 items-center gap-2.5 py-2">
+              <IconTile icon="swap" tint="violet" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14.5px] font-bold">{t.profile.overflowTitle}</span>
+                <span className="block text-[12.5px] font-semibold leading-snug text-mute">{t.profile.overflowHint}</span>
+              </span>
+              <Toggle checked={savings.overflow} onChange={onToggleOverflow} label={t.profile.overflowTitle} />
+            </div>
+            <Row
+              icon="pie"
+              tint="sun"
+              title={t.profile.distributionSplit}
+              sub={allocated === 100 ? t.profile.fullyAllocated : t.profile.allocatedUnassigned(allocated, 100 - allocated)}
               trailing={<Chevron />}
               tone="mute"
-              onClick={() => setShowInvite(true)}
+              onClick={onOpenStrategy}
             />
-          )}
-          <Row
-            icon="globe"
-            tint="sun"
-            title={t.language.title}
-            sub={t.language.subtitle}
-            trailing={
-              <span className="flex items-center gap-1 text-[13px] font-bold text-mute">
-                {t.language.current}
-                <Chevron />
-              </span>
-            }
-            tone="mute"
-            onClick={() => setShowLanguage(true)}
-          />
-          <Row icon="check" tint="mint" title={t.profile.synced} sub={t.profile.syncedHint} />
-        </Group>
-      </Section>
+          </Group>
+        </Section>
 
-      {banks.length === 0 && (
-        <Button variant="ghost" loading={busy} onClick={() => void handleSeed()} className="mt-6">
-          {busy ? t.profile.adding : t.profile.addSamples}
-        </Button>
-      )}
-      {seedError && <p className="mt-2 text-center text-[12.5px] font-bold text-neg">{seedError}</p>}
+        {/* Goals: one way in; the split itself lives on its own page */}
+        <Section label={t.common.goals}>
+          <Group>
+            <Row
+              icon="target"
+              tint="peach"
+              title={t.profile.manageAll(active.length)}
+              sub={t.profile.activeAmount(formatMoney(totalBalance - archivedTotal, { decimals: 0 }))}
+              trailing={<Chevron />}
+              tone="mute"
+              onClick={onOpenStrategy}
+            />
+            {archived.length > 0 && (
+              <>
+                <Row
+                  icon="archive"
+                  tint="lav"
+                  title={t.profile.archivedGoals(archived.length)}
+                  sub={t.profile.putAway(formatMoney(archivedTotal, { decimals: 0 }))}
+                  trailing={<Icon name="chev" size={18} className={`text-mute transition-transform ${showArchive ? 'rotate-90' : ''}`} />}
+                  tone="mute"
+                  onClick={() => setShowArchive((v) => !v)}
+                />
+                {showArchive && (
+                  <div className="space-y-1 pb-2">
+                    {archived.map((b) => (
+                      <div key={b.id} className="flex min-w-0 items-center gap-3 py-1.5">
+                        <IconTile icon={<span className="material-symbols-rounded text-[20px] leading-none">{safeGoalIcon(b.icon)}</span>} tint="plain" size={38} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14px] font-bold">{b.name}</span>
+                          <span className="block truncate text-[12.5px] font-semibold text-mute">
+                            {formatMoney(b.currentAmount)}
+                            {b.archivedAt ? t.profile.archivedOn(shortDate(new Date(b.archivedAt))) : ''}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onUnarchive(b.id)}
+                          className="min-h-11 shrink-0 rounded-xl bg-page px-4 text-[13px] font-bold active:opacity-70"
+                        >
+                          {t.profile.restore}
+                        </button>
+                      </div>
+                    ))}
+                    <p className="px-1 pt-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.profile.archiveNote}</p>
+                  </div>
+                )}
+              </>
+            )}
+          </Group>
+        </Section>
 
-      <button
-        type="button"
-        onClick={() => void logout()}
-        className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-line/10 text-[15px] font-extrabold text-neg active:opacity-70"
-      >
-        <Icon name="logout" size={18} />
-        {t.profile.signOut}
-      </button>
-      <p className="mt-4 text-center text-[11.5px] font-semibold text-mute">SavvyPiggy v{APP_VERSION}</p>
+        {/* App */}
+        <Section label={t.profile.app}>
+          <Group>
+            <Row
+              icon="bell"
+              tint="peach"
+              title={t.profile.notificationCenter}
+              sub={t.profile.notificationHint}
+              trailing={
+                <span className="flex items-center gap-2">
+                  {unreadAlerts > 0 && <span className="size-2.5 rounded-full bg-neg" aria-label={String(unreadAlerts)} />}
+                  <Chevron />
+                </span>
+              }
+              tone="mute"
+              onClick={onOpenAlerts}
+            />
+            <Row
+              icon="trend"
+              tint="mint"
+              title={t.profile.investments}
+              sub={holdingCount === 0 ? t.profile.investmentsEmpty : t.profile.investmentsCount(holdingCount)}
+              trailing={<Chevron />}
+              tone="mute"
+              onClick={onOpenHoldings}
+            />
+            {receipts > 0 && (
+              <Row
+                icon="image"
+                tint="lav"
+                title={t.net.receiptsRow}
+                sub={receipts >= RECEIPT_WARN ? t.net.receiptsNearFull : t.net.receiptsUsed(receipts, `${((receipts * 150) / 1024).toFixed(1)} MB`)}
+              />
+            )}
+            <Row icon="doc" tint="lav" title={t.profile.statementsExports} sub={t.profile.statementsHint} trailing={<Chevron />} tone="mute" onClick={onOpenReport} />
+            {isAdminUser(user) && (
+              <Row
+                icon="userplus"
+                tint="mint"
+                title={t.invite.rowTitle}
+                sub={t.invite.rowSub}
+                trailing={<Chevron />}
+                tone="mute"
+                onClick={() => setShowInvite(true)}
+              />
+            )}
+            <Row
+              icon="globe"
+              tint="sun"
+              title={t.language.title}
+              sub={t.language.subtitle}
+              trailing={
+                <span className="flex items-center gap-1 text-[13px] font-bold text-mute">
+                  {t.language.current}
+                  <Chevron />
+                </span>
+              }
+              tone="mute"
+              onClick={() => setShowLanguage(true)}
+            />
+            {version && (
+              <Row
+                icon="dep"
+                tint="lav"
+                title={t.pro.update.check}
+                sub={`${t.pro.update.row} ${version}`}
+                trailing={<span className="text-[13px] font-bold text-mute">{checking ? t.pro.update.checking : upToDate ? t.pro.update.latest : <Chevron />}</span>}
+                tone="mute"
+                onClick={onCheckUpdate}
+              />
+            )}
+            <Row icon="check" tint="mint" title={t.profile.synced} sub={t.profile.syncedHint} />
+          </Group>
+        </Section>
+
+        {/* Light, dark, or the phone's own */}
+        <Section label={appearance.title}>
+          <div className="rounded-3xl bg-card p-2.5">
+            <div role="tablist" aria-label={appearance.title} className="flex gap-0.5 rounded-[10px] bg-page p-0.5">
+              {THEMES.map((o) => {
+                const on = o.value === theme;
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => {
+                      setTheme(o.value);
+                      setThemePreference(o.value);
+                    }}
+                    className={`min-h-11 min-w-0 flex-1 whitespace-nowrap rounded-lg px-1 text-[13px] font-bold ${on ? 'bg-card text-ink' : 'text-mute'}`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 px-1.5 text-[12.5px] font-medium leading-snug text-mute">{appearance.hint}</p>
+          </div>
+        </Section>
+
+        {banks.length === 0 && (
+          <Button variant="ghost" loading={busy} onClick={() => void handleSeed()} className="mt-1">
+            {busy ? t.profile.adding : t.profile.addSamples}
+          </Button>
+        )}
+        {seedError && <p className="text-center text-[12.5px] font-bold text-neg">{seedError}</p>}
+
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="mt-1 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-card text-[15px] font-bold text-neg active:opacity-70"
+        >
+          <Icon name="logout" size={18} strokeWidth={2} />
+          {t.profile.signOut}
+        </button>
+        <p className="mt-1 text-center text-[12.5px] font-semibold text-mute">SavvyPiggy v{APP_VERSION}</p>
+      </div>
 
       {showLanguage && <LanguageSheet onClose={() => setShowLanguage(false)} />}
       {showInvite && <InviteSheet onClose={() => setShowInvite(false)} />}

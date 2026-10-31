@@ -106,7 +106,7 @@ export const Sheet: React.FC<SheetProps> = ({ onClose, title, footer, z = 50, he
       <div
         ref={panel}
         tabIndex={-1}
-        className={`sheet-rise absolute inset-x-0 bottom-0 mx-auto flex w-full max-w-md flex-col rounded-t-[32px] bg-sheet text-ink outline-none ${
+        className={`sheet-rise absolute inset-x-0 bottom-0 mx-auto flex w-full max-w-xl flex-col rounded-t-[32px] bg-sheet text-ink outline-none ${
           height === 'tall' ? 'h-[92dvh]' : 'max-h-[92dvh]'
         }`}
       >

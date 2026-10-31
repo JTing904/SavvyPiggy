@@ -11,6 +11,8 @@ import { dateLocale } from '../../i18n';
 import WatchlistSheet from './WatchlistSheet';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
+import { IconTile } from '../ui/IconTile';
+import { PageBand } from '../ui/PageBand';
 import {
   STYLE_COLORS,
   activeStyles,
@@ -49,7 +51,7 @@ const Dot: React.FC<{ style: Style; className?: string }> = ({ style, className 
 );
 
 const MixBar: React.FC<{ mix: Record<Style, number>; className?: string }> = ({ mix, className = '' }) => (
-  <div className={`flex h-2.5 overflow-hidden rounded-full bg-line/10 ${className}`}>
+  <div className={`flex h-2.5 overflow-hidden rounded-full bg-track ${className}`}>
     {STYLES.map((s) => (
       <i key={s} className="block h-full" style={{ width: `${mix[s]}%`, background: STYLE_COLORS[s] }} />
     ))}
@@ -115,11 +117,11 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
       .filter((r): r is typeof r & { text: string } => r.text !== null);
     const second = ranked[1];
     return (
-      <div className="mt-3 rounded-[28px] bg-sun p-5">
-        <p className="text-[12.5px] font-bold">{p.bestMatch(monthName)}</p>
+      <div className="mt-2.5 rounded-3xl bg-card p-3.5">
+        <p className="text-[13.5px] font-semibold text-mute">{p.bestMatch(monthName)}</p>
         <div className="mt-1 flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-[30px] font-extrabold leading-tight tracking-[-0.03em]">{nameOf(pick.symbol)}</h3>
-          <span className="shrink-0 rounded-full bg-line/10 px-2.5 py-0.5 text-[11px] font-extrabold">{p.tag[type]}</span>
+          <h3 className="truncate text-[26px] font-bold leading-tight">{nameOf(pick.symbol)}</h3>
+          <span className="shrink-0 rounded-md bg-page px-1.5 py-0.5 text-[11.5px] font-bold">{p.tag[type]}</span>
         </div>
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
           {activeStyles(mix).map((s) => (
@@ -134,10 +136,10 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
           <div className="mt-4 space-y-3">
             {forIt.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-[12px] font-bold opacity-70">{p.countsFor}</p>
+                <p className="text-[12.5px] font-semibold text-mute">{p.countsFor}</p>
                 {forIt.map((r) => (
                   <div key={r.feature} className="flex gap-2 text-[13.5px] font-semibold leading-snug">
-                    <Icon name="plus" size={16} className="mt-0.5" />
+                    <Icon name="plus" size={16} strokeWidth={2} className="mt-0.5 text-pos" />
                     <span className="min-w-0">
                       {r.text}
                       {r.styles.length > 1 && (
@@ -154,10 +156,10 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
             )}
             {against.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-[12px] font-bold opacity-70">{p.countsAgainst}</p>
+                <p className="text-[12.5px] font-semibold text-mute">{p.countsAgainst}</p>
                 {against.map((r) => (
                   <div key={r.feature} className="flex gap-2 text-[13.5px] font-semibold leading-snug">
-                    <Icon name="minus" size={16} className="mt-0.5" />
+                    <Icon name="minus" size={16} strokeWidth={2} className="mt-0.5 text-neg" />
                     <span className="min-w-0">
                       {r.text}
                       <span className="ml-1.5 inline-flex gap-1 align-middle">
@@ -174,7 +176,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
         )}
 
         {second && isTie(ranked) && (
-          <div className="mt-3 flex gap-2 rounded-2xl bg-line/10 px-3 py-2.5 text-[12.5px] font-semibold leading-relaxed">
+          <div className="mt-3 flex gap-2 rounded-2xl bg-page px-3 py-2.5 text-[12.5px] font-semibold leading-relaxed">
             <Icon name="swap" size={16} className="mt-0.5" />
             <span>{p.tie(nameOf(second.symbol))}</span>
           </div>
@@ -183,7 +185,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
         <Button className="mt-5" onClick={() => onRecordBuy({ symbol: pick.symbol, name: nameOf(pick.symbol) })}>
           {p.buyThis(nameOf(pick.symbol))}
         </Button>
-        <p className="mt-2 text-center text-[12px] font-medium leading-relaxed opacity-75">{p.buyThisHint}</p>
+        <p className="mt-2 text-center text-[12.5px] font-medium leading-relaxed text-mute">{p.buyThisHint}</p>
       </div>
     );
   };
@@ -191,13 +193,11 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
   const renderStatus = () => {
     if (symbols.length === 0) {
       return (
-        <div className="mt-3 rounded-3xl bg-card p-6 text-center">
-          <span className="mx-auto mb-3 grid size-14 place-items-center rounded-full bg-mint">
-            <Icon name="list" size={26} />
-          </span>
-          <p className="text-[17px] font-extrabold">{p.emptyListTitle}</p>
+        <div className="mt-2.5 rounded-3xl bg-card p-5 text-center">
+          <IconTile icon="list" tint="teal" size={52} round className="mx-auto mb-3" />
+          <p className="text-[17px] font-bold">{p.emptyListTitle}</p>
           <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-mute">{p.emptyListBody}</p>
-          <Button className="mt-5" onClick={() => setEditingList(true)}>
+          <Button className="mt-4" onClick={() => setEditingList(true)}>
             {p.addCounters}
           </Button>
         </div>
@@ -205,12 +205,12 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
     }
     if (symbols.length < 2) {
       return (
-        <div className="mt-3 rounded-3xl bg-card p-5">
+        <div className="mt-2.5 rounded-3xl bg-card p-3.5">
           <div className="flex gap-2 text-[13px] font-semibold leading-relaxed">
             <Icon name="list" size={18} className="mt-0.5" />
             <span>{p.oneMore}</span>
           </div>
-          <Button variant="ghost" className="mt-4 bg-line/10" onClick={() => setEditingList(true)}>
+          <Button variant="ghost" className="mt-3 !bg-page" onClick={() => setEditingList(true)}>
             {p.addCounters}
           </Button>
         </div>
@@ -218,12 +218,12 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
     }
     if (advisor.status === 'unavailable') {
       return (
-        <div className="mt-3 rounded-3xl bg-card p-5">
+        <div className="mt-2.5 rounded-3xl bg-card p-3.5">
           <div className="flex gap-2 text-[13px] font-semibold leading-relaxed">
             <Icon name="bell" size={18} className="mt-0.5" />
             <span>{p.unavailable}</span>
           </div>
-          <Button variant="ghost" className="mt-4 bg-line/10" onClick={() => setPaused(true)}>
+          <Button variant="ghost" className="mt-3 !bg-page" onClick={() => setPaused(true)}>
             {p.tryAgain}
           </Button>
         </div>
@@ -238,14 +238,14 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
             : p.loading;
       const share = advisor.status === 'training' ? 1 : advisor.progress ? advisor.progress.done / Math.max(1, advisor.progress.total) : 0;
       return (
-        <div className="mt-3 rounded-3xl bg-card p-5">
+        <div className="mt-2.5 rounded-3xl bg-card p-3.5">
           <div className="flex items-start gap-2 text-[13px] font-semibold leading-relaxed">
             <Icon name="hist" size={18} className="mt-0.5 animate-pulse motion-reduce:animate-none" />
             <span className="tabular-nums">{text}</span>
           </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line/10">
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-track">
             <div
-              className={`h-full rounded-full bg-ink/60 transition-all duration-500 ${advisor.status === 'training' ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+              className={`h-full rounded-full bg-c1 transition-all duration-500 ${advisor.status === 'training' ? 'animate-pulse motion-reduce:animate-none' : ''}`}
               style={{ width: `${Math.round(share * 100)}%` }}
             />
           </div>
@@ -253,7 +253,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
       );
     }
     if (!pick) {
-      return <p className="mt-3 rounded-3xl bg-card p-5 text-[13px] font-medium leading-relaxed text-mute">{p.noScores}</p>;
+      return <p className="mt-2.5 rounded-3xl bg-card p-3.5 text-[13px] font-medium leading-relaxed text-mute">{p.noScores}</p>;
     }
     return renderPick();
   };
@@ -270,8 +270,8 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
     const names = (list: Style[]) => list.map((s) => p.styles[s]).join(p.and);
     const monthText = (key: string) => monthDate(key).toLocaleDateString(dateLocale('en-GB'), { month: 'short', year: 'numeric' });
     return (
-      <div className="mt-5 rounded-3xl bg-card p-5">
-        <div className="flex items-center gap-2 text-[14.5px] font-extrabold">
+      <div className="mt-2.5 rounded-3xl bg-card p-3.5">
+        <div className="flex items-center gap-2 text-[15px] font-bold">
           <Icon name="hist" size={18} />
           {p.recordTitle}
         </div>
@@ -288,9 +288,9 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
                       {p.styles[s]} · {mix[s]}%
                     </span>
                   </p>
-                  <p className="mt-0.5 pl-3.5 text-[11.5px] font-medium text-mute">{p.recordWhat[s]}</p>
+                  <p className="mt-0.5 pl-3.5 text-[12.5px] font-medium text-mute">{p.recordWhat[s]}</p>
                 </div>
-                <p className={`max-w-[55%] shrink-0 text-right text-[12px] font-bold tabular-nums leading-snug ${r === null || worse ? 'text-mute' : ''}`}>
+                <p className={`max-w-[55%] shrink-0 text-right text-[12.5px] font-bold tabular-nums leading-snug ${r === null || worse ? 'text-mute' : ''}`}>
                   {r === null ? p.noRecord : p.rightRandom(pct(r.hitRate, 0), pct(r.randomRate, 0))}
                 </p>
               </div>
@@ -298,7 +298,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
           })}
         </div>
         {span && (
-          <p className="mt-3 text-[12px] font-medium leading-relaxed text-mute">
+          <p className="mt-3 text-[12.5px] font-medium leading-relaxed text-mute">
             {p.recordTested(monthText(span.from), monthText(span.to))}
             {beat.length > 0 && ` ${p.recordBeat(names(beat), beat.length)}`}
             {notBeat.length > 0 && (
@@ -319,16 +319,16 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
     const rest = symbols.filter((s) => !scored.has(s));
     return (
       <>
-        <div className="mb-2 mt-6 flex items-center px-1">
-          <h2 className="flex-1 text-[15px] font-extrabold">{p.ranked}</h2>
-          <button type="button" onClick={() => setEditingList(true)} className="min-h-11 px-1 text-[13.5px] font-extrabold">
+        <div className="mt-2 flex items-center px-1">
+          <h2 className="flex-1 text-[15px] font-bold">{p.ranked}</h2>
+          <button type="button" onClick={() => setEditingList(true)} className="min-h-11 px-1 text-[13.5px] font-bold text-tblue active:opacity-70">
             {t.common.edit}
           </button>
         </div>
-        <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
+        <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
           {ranked.map((r, i) => (
             <div key={r.symbol} className="py-3">
-              <div className="flex items-baseline gap-2 text-[15px] font-extrabold">
+              <div className="flex items-baseline gap-2 text-[15px] font-bold">
                 <span className="w-4 shrink-0 text-[12px] font-bold text-mute">{i + 1}</span>
                 <span className="min-w-0 flex-1 truncate">{nameOf(r.symbol)}</span>
                 <span className={`shrink-0 tabular-nums ${i === 0 ? 'text-pos' : ''}`}>{r.match}</span>
@@ -336,23 +336,23 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
               <div className="ml-6 mt-2 grid grid-cols-3 gap-2">
                 {STYLES.map((s) => (
                   <div key={s} className="min-w-0">
-                    <div className="h-1.5 overflow-hidden rounded-full bg-line/10">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-track">
                       <div className="h-full rounded-full" style={{ width: `${Math.round(r.chance[s] * 100)}%`, background: STYLE_COLORS[s] }} />
                     </div>
-                    <p className="mt-1 truncate text-[11px] font-bold text-mute">
+                    <p className="mt-1 truncate text-[11.5px] font-semibold text-mute">
                       <span className="tabular-nums text-ink">{pct(r.chance[s], 0)}</span> {p.styles[s]}
                     </p>
                   </div>
                 ))}
               </div>
-              <p className="ml-6 mt-1 text-[11.5px] font-medium tabular-nums text-mute">{factsText(p, r.x)}</p>
+              <p className="ml-6 mt-1 text-[12.5px] font-medium tabular-nums text-mute">{factsText(p, r.x)}</p>
             </div>
           ))}
           {rest.map((symbol) => (
             <div key={symbol} className="flex items-baseline gap-2 py-3 text-[14px] font-bold">
               <span className="w-4 shrink-0 text-[12px] text-mute">–</span>
               <span className="min-w-0 truncate text-mute">{nameOf(symbol)}</span>
-              {ready && <span className="min-w-0 flex-1 truncate text-right text-[11px] font-medium text-mute">{p.notScored}</span>}
+              {ready && <span className="min-w-0 flex-1 truncate text-right text-[12px] font-medium text-mute">{p.notScored}</span>}
             </div>
           ))}
         </div>
@@ -362,37 +362,34 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
 
   return (
     <div className="fixed inset-0 z-[45] flex justify-center bg-page font-figtree text-ink">
-      <div className="flex h-full w-full max-w-md flex-col safe-pt">
-        <div className="flex shrink-0 items-center gap-3 px-4 pb-1 pt-3">
-          <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 shrink-0 place-items-center rounded-full bg-card active:opacity-80">
-            <Icon name="back" size={20} />
-          </button>
+      <div className="flex h-full w-full max-w-xl flex-col">
+        <div className="shrink-0">
+          <PageBand title={p.title} onBack={onBack} />
         </div>
-        <h1 className="shrink-0 truncate px-5 text-[30px] font-extrabold tracking-tight">{p.title}</h1>
 
         <div className="no-scrollbar flex-1 overflow-y-auto px-4 pb-16 safe-pb">
           {/* Style */}
           {!invest.style || !mix ? (
-            <div className="mt-3 rounded-3xl bg-sun p-5">
-              <p className="text-[12.5px] font-bold">{p.yourStyle}</p>
-              <p className="mt-1.5 text-[17px] font-extrabold">{p.setStyleTitle}</p>
-              <p className="mt-1 text-[13px] font-medium leading-relaxed opacity-80">{p.setStyleBody}</p>
-              <Button className="mt-4" onClick={onEditStyle}>
+            <div className="mt-3 rounded-3xl bg-card p-3.5">
+              <p className="text-[13.5px] font-semibold text-mute">{p.yourStyle}</p>
+              <p className="mt-1 text-[17px] font-bold">{p.setStyleTitle}</p>
+              <p className="mt-1 text-[13px] font-medium leading-relaxed text-mute">{p.setStyleBody}</p>
+              <Button className="mt-3" onClick={onEditStyle}>
                 {p.setStyle}
               </Button>
             </div>
           ) : (
             <>
-              <div className="mt-3 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
+              <div className="mt-3 flex items-center gap-3 rounded-3xl bg-card px-3.5 py-3">
                 <div className="min-w-0 flex-1">
                   <MixBar mix={mix} />
-                  <p className="mt-1.5 text-[12px] font-bold leading-snug">
+                  <p className="mt-1.5 text-[12.5px] font-bold leading-snug">
                     {activeStyles(mix)
                       .map((s) => `${p.styles[s]} ${mix[s]}`)
                       .join(' · ')}
                   </p>
                 </div>
-                <button type="button" onClick={onEditStyle} className="min-h-11 shrink-0 px-1 text-[13.5px] font-extrabold">
+                <button type="button" onClick={onEditStyle} className="min-h-11 shrink-0 px-1 text-[13.5px] font-bold text-tblue active:opacity-70">
                   {t.common.edit}
                 </button>
               </div>
@@ -403,7 +400,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
             </>
           )}
 
-          <p className="mt-5 px-3 text-center text-[11.5px] font-medium leading-relaxed text-mute">{p.disclaimer}</p>
+          <p className="mt-4 px-3 text-center text-[12.5px] font-medium leading-relaxed text-mute">{p.disclaimer}</p>
         </div>
       </div>
 

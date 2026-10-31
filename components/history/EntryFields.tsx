@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { PiggyBank } from '../../types';
-import { Amount } from '../ui/Amount';
 import { Button } from '../ui/Button';
 import { Chip } from '../ui/Chip';
+import { IconTile, type IconTint } from '../ui/IconTile';
 import { Keypad } from '../ui/Keypad';
 import DateField from '../DateField';
 import EntryTimeField from './TimeField';
 import { amountToCents, pressKey } from '../../services/keypad';
+import { formatMoney, fromCents } from '../../services/money';
 import { toInputDate } from '../../services/calendar';
 import { useLanguage, useT } from '../../contexts/LanguageContext';
 
@@ -38,44 +39,24 @@ export const useOnline = () => {
   return online;
 };
 
-/** A small heading above a group of choices. */
-export const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="mb-2 mt-5 text-[11.5px] font-bold text-mute">{children}</p>
-);
+/** The amount, as the band's big figure. Tapping it opens the keys below. */
+export const AmountFigure: React.FC<{ value: string; onOpen: () => void }> = ({ value, onOpen }) => {
+  const t = useT();
+  return (
+    <button type="button" onClick={onOpen} className="mt-1.5 block max-w-full text-left active:opacity-80">
+      <span className="block truncate text-[38px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{formatMoney(fromCents(amountToCents(value)))}</span>
+      <span className="mt-0.5 block truncate text-[13.5px] font-semibold text-band-sub">{t.pro.entry.tapToChange}</span>
+    </button>
+  );
+};
 
 /**
- * The amount: a field showing it, which opens the app's keypad. The first key
- * pressed replaces the old figure (a correction is usually a whole new number);
- * backspace edits it instead.
+ * The app's keypad for the amount. The first key pressed replaces the old figure
+ * (a correction is usually a whole new number); backspace edits it instead.
  */
-export const AmountField: React.FC<{
-  value: string;
-  onChange: (value: string) => void;
-  /** Told when the keypad opens or closes, so the sheet can keep still while keys are pressed. */
-  onOpenChange?: (open: boolean) => void;
-}> = ({ value, onChange, onOpenChange }) => {
+export const AmountKeys: React.FC<{ value: string; onChange: (value: string) => void; onDone: () => void }> = ({ value, onChange, onDone }) => {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const fresh = useRef(true);
-  useEffect(() => {
-    onOpenChange?.(open);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          fresh.current = true;
-          setOpen(true);
-        }}
-        className="flex min-h-14 w-full flex-col justify-center rounded-[18px] bg-field px-4 py-2.5 text-left active:opacity-80"
-      >
-        <span className="block text-[11.5px] font-bold text-mute">{t.entry.amount}</span>
-        <Amount cents={amountToCents(value)} size="md" />
-      </button>
-    );
-  }
 
   const press = (next: string) => {
     // The first key of a correction starts a new amount; backspace afterwards edits one digit.
@@ -86,15 +67,61 @@ export const AmountField: React.FC<{
 
   return (
     <div>
-      <Keypad value={value} onChange={press} />
-      <Button variant="ghost" onClick={() => setOpen(false)} className="mt-2">
+      <Keypad value={value} onChange={press} compact />
+      <Button variant="ghost" onClick={onDone} className="mt-2">
         {t.entry.amountDone}
       </Button>
     </div>
   );
 };
 
-/** The day and the time, side by side. A day before the retention cutoff or after today cannot be picked. */
+/** One detail of an entry: what it is on the left, what it is set to on the right. */
+export const DetailRow: React.FC<{
+  icon: React.ReactNode;
+  tint: IconTint;
+  /** A round tile marks a record's own kind, like its category. */
+  round?: boolean;
+  label: string;
+  /** Absent: the detail can only be read. */
+  onClick?: () => void;
+  children: React.ReactNode;
+}> = ({ icon, tint, round, label, onClick, children }) => {
+  const body = (
+    <>
+      <IconTile icon={icon} tint={tint} size={38} round={round} />
+      <span className="min-w-0 flex-1 truncate font-semibold text-mute">{label}</span>
+      <span className="max-w-[60%] shrink-0 truncate text-right font-bold tabular-nums">{children}</span>
+    </>
+  );
+  const layout = 'flex min-h-[60px] w-full items-center gap-2.5 text-left text-[15px]';
+  if (!onClick) return <div className={layout}>{body}</div>;
+  return (
+    <button type="button" onClick={onClick} className={`${layout} active:opacity-70`}>
+      {body}
+    </button>
+  );
+};
+
+/** The note, typed straight into its row. */
+export const NoteRow: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => {
+  const t = useT();
+  return (
+    <label className="flex min-h-[60px] w-full items-center gap-2.5 text-[15px]">
+      <IconTile icon="pencil" tint="amber" size={38} />
+      <span className="shrink-0 font-semibold text-mute">{t.entry.note}</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t.entry.notePlaceholder}
+        autoComplete="off"
+        className="min-h-7 w-full min-w-0 flex-1 select-text border-0 bg-transparent p-0 text-right font-figtree text-[15px] font-bold text-ink placeholder:text-mute focus:ring-0"
+      />
+    </label>
+  );
+};
+
+/** The day and the time, as two rows. A day before the retention cutoff or after today cannot be picked. */
 export const WhenFields: React.FC<{
   day: string;
   time: string;
@@ -105,7 +132,7 @@ export const WhenFields: React.FC<{
   const t = useT();
   const { lang } = useLanguage();
   return (
-    <div className="mt-2 flex gap-2">
+    <>
       <DateField
         label={t.entry.date}
         value={day}
@@ -113,20 +140,22 @@ export const WhenFields: React.FC<{
         min={notBefore}
         max={toInputDate(Date.now())}
         renderTrigger={(open) => (
-          <>
-            <p className="mb-2 text-[11.5px] font-bold text-mute">{t.entry.date}</p>
-            <button
-              type="button"
-              onClick={open}
-              className="flex min-h-14 w-full items-center gap-3 rounded-[18px] bg-field px-4 text-left active:opacity-80"
-            >
-              <span className="min-w-0 flex-1 truncate text-base font-semibold tabular-nums text-ink">{shortDay(day, lang)}</span>
-            </button>
-          </>
+          <DetailRow icon="cal" tint="blue" label={t.entry.date} onClick={open}>
+            {shortDay(day, lang)}
+          </DetailRow>
         )}
       />
-      <EntryTimeField label={t.entry.time} value={time} onChange={onTime} />
-    </div>
+      <EntryTimeField
+        label={t.entry.time}
+        value={time}
+        onChange={onTime}
+        renderTrigger={(open) => (
+          <DetailRow icon="hist" tint="blue" label={t.entry.time} onClick={open}>
+            {time}
+          </DetailRow>
+        )}
+      />
+    </>
   );
 };
 

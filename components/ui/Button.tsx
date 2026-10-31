@@ -37,7 +37,7 @@ export const Button: React.FC<ButtonProps> = ({
       type={type}
       disabled={off}
       aria-busy={loading || undefined}
-      className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-6 font-figtree text-[15.5px] font-extrabold ${
+      className={`inline-flex min-h-[52px] items-center justify-center gap-2 rounded-[14px] px-6 font-figtree text-[15.5px] font-bold ${
         VARIANT[variant]
       } ${full ? 'w-full' : ''} ${off ? 'opacity-40' : 'active:opacity-80'} ${className ?? ''}`}
     >

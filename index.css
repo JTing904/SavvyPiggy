@@ -176,27 +176,27 @@ input[type=number] {
    block, so keep the triplets in this exact form. */
 :root,
 [data-theme="light"] {
-    --page: 243 245 241;
+    --page: 238 241 245;
     --card: 255 255 255;
-    --sheet: 243 245 241;
-    --ink: 15 29 24;
-    --mute: 85 102 93;
-    --line: 15 29 24;
-    --cta: 15 29 24;
+    --sheet: 238 241 245;
+    --ink: 20 35 58;
+    --mute: 85 99 122;
+    --line: 20 35 58;
+    --cta: 18 48 92;
     --cta-fg: 255 255 255;
     --pos: 11 110 68;
     --neg: 181 49 31;
-    --info: 39 85 192;
-    --peach: 255 225 209;
-    --mint: 212 236 223;
-    --lav: 227 225 250;
-    --sun: 255 240 189;
-    --hero: 217 238 225;
+    --info: 31 91 191;
+    --peach: 252 228 225;
+    --mint: 219 243 238;
+    --lav: 237 230 254;
+    --sun: 253 239 217;
+    --hero: 227 237 251;
     --field: 255 255 255;
     --dot1: 232 162 122;
     --dot2: 111 181 159;
     --dot3: 157 164 232;
-    --tog: 214 221 216;
+    --tog: 213 220 229;
     --warn: 176 112 0;
     --brand: 240 67 109;
     --cat1: 39 85 192;
@@ -205,30 +205,44 @@ input[type=number] {
     --cat4: 150 70 160;
     --cat5: 20 130 150;
     --cat6: 130 142 136;
+    --band: 18 48 92;
+    --band-fg: 255 255 255;
+    --band-sub: 199 211 230;
+    --track: 225 230 237;
+    --tblue: 31 91 191;
+    --tteal: 11 126 106;
+    --tamber: 166 95 0;
+    --tcoral: 185 58 48;
+    --tviolet: 106 60 224;
+    --c1: 47 111 216;
+    --c2: 19 163 138;
+    --c3: 238 155 45;
+    --c4: 226 87 76;
+    --c5: 139 92 246;
 }
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
-        --page: 14 19 17;
-        --card: 24 32 29;
-        --sheet: 19 26 23;
-        --ink: 241 245 242;
-        --mute: 148 163 155;
+        --page: 14 22 34;
+        --card: 24 34 51;
+        --sheet: 19 28 43;
+        --ink: 234 240 247;
+        --mute: 159 176 196;
         --line: 255 255 255;
-        --cta: 241 245 242;
-        --cta-fg: 14 19 17;
+        --cta: 234 240 247;
+        --cta-fg: 14 22 34;
         --pos: 111 217 166;
         --neg: 255 143 124;
-        --info: 141 174 242;
-        --peach: 58 43 35;
-        --mint: 31 51 41;
-        --lav: 43 42 68;
-        --sun: 58 53 25;
-        --hero: 29 51 41;
-        --field: 24 32 29;
+        --info: 143 184 245;
+        --peach: 74 34 49;
+        --mint: 20 61 56;
+        --lav: 47 39 82;
+        --sun: 67 51 26;
+        --hero: 30 51 88;
+        --field: 24 34 51;
         --dot1: 232 162 122;
         --dot2: 111 181 159;
         --dot3: 157 164 232;
-        --tog: 52 65 59;
+        --tog: 52 67 92;
         --warn: 240 201 74;
         --brand: 255 107 142;
         --cat1: 141 174 242;
@@ -237,30 +251,44 @@ input[type=number] {
         --cat4: 200 150 230;
         --cat5: 110 200 215;
         --cat6: 148 163 155;
+        --band: 22 35 58;
+        --band-fg: 234 240 247;
+        --band-sub: 180 194 212;
+        --track: 42 56 80;
+        --tblue: 143 184 245;
+        --tteal: 95 214 192;
+        --tamber: 239 192 106;
+        --tcoral: 244 160 188;
+        --tviolet: 188 165 250;
+        --c1: 79 134 224;
+        --c2: 27 164 140;
+        --c3: 184 134 15;
+        --c4: 219 90 138;
+        --c5: 146 112 240;
     }
 }
 [data-theme="dark"] {
-    --page: 14 19 17;
-    --card: 24 32 29;
-    --sheet: 19 26 23;
-    --ink: 241 245 242;
-    --mute: 148 163 155;
+    --page: 14 22 34;
+    --card: 24 34 51;
+    --sheet: 19 28 43;
+    --ink: 234 240 247;
+    --mute: 159 176 196;
     --line: 255 255 255;
-    --cta: 241 245 242;
-    --cta-fg: 14 19 17;
+    --cta: 234 240 247;
+    --cta-fg: 14 22 34;
     --pos: 111 217 166;
     --neg: 255 143 124;
-    --info: 141 174 242;
-    --peach: 58 43 35;
-    --mint: 31 51 41;
-    --lav: 43 42 68;
-    --sun: 58 53 25;
-    --hero: 29 51 41;
-    --field: 24 32 29;
+    --info: 143 184 245;
+    --peach: 74 34 49;
+    --mint: 20 61 56;
+    --lav: 47 39 82;
+    --sun: 67 51 26;
+    --hero: 30 51 88;
+    --field: 24 34 51;
     --dot1: 232 162 122;
     --dot2: 111 181 159;
     --dot3: 157 164 232;
-    --tog: 52 65 59;
+    --tog: 52 67 92;
     --warn: 240 201 74;
     --brand: 255 107 142;
     --cat1: 141 174 242;
@@ -269,6 +297,20 @@ input[type=number] {
     --cat4: 200 150 230;
     --cat5: 110 200 215;
     --cat6: 148 163 155;
+    --band: 22 35 58;
+    --band-fg: 234 240 247;
+    --band-sub: 180 194 212;
+    --track: 42 56 80;
+    --tblue: 143 184 245;
+    --tteal: 95 214 192;
+    --tamber: 239 192 106;
+    --tcoral: 244 160 188;
+    --tviolet: 188 165 250;
+    --c1: 79 134 224;
+    --c2: 27 164 140;
+    --c3: 184 134 15;
+    --c4: 219 90 138;
+    --c5: 146 112 240;
 }
 /* index.html asks for `color-scheme: light dark`; screens that are not
    redesigned yet were always rendered with the default (light) form
@@ -313,13 +355,13 @@ html[data-look="new"] .bg-bg-dark {
     animation-delay: calc(var(--dl, 0s) - var(--el, 0s));
 }
 .pig-draw .o.tl { stroke-width: 5; }
-.pig-draw .solid { animation: pig-fi .55s ease both; animation-delay: calc(1.05s - var(--el, 0s)); }
-.pig-draw .det { animation: pig-fi .35s ease both; animation-delay: calc(1.5s - var(--el, 0s)); }
-.pig-wm { animation: pig-up .55s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(1.55s - var(--el, 0s)); }
-.pig-lb { animation: pig-fi .5s ease both; animation-delay: calc(2s - var(--el, 0s)); }
-.pig-lb i { animation: pig-dot 1.2s ease-in-out infinite; animation-delay: calc(2.05s - var(--el, 0s)); }
-.pig-lb i:nth-child(2) { animation-delay: calc(2.25s - var(--el, 0s)); }
-.pig-lb i:nth-child(3) { animation-delay: calc(2.45s - var(--el, 0s)); }
+.pig-draw .solid { animation: pig-fi .28s ease both; animation-delay: calc(.52s - var(--el, 0s)); }
+.pig-draw .det { animation: pig-fi .18s ease both; animation-delay: calc(.75s - var(--el, 0s)); }
+.pig-wm { animation: pig-up .28s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(.78s - var(--el, 0s)); }
+.pig-lb { animation: pig-fi .25s ease both; animation-delay: calc(1s - var(--el, 0s)); }
+.pig-lb i { animation: pig-dot 1.2s ease-in-out infinite; animation-delay: calc(1.05s - var(--el, 0s)); }
+.pig-lb i:nth-child(2) { animation-delay: calc(1.25s - var(--el, 0s)); }
+.pig-lb i:nth-child(3) { animation-delay: calc(1.45s - var(--el, 0s)); }
 @keyframes pig-dr { to { stroke-dashoffset: 0; } }
 @keyframes pig-fi { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pig-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }

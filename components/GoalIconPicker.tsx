@@ -6,11 +6,12 @@ import { Sheet } from './ui/Sheet';
 import { Icon } from './ui/Icon';
 
 /** One icon, as a 44dp+ cell. The chosen one has the ink outline and a check. */
-const Cell: React.FC<{ name: string; selected: boolean; lang: 'en' | 'zh'; onPick: (name: string) => void }> = ({
+const Cell: React.FC<{ name: string; selected: boolean; lang: 'en' | 'zh'; onPick: (name: string) => void; onCard?: boolean }> = ({
   name,
   selected,
   lang,
   onPick,
+  onCard = false,
 }) => {
   const t = useT();
   return (
@@ -19,7 +20,7 @@ const Cell: React.FC<{ name: string; selected: boolean; lang: 'en' | 'zh'; onPic
       onClick={() => onPick(name)}
       aria-pressed={selected}
       aria-label={goalIconLabel(name, lang)}
-      className={`relative grid aspect-square min-h-11 w-full place-items-center rounded-2xl bg-card text-ink active:opacity-70 ${
+      className={`relative grid aspect-square min-h-11 w-full place-items-center rounded-2xl text-ink active:opacity-70 ${onCard ? 'bg-page' : 'bg-card'} ${
         selected ? 'outline outline-2 outline-ink' : ''
       }`}
     >
@@ -120,7 +121,12 @@ export const GoalIconSheet: React.FC<{
  * The icon field of the goal forms: eight quick icons and a More tile that
  * opens the whole catalogue, with the chosen icon's group named underneath.
  */
-export const GoalIconRow: React.FC<{ value: string; onChange: (name: string) => void }> = ({ value, onChange }) => {
+export const GoalIconRow: React.FC<{
+  value: string;
+  onChange: (name: string) => void;
+  /** Sits on a white card, so the cells take the page colour to stand out from it. */
+  onCard?: boolean;
+}> = ({ value, onChange, onCard = false }) => {
   const t = useT();
   const { lang } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -130,13 +136,13 @@ export const GoalIconRow: React.FC<{ value: string; onChange: (name: string) => 
     <div>
       <div className="grid grid-cols-5 gap-2">
         {quickIconsFor(value).map((name) => (
-          <Cell key={name} name={name} selected={name === value} lang={lang} onPick={onChange} />
+          <Cell key={name} name={name} selected={name === value} lang={lang} onPick={onChange} onCard={onCard} />
         ))}
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label={t.goalEdit.chooseIcon}
-          className="grid aspect-square min-h-11 w-full place-items-center rounded-2xl bg-card text-ink active:opacity-70"
+          className={`grid aspect-square min-h-11 w-full place-items-center rounded-2xl text-ink active:opacity-70 ${onCard ? 'bg-page' : 'bg-card'}`}
         >
           <span className="flex flex-col items-center gap-0.5">
             <Icon name="more" size={20} />

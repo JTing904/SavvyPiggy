@@ -35,6 +35,8 @@ export const history = {
   /** What deleting an entry does, said before it is done. */
   undoOutgoing: (amount: string) => `If you delete it, the ${amount} goes back into your goals.`,
   undoIncoming: (amount: string) => `If you delete it, the ${amount} is taken back out of your goals.`,
+  undoOutgoingWallet: (amount: string) => `If you delete it, the ${amount} goes back into your wallet.`,
+  undoIncomingWallet: (amount: string) => `If you delete it, the ${amount} is taken back out of your wallet.`,
   undoBorrow: 'If you delete it, this spend-ahead is cancelled. Any part your deposits already covered goes back into your goals.',
   remove: 'Remove',
 

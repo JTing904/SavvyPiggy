@@ -13,9 +13,9 @@ import {
 import { formatMoney, fromCents } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
-import { Amount } from './ui/Amount';
 import { EmptyState } from './ui/EmptyState';
-import { Icon } from './ui/Icon';
+import { IconTile } from './ui/IconTile';
+import { BandLabel, PageBand } from './ui/PageBand';
 
 interface GrowthProps {
   trades: Trade[];
@@ -38,8 +38,9 @@ const tone = (cents: number) => (cents < 0 ? 'text-neg' : cents > 0 ? 'text-pos'
  * sales made or lost, and nothing about the dividends. This screen adds all
  * three and measures them against every ringgit ever put in.
  *
- * There is no chart. Drawing one would need a price for every past day, which
- * the app does not have and would have to invent.
+ * The chart holds only what was recorded: cost replayed from the trades, and
+ * value at the month ends that kept a snapshot. Nothing is drawn between them,
+ * because the app would have to invent it.
  */
 const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) => {
   const t = useT();
@@ -89,88 +90,83 @@ const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) =>
   ];
 
   return (
-    <div className="flex min-h-full flex-col px-4 pb-40 pt-3 safe-pt font-figtree text-ink">
-      <div className="mb-1 flex items-center gap-3 px-1">
-        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
-          <Icon name="back" size={20} />
-        </button>
-      </div>
-      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.invest.growthTitle}</h1>
-
-      {trades.length === 0 ? (
-        <EmptyState icon="trend" title={t.invest.nothingToMeasure} body={t.invest.nothingToMeasureBody} className="mt-6" />
-      ) : (
-        <>
-          <div className="mt-4 rounded-[28px] bg-lav p-5">
-            <p className="text-[12.5px] font-bold">{t.invest.totalReturn}</p>
-            <Amount cents={total.totalCents} size="xl" signed tone={total.totalCents < 0 ? 'neg' : total.totalCents > 0 ? 'pos' : 'ink'} className="mt-1 block" />
-            <p className="mt-1 text-[12.5px] font-medium opacity-75">
+    <div className="flex min-h-full flex-col pb-40 font-figtree text-ink">
+      <PageBand title={t.invest.growthTitle} onBack={onBack} overlap={trades.length === 0 ? 0 : 16}>
+        {trades.length > 0 && (
+          <>
+            <BandLabel className="mt-1">{t.invest.totalReturn}</BandLabel>
+            <p className="mt-0.5 truncate text-[34px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(total.totalCents, { signed: true })}</p>
+            <p className="mt-1 truncate text-[13.5px] font-semibold tabular-nums text-band-sub">
               {t.invest.returnOn(`${total.returnPercent >= 0 ? '+' : ''}${total.returnPercent}`, money(total.investedCents))}
             </p>
-          </div>
+          </>
+        )}
+      </PageBand>
 
-          <div className="mt-3 divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
+      {trades.length === 0 ? (
+        <EmptyState icon="trend" title={t.invest.nothingToMeasure} body={t.invest.nothingToMeasureBody} className="mt-3" />
+      ) : (
+        <div className="-mt-11 flex flex-col gap-2.5 px-4">
+          <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5 shadow-[0_2px_10px_rgba(20,35,58,0.1)]">
             {parts.map((part) => (
-              <div key={part.label} className="flex items-start gap-3 py-3">
+              <div key={part.label} className="flex min-h-14 items-start gap-3 py-2.5">
                 <div className="min-w-0 flex-1">
                   <p className="text-[14.5px] font-bold">{part.label}</p>
-                  <p className="text-[12px] font-medium text-mute">{part.note}</p>
+                  <p className="text-[12.5px] font-semibold text-mute">{part.note}</p>
                 </div>
-                <p className={`shrink-0 text-[14.5px] font-extrabold tabular-nums ${tone(part.cents)}`}>{money(part.cents, { signed: true })}</p>
+                <p className={`shrink-0 text-[14.5px] font-bold tabular-nums ${tone(part.cents)}`}>{money(part.cents, { signed: true })}</p>
               </div>
             ))}
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="rounded-3xl bg-card p-5">
-              <p className="text-[12px] font-bold text-mute">{t.invest.heldNow}</p>
-              <Amount cents={total.valueCents} size="md" className="mt-1 block" />
-              <p className="mt-0.5 text-[12px] font-medium text-mute">{t.invest.cost(money(total.costCents))}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0 rounded-3xl bg-card p-3.5">
+              <p className="text-[12.5px] font-semibold text-mute">{t.invest.heldNow}</p>
+              <p className="mt-0.5 truncate text-[18px] font-bold tabular-nums">{money(total.valueCents)}</p>
+              <p className="mt-0.5 text-[12.5px] font-semibold text-mute">{t.invest.cost(money(total.costCents))}</p>
             </div>
-            <div className="rounded-3xl bg-card p-5">
-              <p className="text-[12px] font-bold text-mute">{t.invest.income}</p>
-              <Amount cents={total.dividendCents} size="md" tone="pos" className="mt-1 block" />
-              <p className="mt-0.5 text-[12px] font-medium text-mute">
+            <div className="min-w-0 rounded-3xl bg-card p-3.5">
+              <p className="text-[12.5px] font-semibold text-mute">{t.invest.income}</p>
+              <p className="mt-0.5 truncate text-[18px] font-bold tabular-nums text-pos">{money(total.dividendCents)}</p>
+              <p className="mt-0.5 text-[12.5px] font-semibold text-mute">
                 {total.costCents > 0 ? t.invest.ofCost(Math.round((total.dividendCents / total.costCents) * 1000) / 10) : t.invest.noPositions}
               </p>
             </div>
           </div>
 
           {months.length > 1 && (
-            <>
-              <h2 className="mb-2 mt-6 px-1 text-[15px] font-extrabold">{t.invest.overTime}</h2>
-              <div className="rounded-3xl bg-card p-5">
-                <svg viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible" role="img" aria-label={t.invest.chartLabel}>
-                  <polyline fill="none" stroke="rgb(var(--mute))" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={line((m) => m.costCents)} />
-                  {valued.length > 1 && (
-                    <polyline fill="none" stroke="rgb(var(--ink))" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={valuedLine} />
-                  )}
-                </svg>
-                <div className="mt-3 flex items-center gap-5">
-                  <span className="flex items-center gap-2 text-[12px] font-bold text-mute">
-                    <span className="h-0.5 w-4 bg-mute" /> {t.invest.whatItCost}
-                  </span>
-                  <span className="flex items-center gap-2 text-[12px] font-bold">
-                    <span className="h-0.5 w-4 bg-ink" /> {t.invest.whatItWasWorth}
-                  </span>
-                </div>
-                <p className="mt-3 text-[12px] font-medium leading-relaxed text-mute">
-                  {t.invest.chartNote(
-                    valued.length === 0
-                      ? t.invest.noMonthRecorded
-                      : valued.length === 1
-                        ? t.invest.oneMonthRecorded(monthName(valued[0].id))
-                        : t.invest.lineStartsAt(monthName(valued[0].id))
-                  )}
-                </p>
+            <div className="rounded-3xl bg-card px-3.5 py-3">
+              <h2 className="mb-2.5 text-[15px] font-bold">{t.invest.overTime}</h2>
+              <svg viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible" role="img" aria-label={t.invest.chartLabel}>
+                <polyline fill="none" stroke="rgb(var(--mute))" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={line((m) => m.costCents)} />
+                {valued.length > 1 && (
+                  <polyline fill="none" stroke="rgb(var(--c1))" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={valuedLine} />
+                )}
+              </svg>
+              <div className="mt-2.5 flex items-center gap-5">
+                <span className="flex items-center gap-2 text-[12.5px] font-semibold text-mute">
+                  <span className="h-0.5 w-4 bg-mute" /> {t.invest.whatItCost}
+                </span>
+                <span className="flex items-center gap-2 text-[12.5px] font-semibold">
+                  <span className="h-0.5 w-4 bg-c1" /> {t.invest.whatItWasWorth}
+                </span>
               </div>
-            </>
+              <p className="mt-2 text-[12.5px] font-medium leading-relaxed text-mute">
+                {t.invest.chartNote(
+                  valued.length === 0
+                    ? t.invest.noMonthRecorded
+                    : valued.length === 1
+                      ? t.invest.oneMonthRecorded(monthName(valued[0].id))
+                      : t.invest.lineStartsAt(monthName(valued[0].id))
+                )}
+              </p>
+            </div>
           )}
 
           {holdings.length > 0 && (
             <>
-              <h2 className="mb-2 mt-6 px-1 text-[15px] font-extrabold">{t.invest.byCounter}</h2>
-              <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
+              <h2 className="mt-1 px-1 text-[15px] font-bold">{t.invest.byCounter}</h2>
+              <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
                 {holdings.map((holding) => {
                   // Valued in points, so a half-sen price is not rounded down per unit.
                   const quote = quotes[holding.symbol];
@@ -178,15 +174,15 @@ const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) =>
                   const gainCents = value - holding.costCents;
                   const share = total.valueCents > 0 ? Math.round((value / total.valueCents) * 100) : 0;
                   return (
-                    <div key={holding.id} className="flex items-center gap-3 py-3">
-                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-lav text-[11px] font-extrabold">{holding.name.slice(0, 3).toUpperCase()}</span>
+                    <div key={holding.id} className="flex min-h-[60px] items-center gap-2.5 py-2">
+                      <IconTile icon={<span className="text-[15px] font-extrabold">{holding.name.charAt(0).toUpperCase()}</span>} tint="violet" size={38} round />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[15px] font-bold">{holding.name}</p>
-                        <p className="text-[12px] font-medium text-mute">{t.invest.shareOfPortfolio(share, t.common.units(holding.units.toLocaleString('en-US')))}</p>
+                        <p className="truncate text-[14.5px] font-bold">{holding.name}</p>
+                        <p className="text-[12.5px] font-semibold text-mute">{t.invest.shareOfPortfolio(share, t.common.units(holding.units.toLocaleString('en-US')))}</p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="text-[14.5px] font-extrabold tabular-nums">{money(value)}</p>
-                        <p className={`text-[12px] font-bold tabular-nums ${tone(gainCents)}`}>{money(gainCents, { signed: true })}</p>
+                        <p className="text-[14.5px] font-bold tabular-nums">{money(value)}</p>
+                        <p className={`text-[12.5px] font-bold tabular-nums ${tone(gainCents)}`}>{money(gainCents, { signed: true })}</p>
                       </div>
                     </div>
                   );
@@ -195,8 +191,8 @@ const Growth: React.FC<GrowthProps> = ({ trades, quotes, snapshots, onBack }) =>
             </>
           )}
 
-          <p className="mt-6 px-3 text-center text-[12px] font-medium leading-relaxed text-mute">{t.invest.growthFooter}</p>
-        </>
+          <p className="mt-1 px-3 text-center text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.growthFooter}</p>
+        </div>
       )}
     </div>
   );

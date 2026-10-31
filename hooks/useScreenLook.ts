@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { registerPlugin, SystemBars, SystemBarsStyle } from '@capacitor/core';
+import { registerPlugin, SystemBars, SystemBarsStyle, SystemBarType } from '@capacitor/core';
 import { lookOf, type Look, type ScreenState } from '../services/lookOf';
 
 /**
@@ -26,15 +26,18 @@ export const getThemePreference = (): ThemePreference => {
 };
 
 let currentLook: Look = 'legacy';
+/** Whether a navy band runs under the status bar: everything but sign-in and setup. */
+let currentBanded = false;
 
 /** The native side that paints the bars behind the page (see BarsPlugin.java). */
-const Bars = registerPlugin<{ setColor(options: { color: string }): Promise<void> }>('Bars');
+const Bars = registerPlugin<{ setColor(options: { color: string; nav?: string }): Promise<void> }>('Bars');
 
 /** Whether the phone itself is in dark mode, for the 'system' choice. */
 const phoneIsDark = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-const apply = (look: Look) => {
+const apply = (look: Look, banded = currentBanded) => {
   currentLook = look;
+  currentBanded = banded;
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   const pref = getThemePreference();
@@ -46,14 +49,18 @@ const apply = (look: Look) => {
   if (theme === 'system') delete root.dataset.theme;
   else root.dataset.theme = theme;
 
-  // The bars take the page's colour, so their icons stay readable on it.
+  // The status bar sits on the band, the navigation bar on the tab bar.
   const dark = theme === 'dark' || (theme === 'system' && phoneIsDark());
-  void Bars.setColor({ color: look === 'legacy' ? '#0A0F0D' : dark ? '#0E1311' : '#F3F5F1' }).catch(() => {});
+  const page = dark ? '#0E1622' : '#EEF1F5';
+  const band = dark ? '#16233A' : '#12305C';
+  const bar = dark ? '#182233' : '#FFFFFF';
+  void Bars.setColor(look === 'legacy' ? { color: '#0A0F0D' } : banded ? { color: band, nav: bar } : { color: page }).catch(() => {});
 
-  // Status and navigation bar icons: light icons on a dark screen and back.
+  // Status and navigation bar icons: light icons on a dark ground and back.
   try {
     const style = theme === 'dark' ? SystemBarsStyle.Dark : theme === 'light' ? SystemBarsStyle.Light : SystemBarsStyle.Default;
-    void SystemBars.setStyle({ style }).catch(() => {});
+    void SystemBars.setStyle({ style, bar: SystemBarType.NavigationBar }).catch(() => {});
+    void SystemBars.setStyle({ style: banded ? SystemBarsStyle.Dark : style, bar: SystemBarType.StatusBar }).catch(() => {});
   } catch {
     // Not on the phone (or an old shell without the plugin): the page still works.
   }
@@ -72,9 +79,10 @@ export const setThemePreference = (pref: ThemePreference) => {
 
 export const useScreenLook = (state: ScreenState) => {
   const look = lookOf(state);
+  const banded = !state.overlays.includes('auth');
   useEffect(() => {
-    apply(look);
-  }, [look]);
+    apply(look, banded);
+  }, [look, banded]);
   // With 'same as phone', the phone going dark or light at sunset has to repaint the bars too.
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;

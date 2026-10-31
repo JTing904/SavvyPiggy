@@ -1,5 +1,7 @@
 export const nav = {
   home: 'Home',
+  goals: 'Goals',
+  invest: 'Investing',
   history: 'History',
   strategy: 'Split',
   report: 'Report',

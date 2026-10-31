@@ -5,10 +5,15 @@ import { formatMoney, fromCents } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { Amount } from './ui/Amount';
 import { Icon } from './ui/Icon';
+import { IconTile, TINT_ORDER } from './ui/IconTile';
+import { Sparkline } from './ui/Charts';
+import type { DailyClose } from '../services/trails';
 
 interface HoldingStackProps {
   holdings: Holding[];
   quotes: Quotes;
+  /** Each counter's recent closes, for its small line. */
+  closes?: Record<string, DailyClose[]>;
   /** Counters with no price at all, so the note can say they are held at cost. */
   missing: string[];
   onTrade: (holding: Holding, kind: 'buy' | 'sell') => void;
@@ -22,14 +27,15 @@ const money = (cents: number, opts?: { decimals?: 0 | 2; signed?: boolean }) => 
  * change goes through the trade log, so a row offers Buy and Sell and the log
  * is where a mistake gets fixed.
  */
-const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, onTrade }) => {
+const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, closes, missing, onTrade }) => {
   const t = useT();
   const [openId, setOpenId] = useState<string | null>(null);
 
   return (
     <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1 text-ink">
-      {holdings.map((holding) => {
+      {holdings.map((holding, index) => {
         const open = openId === holding.id;
+        const trail = (closes?.[holding.symbol] ?? []).slice(-30).map((c) => c.points);
         const quote = quotes[holding.symbol];
         // With no price the position is worth what was paid for it, which
         // beats rendering a zero and making money look like it vanished.
@@ -53,9 +59,7 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
               onClick={() => setOpenId(open ? null : holding.id)}
               className="flex min-h-16 w-full items-center gap-3 py-3 text-left active:opacity-70"
             >
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-lav text-[11px] font-extrabold">
-                {holding.name.slice(0, 3).toUpperCase()}
-              </span>
+              <IconTile icon={<span className="text-[15px] font-extrabold">{holding.name.charAt(0).toUpperCase()}</span>} tint={TINT_ORDER[index % TINT_ORDER.length]} size={42} round />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-bold">{holding.name}</span>
                 <span className="block truncate text-[12px] font-medium text-mute">
@@ -68,6 +72,7 @@ const HoldingStack: React.FC<HoldingStackProps> = ({ holdings, quotes, missing, 
                   )}
                 </span>
               </span>
+              <Sparkline values={trail} color={trail.length > 1 && trail[trail.length - 1] < trail[0] ? 4 : 2} width={50} height={24} />
               <span className="shrink-0 text-right">
                 <Amount cents={valueNow} size="sm" />
                 {quote && day !== 0 && (
