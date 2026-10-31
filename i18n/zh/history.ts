@@ -28,6 +28,8 @@ export const history: typeof English = {
 
   undoOutgoing: (amount) => `删除的话，这 ${amount} 会回到你的钱罐。`,
   undoIncoming: (amount) => `删除的话，这 ${amount} 会从你的钱罐里扣回。`,
+  undoOutgoingWallet: (amount) => `删除的话，这 ${amount} 会回到你的钱包。`,
+  undoIncomingWallet: (amount) => `删除的话，这 ${amount} 会从你的钱包里扣回。`,
   undoBorrow: '删除的话，这笔预支会取消。已经被存入还掉的部分会回到你的钱罐。',
   remove: '删除',
 

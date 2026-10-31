@@ -192,8 +192,12 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
     activity.type === 'borrow'
       ? t.history.undoBorrow
       : isWithdraw
-        ? t.history.undoOutgoing(formatMoney(activity.amount))
-        : t.history.undoIncoming(formatMoney(activity.amount));
+        ? (activity.wallet ?? 0) < 0
+          ? t.history.undoOutgoingWallet(formatMoney(activity.amount))
+          : t.history.undoOutgoing(formatMoney(activity.amount))
+        : (activity.wallet ?? 0) > 0 && activity.distributions.length === 0
+          ? t.history.undoIncomingWallet(formatMoney(activity.amount))
+          : t.history.undoIncoming(formatMoney(activity.amount));
 
   const remove = () => {
     // Part of it sits in a goal that is gone: that sheet asks where it is settled, and is the confirmation.
