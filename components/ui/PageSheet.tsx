@@ -22,7 +22,7 @@ export const PageSheet: React.FC<PageSheetProps> = ({ band, onClose, dismissible
   });
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
-      <div className="mx-auto flex min-h-full max-w-md flex-col">
+      <div className="mx-auto flex min-h-full max-w-xl flex-col">
         {band}
         <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
           {children}

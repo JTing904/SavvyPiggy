@@ -163,7 +163,7 @@ const MoveSheet: React.FC<MoveSheetProps> = ({ banks, wallet, savings, potCents,
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
-      <div className="mx-auto flex min-h-full max-w-md flex-col">
+      <div className="mx-auto flex min-h-full max-w-xl flex-col">
         <PageBand title={p.title} onClose={onClose}>
           <p className="mt-1 text-[38px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(cents)}</p>
         </PageBand>

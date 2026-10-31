@@ -27,7 +27,7 @@ const OVERLAP: Record<NonNullable<PageBandProps['overlap']>, string> = {
 export const PageBand: React.FC<PageBandProps> = ({ title, onBack, onClose, trailing, overlap = 0, children }) => {
   const t = useT();
   return (
-    <header className={`safe-pt bg-band px-5 font-figtree text-band-fg ${OVERLAP[overlap]}`}>
+    <header className={`relative isolate safe-pt bg-band px-5 font-figtree text-band-fg before:absolute before:inset-y-0 before:left-1/2 before:-z-10 before:w-screen before:-translate-x-1/2 before:bg-band ${OVERLAP[overlap]}`}>
       <div className="flex min-h-14 items-center justify-between gap-2 pt-2">
         <div className="flex min-w-0 items-center gap-1">
           {(onBack || onClose) && (

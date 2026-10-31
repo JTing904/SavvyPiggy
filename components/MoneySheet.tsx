@@ -21,9 +21,8 @@ import { Button } from './ui/Button';
 import { Keypad } from './ui/Keypad';
 import { IconTile, TINT_ORDER, type IconTint } from './ui/IconTile';
 import { PageBand } from './ui/PageBand';
-import { StackedBar, type ChartColor } from './ui/Charts';
+import { StackedBar, Swatch, type ChartColor } from './ui/Charts';
 import { Toggle } from './ui/Toggle';
-import { Field } from './ui/Field';
 import { Icon } from './ui/Icon';
 import DateField from './DateField';
 
@@ -37,7 +36,7 @@ interface MoneySheetProps {
   wallet: WalletSettings;
   /** What is on the books, to warn before the same spending is recorded twice. */
   activities: Activity[];
-  /** A line of text or a picture to start from (written, shared in from another app). */
+  /** Text or a picture shared in from another app, to start from. */
   draft?: QuickDraft;
   /** Opens straight on choosing a picture to read. */
   scan?: boolean;
@@ -93,9 +92,6 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   useBackHandler(true, onClose);
   const [tab, setTab] = useState<Tab>(mode);
-  /** An income is typed first, then placed. */
-  const [step, setStep] = useState<'amount' | 'place'>(draft?.text ? 'place' : 'amount');
-  const [writing, setWriting] = useState(!!draft?.text);
   const [choosing, setChoosing] = useState(scan);
   const [pickingSource, setPickingSource] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -111,7 +107,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // Quick entry: a line of text, or a picture. Either one fills the fields below, which stay editable.
+  // Text shared in, or a picture. Either one fills the fields below, which stay editable.
   const q = t.quick;
   const [line, setLine] = useState(draft?.text ?? '');
   const [reading, setReading] = useState(false);
@@ -292,9 +288,6 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
       onClose={onClose}
       trailing={
         <span className="-mr-2.5 flex shrink-0">
-          <button type="button" onClick={() => setWriting((v) => !v)} aria-label={p.write} aria-pressed={writing} className="grid size-11 place-items-center active:opacity-70">
-            <Icon name="pencil" size={22} strokeWidth={1.9} />
-          </button>
           {canReadPictures() && (
             <button type="button" onClick={() => setChoosing(true)} aria-label={p.scan} className="grid size-11 place-items-center active:opacity-70">
               <Icon name="camera" size={22} strokeWidth={1.9} />
@@ -303,42 +296,13 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
         </span>
       }
     >
-      <button type="button" onClick={() => { setKeysOpen(true); setStep('amount'); }} className="mt-1 block max-w-full text-left active:opacity-80">
+      <button type="button" onClick={() => setKeysOpen(true)} className="mt-1 block max-w-full text-left active:opacity-80">
         <span className="block truncate text-[38px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(cents)}</span>
         {readInfo?.evidence.amount ? (
           <span className="mt-0.5 block truncate text-[13.5px] font-semibold text-band-sub">{p.readFrom(readInfo.evidence.amount)}</span>
-        ) : (
-          deposit && step === 'place' && <span className="mt-0.5 block truncate text-[13.5px] font-semibold text-band-sub">{p.tapToChange}</span>
-        )}
+        ) : null}
       </button>
     </PageBand>
-  );
-
-  const quickLine = writing && (
-    <div>
-      <Field label={q.lineLabel} value={line} onChange={setLine} placeholder={q.linePlaceholder} autoComplete="off" enterKeyHint="done" />
-      {parsed && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <span className="rounded-full bg-card px-3 py-1 text-[13px] font-bold">{parsed.kind === 'income' ? q.income : q.spend}</span>
-          {parsed.kind !== 'income' && (
-            <span className={`rounded-full px-3 py-1 text-[13px] font-bold ${parsed.category ? 'bg-card' : 'bg-sun'}`}>{parsed.category ? categoryOf(parsed.category).label : q.noCategory}</span>
-          )}
-          <span className={`rounded-full px-3 py-1 text-[13px] font-bold ${parsed.cents !== null ? 'bg-card' : 'bg-sun'}`}>{parsed.cents !== null ? money(parsed.cents) : q.noAmount}</span>
-          <span className="rounded-full bg-card px-3 py-1 text-[13px] font-bold">{pastDay ? readableDate(day) : q.today}</span>
-        </div>
-      )}
-      {parsed?.issues.includes('tooOld') && <p className="mt-1.5 px-0.5 text-[12.5px] font-semibold text-mute">{q.tooOld}</p>}
-      {parsed?.issues.includes('badDay') && <p className="mt-1.5 px-0.5 text-[12.5px] font-semibold text-mute">{q.badDay}</p>}
-      {!parsed && !line && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {q.examples.map((example) => (
-            <button key={example} type="button" onClick={() => setLine(example)} className="min-h-9 rounded-full bg-card px-3 text-[13px] font-bold active:opacity-70">
-              {example}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 
   const manyAmounts = options.length > 0 && (
@@ -412,7 +376,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   const frame = (children: React.ReactNode) => (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
-      <div className="mx-auto flex min-h-full max-w-md flex-col">
+      <div className="mx-auto flex min-h-full max-w-xl flex-col">
         {band}
         <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
           {children}
@@ -465,104 +429,95 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   if (deposit) {
     const goalChoice = choice !== 'wallet' && choice !== 'split';
-    const slices = plan ? plan.movements.map((m) => ({ value: m.cents, color: (((goals.findIndex((b) => b.id === m.bankId) % 5) + 1) as ChartColor) })) : [];
+    const colorOf = (id: string) => ((Math.max(0, goals.findIndex((b) => b.id === id)) % 5) + 1) as ChartColor;
+    // Before an amount is typed the same rows show at zero, so the page already says where it will go.
+    const lands: { id: string; cents: number; share?: number }[] = plan
+      ? [
+          ...plan.movements.map((m) => ({ id: m.bankId, cents: m.cents, share: choice === 'split' ? goals.find((b) => b.id === m.bankId)?.splitPercentage : undefined })),
+          ...(plan.walletCents > 0 ? [{ id: WALLET, cents: plan.walletCents }] : []),
+        ]
+      : choice === 'split'
+        ? goals.filter((b) => b.splitPercentage > 0).map((b) => ({ id: b.id, cents: 0, share: b.splitPercentage }))
+        : [{ id: choice, cents: 0 }];
+    const slices = lands.filter((l) => l.id !== WALLET).map((l) => ({ value: plan ? l.cents : l.share ?? 0, color: colorOf(l.id) }));
     return frame(
-      step === 'amount' ? (
-        <>
-          {quickLine}
-          {manyAmounts}
-          {readNotes}
-          <div className="mt-auto">
-            <Keypad value={text} onChange={setText} compact />
-            <Button className="mt-2" disabled={cents <= 0} onClick={() => setStep('place')}>
-              {p.next}
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { key: 'wallet', icon: 'wallet', tint: 'teal' as IconTint, label: p.keep, on: choice === 'wallet', go: () => setChoice('wallet') },
-              ...(goals.length > 0
-                ? [
-                    { key: 'split', icon: 'pie', tint: 'blue' as IconTint, label: p.bySplit, on: choice === 'split', go: () => setChoice('split') },
-                    { key: 'goal', icon: 'target', tint: 'amber' as IconTint, label: p.oneGoal, on: goalChoice, go: () => setChoice(goals[0].id) },
-                  ]
-                : []),
-            ].map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={option.on}
-                onClick={option.go}
-                className={`flex min-h-[92px] flex-col items-center justify-center gap-1.5 rounded-3xl bg-card px-1 text-[13px] font-bold active:opacity-80 ${option.on ? 'outline outline-2 -outline-offset-2 outline-cta' : ''}`}
-              >
-                <IconTile icon={option.icon} tint={option.tint} />
-                <span className="w-full truncate text-center">{option.label}</span>
-              </button>
+      <>
+        {manyAmounts}
+        {readNotes}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { key: 'wallet', icon: 'wallet', tint: 'teal' as IconTint, label: p.keep, on: choice === 'wallet', go: () => setChoice('wallet') },
+            ...(goals.length > 0
+              ? [
+                  { key: 'split', icon: 'pie', tint: 'blue' as IconTint, label: p.bySplit, on: choice === 'split', go: () => setChoice('split') },
+                  { key: 'goal', icon: 'target', tint: 'amber' as IconTint, label: p.oneGoal, on: goalChoice, go: () => setChoice(goals[0].id) },
+                ]
+              : []),
+          ].map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={option.on}
+              onClick={option.go}
+              className={`flex min-h-[92px] flex-col items-center justify-center gap-1.5 rounded-3xl bg-card px-1 text-[13px] font-bold active:opacity-80 sm:min-h-[104px] sm:text-[14px] ${option.on ? 'outline outline-2 -outline-offset-2 outline-cta' : ''}`}
+            >
+              <IconTile icon={option.icon} tint={option.tint} />
+              <span className="w-full truncate text-center">{option.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {goalChoice && (
+          <div role="group" aria-label={p.oneGoal} className="flex flex-wrap gap-2">
+            {goals.map((b) => (
+              <Chip key={b.id} selected={choice === b.id} onClick={() => setChoice(b.id)}>
+                {b.name}
+              </Chip>
             ))}
           </div>
+        )}
 
-          {goalChoice && (
-            <div role="group" aria-label={p.oneGoal} className="flex flex-wrap gap-2">
-              {goals.map((b) => (
-                <Chip key={b.id} selected={choice === b.id} onClick={() => setChoice(b.id)}>
-                  {b.name}
-                </Chip>
-              ))}
-            </div>
-          )}
-
-          {plan && (
-            <div className="rounded-3xl bg-card px-3.5 py-2.5">
-              <div className="flex min-h-9 items-center justify-between gap-2">
-                <h2 className="text-[15px] font-bold">{p.lands}</h2>
-                {choice === 'split' && onOpenStrategy && (
-                  <button type="button" onClick={onOpenStrategy} className="min-h-9 text-[13.5px] font-bold text-tblue active:opacity-70">
-                    {p.changeSplit}
-                  </button>
-                )}
-              </div>
-              {slices.length > 1 && <StackedBar slices={slices} label={p.lands} />}
-              {plan.repaidCents > 0 && <p className="mt-1.5 text-[13px] font-bold text-info">{w.coversEarlier(money(plan.repaidCents))}</p>}
-              {plan.coveredCents > 0 && <p className="mt-1.5 text-[13px] font-bold text-info">{w.clearsOverdraft(money(plan.coveredCents))}</p>}
-              {plan.movements.map((m) => {
-                const at = goals.findIndex((b) => b.id === m.bankId);
-                const bank = goals[at];
-                return (
-                  <div key={m.bankId} className="flex min-h-[50px] items-center gap-2.5 text-[14.5px] font-bold tabular-nums">
-                    <IconTile icon={<span className="material-symbols-rounded text-[19px] leading-none">{safeGoalIcon(bank?.icon)}</span>} tint={TINT_ORDER[Math.max(0, at) % TINT_ORDER.length]} size={36} round />
-                    <span className="min-w-0 flex-1 truncate">{bank?.name}</span>
-                    <span className="text-pos">+{money(m.cents)}</span>
-                  </div>
-                );
-              })}
-              {plan.walletCents > 0 && (
-                <div className="flex min-h-[50px] items-center gap-2.5 text-[14.5px] font-bold tabular-nums">
-                  <IconTile icon="wallet" tint="teal" size={36} round />
-                  <span className="min-w-0 flex-1 truncate">{w.wallet}</span>
-                  <span className="text-pos">+{money(plan.walletCents)}</span>
-                </div>
-              )}
-            </div>
-          )}
-          {incomeProblem && <p className="rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{walletProblemText({ kind: incomeProblem, goalId: choice }, t, banks)}</p>}
-          {dayButton}
-          {failure}
-          <div className="mt-auto">
-            <Button disabled={!ready} loading={busy} onClick={() => void confirm()}>
-              {p.confirm}
-            </Button>
+        <div className="rounded-3xl bg-card px-3.5 py-2">
+          <div className="flex min-h-9 items-center justify-between gap-2">
+            <h2 className="text-[15px] font-bold">{p.lands}</h2>
+            {choice === 'split' && onOpenStrategy && (
+              <button type="button" onClick={onOpenStrategy} className="min-h-9 text-[13.5px] font-bold text-tblue active:opacity-70">
+                {p.changeSplit}
+              </button>
+            )}
           </div>
-        </>
-      )
+          {slices.length > 1 && <StackedBar slices={slices} label={p.lands} height={14} />}
+          {plan && plan.repaidCents > 0 && <p className="mt-1.5 text-[13px] font-bold text-info">{w.coversEarlier(money(plan.repaidCents))}</p>}
+          {plan && plan.coveredCents > 0 && <p className="mt-1.5 text-[13px] font-bold text-info">{w.clearsOverdraft(money(plan.coveredCents))}</p>}
+          <div className="mt-0.5 divide-y divide-line/10">
+            {lands.map((l) => (
+              <div key={l.id} className="flex min-h-11 items-center gap-2.5 text-[14.5px] font-bold tabular-nums sm:min-h-[52px] sm:text-[15px]">
+                {l.id === WALLET ? <Icon name="wallet" size={16} strokeWidth={2} className="text-tteal" /> : <Swatch color={colorOf(l.id)} />}
+                <span className="min-w-0 flex-1 truncate">
+                  {l.id === WALLET ? w.wallet : goals.find((b) => b.id === l.id)?.name}
+                  {l.share !== undefined && l.share > 0 && <span className="ml-1.5 text-[13px] font-semibold text-mute">{l.share}%</span>}
+                </span>
+                <span className={l.cents > 0 ? 'text-pos' : 'text-mute'}>+{money(l.cents)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {incomeProblem && <p className="rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{walletProblemText({ kind: incomeProblem, goalId: choice }, t, banks)}</p>}
+        {dayButton}
+        {failure}
+        <div className="mt-auto pt-1">
+          <Keypad value={text} onChange={setText} compact />
+          <Button className="mt-2.5" disabled={!ready} loading={busy} onClick={() => void confirm()}>
+            {p.confirm}
+          </Button>
+        </div>
+      </>
     );
   }
 
   return frame(
     <>
-      {quickLine}
       {manyAmounts}
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setPickingSource(true)} className="flex min-h-12 min-w-0 items-center gap-2 rounded-xl bg-card px-3 text-left text-[14px] font-bold active:opacity-80">

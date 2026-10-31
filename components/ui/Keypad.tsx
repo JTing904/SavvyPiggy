@@ -23,10 +23,10 @@ const BackspaceIcon = () => (
   </svg>
 );
 
-const KEY_BASE = 'grid place-items-center rounded-xl bg-card text-[21px] font-semibold text-ink active:bg-line/10';
+const KEY_BASE = 'grid place-items-center bg-card text-[21px] font-semibold text-ink active:bg-page';
 
 export const Keypad: React.FC<KeypadProps> = ({ value, onChange, compact = false, className }) => {
-  const KEY = `${KEY_BASE} ${compact ? 'h-11' : 'h-12'}`;
+  const KEY = `${KEY_BASE} ${compact ? 'h-11 sm:h-[60px]' : 'h-12'}`;
   const t = useT();
   const { whole, cents, typed } = formatTyped(value);
   const spoken = `${t.ui.amountEntered} RM ${whole}.${cents}`;
@@ -56,7 +56,7 @@ export const Keypad: React.FC<KeypadProps> = ({ value, onChange, compact = false
         </span>
       </div>
 
-      <div role="group" aria-label={t.ui.keypad} className={`grid grid-cols-3 ${compact ? 'gap-1.5' : 'gap-2'}`}>
+      <div role="group" aria-label={t.ui.keypad} className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-line/15 bg-line/15">
         {digits.map(([k, label]) => (
           <button key={k} type="button" aria-label={label} onClick={() => onChange(pressKey(value, k))} className={KEY}>
             {k}

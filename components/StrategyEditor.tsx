@@ -369,7 +369,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
       {/* The save bar only exists while there is something to save, and sits just above the bottom bar. */}
       {localBanks.length > 0 && dirtyOrInvalid && (
         <div className="pointer-events-none fixed bottom-0 left-0 right-0 px-4" style={{ paddingBottom: 'calc(6.2rem + env(safe-area-inset-bottom))' }}>
-          <div className="pointer-events-auto mx-auto max-w-md">
+          <div className="pointer-events-auto mx-auto max-w-xl">
             <div className="flex items-center gap-3 rounded-[2rem] bg-card p-3 pl-5 shadow-[0_6px_28px_rgba(0,0,0,0.18)]">
               <div className="min-w-0 flex-1">
                 <p className={`text-[20px] font-extrabold tabular-nums ${isValid ? 'text-pos' : 'text-neg'}`}>{totalAllocation}%</p>

@@ -21,7 +21,7 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }) => {
   const t = useT();
   return (
     <nav aria-label={t.nav.home} className="safe-pb fixed inset-x-0 bottom-0 z-40 border-t border-line/10 bg-card font-figtree">
-      <div className="mx-auto flex h-[60px] max-w-md">
+      <div className="mx-auto flex h-[60px] max-w-xl">
         {TABS.map(({ tab, icon, label, also }) => {
           const on = activeTab === tab || !!also?.includes(activeTab);
           return (

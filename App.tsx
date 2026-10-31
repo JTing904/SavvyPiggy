@@ -1455,7 +1455,7 @@ const App: React.FC = () => {
         sat at the top instead of the middle.
       */}
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
-        <div className="mx-auto w-full max-w-md h-full">{children}</div>
+        <div className="mx-auto w-full max-w-xl h-full">{children}</div>
       </main>
 
       {/* Showing yesterday's numbers is fine; showing them as if they were

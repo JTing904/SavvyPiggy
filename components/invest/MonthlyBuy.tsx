@@ -362,7 +362,7 @@ const MonthlyBuy: React.FC<MonthlyBuyProps> = ({ uid, trades, invest, quotes, on
 
   return (
     <div className="fixed inset-0 z-[45] flex justify-center bg-page font-figtree text-ink">
-      <div className="flex h-full w-full max-w-md flex-col">
+      <div className="flex h-full w-full max-w-xl flex-col">
         <div className="shrink-0">
           <PageBand title={p.title} onBack={onBack} />
         </div>

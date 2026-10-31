@@ -26,7 +26,7 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ release, current, state, onInst
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
-      <div className="mx-auto flex min-h-full max-w-md flex-col">
+      <div className="mx-auto flex min-h-full max-w-xl flex-col">
         <PageBand title={p.title} onClose={onClose}>
           <p className="mt-1 text-[34px] font-bold leading-[1.15] tracking-[-0.015em]">{p.version(release.version)}</p>
           <BandLabel className="mt-0.5">{release.sizeBytes > 0 ? p.currentAndSize(current, sizeMb(release.sizeBytes)) : p.current(current)}</BandLabel>
