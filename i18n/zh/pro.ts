@@ -119,7 +119,7 @@ export const pro: typeof English = {
     currentAndSize: (v, mb) => `你现在用的是 ${v}，大小 ${mb} MB`,
     whatsNew: '这次更新了什么',
     downloading: '正在下载',
-    progress: (done, total) => `${done} MB / ${total} MB，可以先去做别的`,
+    progress: (done, total) => `${done} MB / ${total} MB，下载时请留在这个页面`,
     needsPermission: 'Android 要你允许 SavvyPiggy 安装应用。允许后回来再点一次。',
     failed: '下载没有完成。看看网络，再试一次。',
     retry: '再试一次',

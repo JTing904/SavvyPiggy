@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.view.WindowManager;
 
 import androidx.core.content.FileProvider;
 
@@ -81,6 +82,8 @@ public class UpdaterPlugin extends Plugin {
             call.reject("url");
             return;
         }
+        // Android freezes an app in the background, which ends the download, so the screen stays on for it.
+        keepScreenOn(true);
         new Thread(() -> {
             try {
                 File dir = new File(getContext().getCacheDir(), "update");
@@ -91,8 +94,17 @@ public class UpdaterPlugin extends Plugin {
                 call.resolve();
             } catch (Exception e) {
                 call.reject("download");
+            } finally {
+                keepScreenOn(false);
             }
         }).start();
+    }
+
+    private void keepScreenOn(boolean on) {
+        getActivity().runOnUiThread(() -> {
+            if (on) getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        });
     }
 
     private boolean allowed() {

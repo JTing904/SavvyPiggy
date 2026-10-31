@@ -118,7 +118,7 @@ export const pro = {
     currentAndSize: (v: string, mb: number) => `You have ${v}, download is ${mb} MB`,
     whatsNew: 'What changed',
     downloading: 'Downloading',
-    progress: (done: number, total: number) => `${done} MB of ${total} MB, you can do something else meanwhile`,
+    progress: (done: number, total: number) => `${done} MB of ${total} MB, please stay on this page while it downloads`,
     needsPermission: 'Android asks you to allow SavvyPiggy to install apps. Allow it, come back and tap again.',
     failed: 'The download did not finish. Check your connection and try again.',
     retry: 'Try again',
