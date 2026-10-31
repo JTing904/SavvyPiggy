@@ -69,7 +69,7 @@ const StyleQuiz: React.FC<StyleQuizProps> = ({ initial, records, required, start
   const question = onMix ? null : s.questions[step];
 
   return (
-    <div className="fixed inset-0 z-50 bg-page font-figtree text-ink veil-in">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 bg-page font-figtree text-ink veil-in">
       {/* The shared slider style draws a green thumb; each style's slider takes its own colour. */}
       <style>
         {STYLES.map(

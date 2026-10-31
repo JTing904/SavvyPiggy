@@ -30,6 +30,30 @@ import java.net.URL;
 public class UpdaterPlugin extends Plugin {
     private static final String ALLOWED = "https://github.com/JTing904/SavvyPiggy/releases/download/";
 
+    /** Android blocks opening the installer from the background, so a finished download waits here. */
+    private boolean visible = true;
+    private File waiting;
+
+    /** Whatever the last update left behind: it has done its job or it never finished. */
+    @Override
+    public void load() {
+        new File(new File(getContext().getCacheDir(), "update"), "SavvyPiggy.apk").delete();
+    }
+
+    @Override
+    protected synchronized void handleOnPause() {
+        visible = false;
+    }
+
+    @Override
+    protected synchronized void handleOnResume() {
+        visible = true;
+        if (waiting != null) {
+            open(waiting);
+            waiting = null;
+        }
+    }
+
     /** Whether Android will let this app open its installer. */
     @PluginMethod
     public void canInstall(PluginCall call) {
@@ -63,7 +87,7 @@ public class UpdaterPlugin extends Plugin {
                 if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("dir");
                 File apk = new File(dir, "SavvyPiggy.apk");
                 download(url, apk);
-                open(apk);
+                deliver(apk);
                 call.resolve();
             } catch (Exception e) {
                 call.reject("download");
@@ -105,6 +129,11 @@ public class UpdaterPlugin extends Plugin {
             connection.disconnect();
         }
         if (total > 0 && done != total) throw new IllegalStateException("short");
+    }
+
+    private synchronized void deliver(File apk) {
+        if (visible) open(apk);
+        else waiting = apk;
     }
 
     private void open(File apk) {

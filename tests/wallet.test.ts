@@ -72,6 +72,17 @@ eq(
   { problem: 'noDestination' }
 );
 
+// --- income never goes missing
+{
+  const share = (id: string, percent: number) => ({ ...bank(id, percent), splitPercentage: percent });
+  const none = planOf(planIncome({ ...base, banks: [share('a', 0)], wallet: -5000, amountCents: 10000, target: { mode: 'split' } }));
+  eq('no goal in the split: past the overdraft it stays in the wallet', [none?.movements, none?.coveredCents, none?.walletCents], [[], 5000, 10000]);
+  const under = planOf(planIncome({ ...base, banks: [share('a', 80)], amountCents: 10000, target: { mode: 'split' } }));
+  eq('shares under 100%: the rest stays in the wallet', [under?.movements.reduce((s, m) => s + m.cents, 0), under?.walletCents], [8000, 2000]);
+  const fine = planOf(planIncome({ ...base, banks: [share('a', 100)], amountCents: 10000, target: { mode: 'split' } }));
+  eq('a full split leaves nothing behind', fine?.walletCents, 0);
+}
+
 // --- overdraft and old debt
 {
   const p = planOf(income({ amountCents: 10000, wallet: -2500, target: { mode: 'split' } }));

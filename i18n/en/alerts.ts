@@ -29,6 +29,7 @@ export const alerts = {
 
   // Card bodies. A name or amount is drawn between the pieces.
   splitAcross: (n: number) => `Split across ${n} goal${n === 1 ? '' : 's'}:`,
+  toWallet: 'Went to your wallet, after clearing anything spent ahead.',
   milestoneBefore: 'A deposit carried ',
   milestonePast: ' past ',
   milestoneEnd: '.',

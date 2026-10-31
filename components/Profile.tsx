@@ -29,6 +29,7 @@ interface ProfileProps {
   version?: string;
   checking?: boolean;
   upToDate?: boolean | null;
+  checkFailed?: boolean;
   onCheckUpdate?: () => void;
   banks: PiggyBank[];
   activities: Activity[];
@@ -73,6 +74,7 @@ const Profile: React.FC<ProfileProps> = ({
   version,
   checking = false,
   upToDate = null,
+  checkFailed = false,
   onCheckUpdate,
   onBack,
   onToggleOverflow,
@@ -198,10 +200,10 @@ const Profile: React.FC<ProfileProps> = ({
             </div>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
-            {/* A third of a phone's width, so everything here wraps rather than truncating on a large system font. */}
+            {/* A third of a phone's width, so everything here wraps rather than truncating on a large system font; the figure steps down instead. */}
             {stats.map((s) => (
               <div key={s.label} className="min-w-0 rounded-2xl bg-page px-2 py-2.5 text-center">
-                <p className="whitespace-nowrap text-[15px] font-bold tabular-nums leading-tight">{s.value}</p>
+                <p className={`truncate font-bold tabular-nums leading-tight ${s.value.length > 9 ? 'text-[min(15px,3.05vw)]' : s.value.length > 8 ? 'text-[min(15px,3.6vw)]' : 'text-[15px]'}`}>{s.value}</p>
                 <p className="mt-1 text-[12px] font-semibold leading-tight text-mute">{s.label}</p>
                 <p className={`mt-0.5 text-[11.5px] font-semibold leading-tight ${s.tone}`}>{s.hint}</p>
               </div>
@@ -371,7 +373,7 @@ const Profile: React.FC<ProfileProps> = ({
                 tint="lav"
                 title={t.pro.update.check}
                 sub={`${t.pro.update.row} ${version}`}
-                trailing={<span className="text-[13px] font-bold text-mute">{checking ? t.pro.update.checking : upToDate ? t.pro.update.latest : <Chevron />}</span>}
+                trailing={<span className="text-[13px] font-bold text-mute">{checking ? t.pro.update.checking : checkFailed ? t.pro.update.couldNotCheck : upToDate ? t.pro.update.latest : <Chevron />}</span>}
                 tone="mute"
                 onClick={onCheckUpdate}
               />

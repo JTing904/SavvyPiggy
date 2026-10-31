@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import type { Trade } from '../types';
 import { CHART, getJson } from '../services/quotes';
 import { parseDailyCloses, valueSeries, type DailyClose, type ValuePoint } from '../services/trails';
@@ -45,6 +47,18 @@ export const useValueTrail = (trades: Trade[]): { trail: ValuePoint[] | null; cl
     return Object.fromEntries(Object.entries(cache).map(([s, c]) => [s, c.closes]));
   });
 
+  // Opened offline, or left open past a day: looked at again when the app comes back or the network does.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const again = () => setTick((n) => n + 1);
+    window.addEventListener('online', again);
+    const resumed = Capacitor.isNativePlatform() ? CapacitorApp.addListener('resume', again) : null;
+    return () => {
+      window.removeEventListener('online', again);
+      void resumed?.then((handle) => handle.remove());
+    };
+  }, []);
+
   useEffect(() => {
     let live = true;
     const cache = read();
@@ -67,7 +81,7 @@ export const useValueTrail = (trades: Trade[]): { trail: ValuePoint[] | null; cl
     return () => {
       live = false;
     };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const trail = useMemo(() => valueSeries(trades, closes), [trades, closes]);
   return { trail, closes };

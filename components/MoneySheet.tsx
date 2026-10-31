@@ -8,7 +8,9 @@ import { findDuplicate, parseQuick } from '../services/quickParse';
 import { canReadPictures, compressPicture, pickPicture, readPicture, type QuickDraft } from '../services/quickRead';
 import type { ReceiptRead } from '../services/receipt';
 import { loadLastChoices, saveLastChoices, usableChoices, withChoice, type ChoicePatch } from '../services/lastChoices';
-import { atFromPicked, defaultIncomeChoice, defaultSpendSource, WALLET, type IncomeChoice } from '../services/moneySheet';
+import { atFromPicked, defaultIncomeChoice, WALLET, type IncomeChoice } from '../services/moneySheet';
+import { debtExistedOn } from '../services/activityDate';
+import { isInSplit } from '../services/ledger';
 import { planIncome, walletCents, type IncomeTarget } from '../services/wallet';
 import { walletProblemText } from '../services/problemText';
 import { fromInputDate, readableDate, toInputDate } from '../services/calendar';
@@ -100,7 +102,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   const [text, setText] = useState('');
   const [choice, setChoice] = useState<IncomeChoice>(() => defaultIncomeChoice(banks, choices.depositTarget));
   /** Spend: undefined is "not chosen yet". */
-  const [source, setSource] = useState<string | undefined>(() => fromGoal ?? defaultSpendSource(banks, choices.spendGoal));
+  const [source, setSource] = useState<string | undefined>(() => fromGoal ?? WALLET);
   const [category, setCategory] = useState<string>(UNCATEGORISED);
   const [note, setNote] = useState('');
   const [day, setDay] = useState(() => toInputDate(Date.now()));
@@ -125,7 +127,8 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
       line.trim()
         ? parseQuick(line, { goals: goals.map((g) => ({ id: g.id, name: g.name })), now: new Date(), liveFrom })
         : null,
-    [line, goals, liveFrom]
+    // Only a new line is read again: a goal changing must not write over what was edited since.
+    [line] // eslint-disable-line react-hooks/exhaustive-deps
   );
   useEffect(() => {
     if (!parsed) return;
@@ -144,6 +147,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     else setSource(parsed.goalId ?? WALLET);
   }, [parsed]);
 
+  const earliest = new Date(liveFrom.getFullYear(), liveFrom.getMonth(), liveFrom.getDate()).getTime();
   const applyRead = (r: ReceiptRead) => {
     setLine('');
     setKeysOpen(r.cents === null);
@@ -153,7 +157,6 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     setText(r.cents !== null ? typedFromCents(r.cents) : '');
     setCategory(UNCATEGORISED);
     setNote(r.merchant ?? '');
-    const earliest = new Date(liveFrom.getFullYear(), liveFrom.getMonth(), liveFrom.getDate()).getTime();
     setDay(r.day && r.day.getTime() >= earliest ? toInputDate(r.day.getTime()) : toInputDate(Date.now()));
   };
   const readFrom = async (uri: string) => {
@@ -192,6 +195,10 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   const deposit = tab === 'deposit';
   const needsSource = !deposit && source === undefined;
 
+  const todayKey = toInputDate(Date.now());
+  const pickedDay = day === todayKey ? null : new Date(fromInputDate(day));
+  const pastDay = pickedDay !== null;
+
   // The same planner the save uses, so the preview is what happens.
   const income = useMemo(
     () =>
@@ -199,21 +206,18 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
         ? planIncome({
             amountCents: cents,
             banks,
-            loans: loans.filter((l) => l.outstanding > 0),
+            // A back-dated income can only repay a debt already owed that day, as the save decides.
+            loans: loans.filter((l) => l.outstanding > 0 && (!pickedDay || debtExistedOn(new Date(l.createdAt).toISOString(), pickedDay))),
             wallet: held,
             target: targetOf(choice),
             overflow: savings.overflow,
           })
         : null,
-    [deposit, cents, banks, loans, held, choice, savings.overflow]
+    [deposit, cents, banks, loans, held, choice, savings.overflow, day] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const incomeProblem = income && 'problem' in income ? income.problem : null;
   const plan = income && 'plan' in income ? income.plan : null;
   const ready = cents > 0 && !needsSource && !incomeProblem;
-
-  const todayKey = toInputDate(Date.now());
-  const pickedDay = day === todayKey ? null : new Date(fromInputDate(day));
-  const pastDay = pickedDay !== null;
 
   const sourceGoal = !deposit && source && source !== WALLET ? goals.find((b) => b.id === source) : undefined;
   const overBalance = sourceGoal && cents > toCents(sourceGoal.currentAmount);
@@ -233,7 +237,6 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
       ? { depositTarget: choice, quick: { deposit: cents } }
       : {
           quick: { spend: cents },
-          ...(typeof source === 'string' ? { spendGoal: source } : {}),
           ...(category !== UNCATEGORISED ? { spendCategory: category } : {}),
         };
     saveLastChoices(uid, withChoice(loadLastChoices(uid), patch));
@@ -268,6 +271,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     setText('');
     setNote('');
     setLine('');
+    setOptions([]);
     setCategory(UNCATEGORISED);
     setReadInfo(null);
     setReceiptImage(null);
@@ -329,6 +333,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
         <p className="rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold">{q.readEmpty}</p>
       )}
       {readInfo && !readInfo.day && <p className="px-0.5 text-[12.5px] font-semibold text-mute">{q.readNoDate}</p>}
+      {readInfo?.day && readInfo.day.getTime() < earliest && <p className="px-0.5 text-[12.5px] font-semibold text-mute">{q.readTooOld}</p>}
       {readInfo && <p className="px-0.5 text-[12.5px] font-medium text-mute">{q.readOnPhone}</p>}
       {receiptImage && !deposit && (
         <div className="flex items-center gap-3 rounded-3xl bg-card px-3.5 py-2.5">
@@ -375,7 +380,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   );
 
   const frame = (children: React.ReactNode) => (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
       <div className="mx-auto flex min-h-full max-w-xl flex-col">
         {band}
         <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
@@ -447,11 +452,11 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
         <div className="grid grid-cols-3 gap-2">
           {[
             { key: 'wallet', icon: 'wallet', tint: 'teal' as IconTint, label: p.keep, on: choice === 'wallet', go: () => setChoice('wallet') },
+            ...(goals.some(isInSplit)
+              ? [{ key: 'split', icon: 'pie', tint: 'blue' as IconTint, label: p.bySplit, on: choice === 'split', go: () => setChoice('split') }]
+              : []),
             ...(goals.length > 0
-              ? [
-                  { key: 'split', icon: 'pie', tint: 'blue' as IconTint, label: p.bySplit, on: choice === 'split', go: () => setChoice('split') },
-                  { key: 'goal', icon: 'target', tint: 'amber' as IconTint, label: p.oneGoal, on: goalChoice, go: () => setChoice(goals[0].id) },
-                ]
+              ? [{ key: 'goal', icon: 'target', tint: 'amber' as IconTint, label: p.oneGoal, on: goalChoice, go: () => !goalChoice && setChoice(goals[0].id) }]
               : []),
           ].map((option) => (
             <button
@@ -521,7 +526,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
       {manyAmounts}
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setPickingSource(true)} className="flex min-h-12 min-w-0 items-center gap-2 rounded-xl bg-card px-3 text-left text-[14px] font-bold active:opacity-80">
-          <Icon name="wallet" size={20} strokeWidth={2} className="shrink-0 text-tteal" />
+          <Icon name={sourceGoal ? 'target' : 'wallet'} size={20} strokeWidth={2} className="shrink-0 text-tteal" />
           <span className="min-w-0 truncate">{p.fromSource(sourceName)}</span>
         </button>
         {dayButton}

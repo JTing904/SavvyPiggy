@@ -37,6 +37,7 @@ export const quick: typeof English = {
   readPick: '图片里读到的数字，点你付的那个：',
   readZero: '图片显示付了 RM0.00。这可能是用点数、金币或优惠券付的。请填你实际花的钱，或者你确定要记 RM0 再记。',
   readNoDate: '没读到日期，已当作今天。',
+  readTooOld: '图上的日期比 App 保留的记录还早，已当作今天。',
   readOldDate: '图片里的日期比 app 保留的记录还早，已当作今天。',
   readCategory: '用途没读出来。不选的话记为其他。',
   readEmpty: '这张图片里没有读到文字。',

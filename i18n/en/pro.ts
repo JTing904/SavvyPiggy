@@ -33,6 +33,7 @@ export const pro = {
     shareValue: 'Share value',
     asOf: (day: string) => `Share value, to ${day}`,
     noLine: 'Daily prices cannot be read right now.',
+    lineBuilding: 'Daily price history is still building.',
     ranges: { month: '1M', half: '6M', year: '1Y' },
     range: 'How far back',
     buy: 'Buy',
@@ -128,6 +129,7 @@ export const pro = {
     check: 'Check for updates',
     checking: 'Checking…',
     latest: 'You have the latest version',
+    couldNotCheck: 'Could not check, try again later',
   },
   records: {
     income: 'Income',

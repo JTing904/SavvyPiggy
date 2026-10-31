@@ -1153,7 +1153,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
               </div>
             )}
             {priceFromHint && price.trim() !== '' && (
-              <p className="px-1 text-[12.5px] font-bold leading-relaxed text-warn">{t.invest.priceFromLast}</p>
+              <p className="px-1 text-[12.5px] font-bold leading-relaxed text-warn">{kind === 'sell' ? t.invest.priceFromLastSell : t.invest.priceFromLast}</p>
             )}
 
             <Group>

@@ -210,7 +210,8 @@ const GoalDetail: React.FC<GoalDetailProps> = ({
             </Ring>
             <div className="min-w-0 flex-1 tabular-nums">
               <p className="text-[13px] font-semibold text-mute">{overspent ? t.goals.overspent : t.goals.saved}</p>
-              <p className={`mt-px truncate text-[24px] font-bold leading-tight ${overspent ? 'text-neg' : ''}`}>{formatMoney(bank.currentAmount)}</p>
+              {/* A long figure steps down only as far as a narrow phone needs, so the digits stay. */}
+              <p className={`mt-px truncate font-bold leading-tight ${formatMoney(bank.currentAmount).length > 12 ? 'text-[min(24px,5.5vw)]' : 'text-[24px]'} ${overspent ? 'text-neg' : ''}`}>{formatMoney(bank.currentAmount)}</p>
               {hasTarget ? (
                 <>
                   <p className="mt-2 truncate text-[13px] font-semibold text-mute">{p.target(plain(bank.targetAmount))}</p>

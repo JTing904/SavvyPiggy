@@ -9,5 +9,6 @@ export const firstRun = {
     own: 'My own',
   },
   onlyGoalNote: 'With just one goal, it takes every deposit automatically. No splitting to set up.',
+  settings: 'Settings',
   samples: 'Or add three sample goals',
 };

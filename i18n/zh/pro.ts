@@ -34,6 +34,7 @@ export const pro: typeof English = {
     shareValue: '股票价值',
     asOf: (day) => `股票价值，更新到 ${day}`,
     noLine: '暂时读不到每日股价。',
+    lineBuilding: '每日股价记录还在累积中。',
     ranges: { month: '1月', half: '6月', year: '1年' },
     range: '看多久',
     buy: '买入',
@@ -129,6 +130,7 @@ export const pro: typeof English = {
     check: '检查更新',
     checking: '正在检查…',
     latest: '已经是最新版本',
+    couldNotCheck: '暂时查不到，稍后再试',
   },
   records: {
     income: '收入',

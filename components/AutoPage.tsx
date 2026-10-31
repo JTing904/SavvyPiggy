@@ -165,7 +165,12 @@ const AutoPage: React.FC<AutoPageProps> = ({
                 tint="mint"
                 title={b.depositRowTitle(formatMoney(s.amount))}
                 sub={b.depositRowSub(describe(s), goalName(s.targetBankId))}
-                trailing={<Toggle checked={s.enabled} onChange={(on) => onToggleSchedule(s.id, on)} label={b.toggleLabel(formatMoney(s.amount))} />}
+                // The switch sits inside the row's button: its tap stops here so it does not open the rule as well.
+                trailing={
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <Toggle checked={s.enabled} onChange={(on) => onToggleSchedule(s.id, on)} label={b.toggleLabel(formatMoney(s.amount))} />
+                  </span>
+                }
                 tone={s.enabled ? 'ink' : 'mute'}
                 onClick={() => setOpen({ kind: 'deposit', schedule: s })}
               />

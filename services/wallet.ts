@@ -81,20 +81,24 @@ export const planIncome = (i: IncomeInput): { plan: IncomePlan } | { problem: In
   const toGoals = i.target.mode === 'wallet' ? 0 : remaining;
 
   let movements: Movement[] = [];
+  let placed = 0;
   if (toGoals > 0) {
     movements = splitByPercentage(toGoals, effectiveSplit(i.banks, i.overflow)).map((share) => ({
       bankId: share.item.id,
       cents: share.cents,
       percentage: Math.round(share.weight * 100) / 100,
     }));
-    const placed = movements.reduce((s, m) => s + m.cents, 0);
+    placed = movements.reduce((s, m) => s + m.cents, 0);
     // A split with nowhere to go is refused, as a deposit always was, rather than parked in the wallet.
     if (placed === 0 && repayments.length === 0 && covered === 0) return { problem: 'noDestination' };
     movements = movements.filter((m) => m.cents !== 0);
   }
 
   if (movements.length === 0 && repayments.length === 0 && covered + toWallet === 0) return { problem: 'noDestination' };
-  return { plan: { repayments, repaidCents, coveredCents: covered, walletCents: covered + toWallet, movements } };
+  // Shares under 100%, or no goal left in the split once a debt or overdraft took its part:
+  // what they could not place stays in the wallet, so income never goes missing.
+  const unplaced = toGoals - placed;
+  return { plan: { repayments, repaidCents, coveredCents: covered, walletCents: covered + toWallet + unplaced, movements } };
 };
 
 /** Spending from the wallet: it only has to come out of it, however little it holds. */

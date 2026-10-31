@@ -77,7 +77,6 @@ const InvestHome: React.FC<InvestHomeProps> = ({
   const portfolio = portfolioTotals(holdings, quotes);
   const potCents = toCents(investSettings?.potBalance ?? 0);
   const total = portfolio.valueCents + potCents;
-  const empty = holdings.length === 0 && potCents === 0;
 
   // The pick downloads months of prices, so it waits until this page is actually on screen.
   const [pickReady, setPickReady] = useState(false);
@@ -104,13 +103,15 @@ const InvestHome: React.FC<InvestHomeProps> = ({
 
   const gain = portfolio.gainCents;
   const gainText = gain < 0 ? t.pro.home.lost(money(-gain)) : t.pro.home.earned(money(gain));
+  // Too few points is a new holding's history still filling, unless a held counter has no closes to read at all.
+  const unread = trail === null || holdings.some((h) => !closes[h.symbol]?.length);
 
   return (
     <div className="flex min-h-full flex-col pb-24 font-figtree text-ink">
       <PageBand title={t.nav.invest} overlap={16}>
         <BandLabel className="mt-1">{p.total}</BandLabel>
         <p className="mt-0.5 truncate text-[34px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(total)}</p>
-        {!empty && <p className="mt-1 truncate text-[13.5px] font-semibold tabular-nums text-band-sub">{p.upAndPot(gainText, money(potCents))}</p>}
+        {holdings.length > 0 && <p className="mt-1 truncate text-[13.5px] font-semibold tabular-nums text-band-sub">{p.upAndPot(gainText, money(potCents))}</p>}
       </PageBand>
 
       <div className="-mt-11 flex flex-col gap-2.5 px-4">
@@ -143,7 +144,7 @@ const InvestHome: React.FC<InvestHomeProps> = ({
                 label={p.chart(money(points[points.length - 1].cents))}
               />
             ) : (
-              <p className="py-6 text-center text-[13px] font-medium text-mute">{p.noLine}</p>
+              <p className="py-6 text-center text-[13px] font-medium text-mute">{unread ? p.noLine : p.lineBuilding}</p>
             )}
           </div>
         )}
@@ -156,7 +157,15 @@ const InvestHome: React.FC<InvestHomeProps> = ({
         </div>
 
         {holdings.length === 0 ? (
-          <EmptyState icon="trend" title={t.home.noCounters} body={t.home.noCountersHint} action={{ label: p.buy, onClick: () => onNewTrade('buy') }} />
+          <>
+            <EmptyState icon="trend" title={t.home.noCounters} body={t.home.noCountersHint} action={{ label: p.buy, onClick: () => onNewTrade('buy') }} />
+            {/* Everything sold: the trades, and correcting a dividend among them, are still behind this. */}
+            {trades.length > 0 && (
+              <button type="button" onClick={onOpenTrades} className="min-h-9 self-center text-[13.5px] font-bold text-tblue active:opacity-70">
+                {t.home.allTrades(trades.length)}
+              </button>
+            )}
+          </>
         ) : (
           <div>
             <div className="flex min-h-9 items-center justify-between gap-2 px-1">

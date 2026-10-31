@@ -66,7 +66,7 @@ export const net = {
   settle: 'Pay it all off',
   correct: 'Correct what is owed',
   newBalance: 'What is owed now',
-  soFar: 'Recorded so far',
+  soFar: 'From the payments listed below',
   principalPaid: 'Principal paid',
   interestPaid: 'Interest paid',
   paymentsTitle: 'Payments',

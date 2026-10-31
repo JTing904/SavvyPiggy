@@ -13,7 +13,9 @@ import { Tile, type TileTint } from './ui/Tile';
 const FirstRun: React.FC<{
   onCreateGoal: (prefill?: { name: string; icon: string }) => void;
   onSeedSamples: () => void;
-}> = ({ onCreateGoal, onSeedSamples }) => {
+  /** Language, theme and sign-out have to be reachable before any goal exists. */
+  onOpenSettings: () => void;
+}> = ({ onCreateGoal, onSeedSamples, onOpenSettings }) => {
   const t = useT();
 
   return (
@@ -61,6 +63,13 @@ const FirstRun: React.FC<{
             className="min-h-11 rounded-full px-4 text-[13.5px] font-bold text-mute underline underline-offset-4 active:opacity-70"
           >
             {t.firstRun.samples}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="min-h-11 rounded-full px-4 text-[13.5px] font-bold text-mute underline underline-offset-4 active:opacity-70"
+          >
+            {t.firstRun.settings}
           </button>
         </div>
       </div>

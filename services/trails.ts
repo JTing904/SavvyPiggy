@@ -97,11 +97,13 @@ export const valueSeries = (trades: Trade[], closes: Record<string, DailyClose[]
       const units = unitsHeldOn(counter.trades, end);
       if (units <= 0) continue;
       held = true;
-      if (counter.last === null) priced = false;
-      else cents += pointsValueCents(units, counter.last);
+      if (counter.last === null) {
+        if (counter.closes.length === 0) return null;
+        // Held before its first close (allotted ahead of listing): that day has no value yet.
+        priced = false;
+      } else cents += pointsValueCents(units, counter.last);
     }
-    if (!held) continue;
-    if (!priced) return null;
+    if (!held || !priced) continue;
     out.push({ day, cents });
   }
   return out;
