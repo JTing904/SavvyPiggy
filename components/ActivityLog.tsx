@@ -5,6 +5,7 @@ import { dateLocale } from '../i18n';
 import { dayKey } from '../services/analytics';
 import { groupByDay, monthSummary } from '../services/historyDays';
 import { cursorForMonth, shiftDay, shiftMonth } from '../services/monthCells';
+import { monthFigures } from '../services/review';
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 import { formatMoney, fromCents } from '../services/money';
 import { EmptyState } from './ui/EmptyState';
@@ -78,7 +79,11 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, on
 
   const days = useMemo(() => groupByDay(activities, { year, month }), [activities, year, month]);
   const dayMap = useMemo(() => new Map(days.map((d) => [d.key, d])), [days]);
-  const summary = useMemo(() => monthSummary(activities, year, month), [activities, year, month]);
+  // Spent is the same figure as Home and the Report: a loan's principal leaves the wallet but is not spending.
+  const summary = useMemo(
+    () => ({ ...monthSummary(activities, year, month), outCents: monthFigures(activities, new Date(year, month, 1)).spentCents }),
+    [activities, year, month]
+  );
 
   const keptDay = startOfDay(ledger.keptFrom);
   const clamp = (d: Date) => (d.getTime() > today.getTime() ? today : d.getTime() < keptDay.getTime() ? keptDay : d);
