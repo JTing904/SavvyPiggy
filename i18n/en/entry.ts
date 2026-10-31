@@ -12,6 +12,7 @@ export const entry = {
   goesTo: 'Goes to',
   asItWas: 'As it was',
   byYourSplit: 'By your split',
+  landed: 'Where it went',
   category: 'Category',
   note: 'Note',
   notePlaceholder: 'Optional',

@@ -8,6 +8,7 @@ import {
   formFromActivity,
   goalPreview,
   hasChanges,
+  landedLines,
   pickableGoals,
   sourceOf,
   timeOf,
@@ -208,6 +209,27 @@ eq('a deposit over two goals has no single source', sourceOf(deposit), null);
   eq('a week back over a year end', shiftDay(at(2026, 1, 3), -7).getTime(), at(2025, 12, 27, 0).getTime());
   eq('a month back clamps the day', shiftMonth(at(2026, 3, 31), -1).getTime(), at(2026, 2, 28, 0).getTime());
   eq('a month on rolls the year', shiftMonth(at(2026, 12, 15), 1).getTime(), at(2027, 1, 15, 0).getTime());
+}
+
+{
+  const split: Activity = {
+    ...deposit,
+    amount: 0.22,
+    distributions: [
+      { bankId: 'car', amount: 0.08, percentage: 30 },
+      { bankId: 'trip', amount: 0.01, percentage: 5 },
+      { bankId: 'none', amount: 0, percentage: 5 },
+    ],
+  };
+  eq('each goal shows what it really got', landedLines(split), [
+    { bankId: 'car', cents: 8, percentage: 30 },
+    { bankId: 'trip', cents: 1, percentage: 5 },
+  ]);
+  eq('money kept in the wallet is listed last', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 87.5, percentage: 100 }], wallet: 12.5 }), [
+    { bankId: 'car', cents: 8750, percentage: 100 },
+    { bankId: null, cents: 1250, percentage: 0 },
+  ]);
+  eq('a spend out of the wallet lists nothing', landedLines({ ...split, distributions: [], wallet: -5 }), []);
 }
 
 report();

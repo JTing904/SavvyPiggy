@@ -138,6 +138,19 @@ export const goalPreview = (deltas: Record<string, number>, banks: PiggyBank[]):
       return { id: b.id, name: b.name, beforeCents, afterCents: beforeCents + deltaCents, deltaCents };
     });
 
+/** One place a deposit's money went. A null `bankId` is the wallet. */
+export interface LandedLine {
+  bankId: string | null;
+  cents: number;
+  percentage: number;
+}
+
+/** Where a deposit's money actually went: the amounts stored on it, then what stayed in the wallet. */
+export const landedLines = (a: Activity): LandedLine[] => [
+  ...a.distributions.filter((d) => d.amount > 0).map((d) => ({ bankId: d.bankId, cents: toCents(d.amount), percentage: d.percentage })),
+  ...((a.wallet ?? 0) > 0 ? [{ bankId: null, cents: toCents(a.wallet ?? 0), percentage: 0 }] : []),
+];
+
 /**
  * The goals a person can pick as a source or target: the active ones, plus the
  * goal the row already uses (an archived goal a row drew on may stay).

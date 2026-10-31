@@ -2,8 +2,10 @@ import React, { useMemo, useState } from 'react';
 import type { Activity, Loan, PiggyBank, SavingsSettings } from '../types';
 import { Sheet } from './ui/Sheet';
 import { Button } from './ui/Button';
+import { Swatch, type ChartColor } from './ui/Charts';
 import { Chip } from './ui/Chip';
 import { Group } from './ui/Group';
+import { Icon } from './ui/Icon';
 import { PageBand } from './ui/PageBand';
 import { PageSheet } from './ui/PageSheet';
 import { Tile, type TileTint } from './ui/Tile';
@@ -27,6 +29,7 @@ import {
   formFromActivity,
   goalPreview,
   hasChanges,
+  landedLines,
   pickableGoals,
   sourceOf,
   type EntryForm,
@@ -212,9 +215,8 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
   // A spend from several goals (an older row) has no single goal to show as chosen.
   const sources = pickableGoals(banks, sourceOf(activity));
   const targets = banks.filter((b) => !b.archivedAt);
-  const kept = activity.distributions
-    .map((d) => `${banks.find((b) => b.id === d.bankId)?.name ?? t.history.deletedGoal}${activity.distributions.length > 1 ? ` ${d.percentage}%` : ''}`)
-    .join(' · ');
+  const landed = landedLines(activity);
+  const colorOf = (id: string) => ((Math.max(0, targets.findIndex((b) => b.id === id)) % 5) + 1) as ChartColor;
 
   const category = categoryOf(form.category);
   const target = form.target;
@@ -265,7 +267,25 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
         <NoteRow value={form.note} onChange={(note) => set({ note })} />
       </Group>
 
-      {isDeposit && form.target === null && kept && <p className="px-1 text-[12.5px] font-semibold text-mute">{kept}</p>}
+      {/* Once the amount changes these figures are out of date, and the preview below has the new ones. */}
+      {isDeposit && form.target === null && edit.amount === undefined && !typing && landed.length > 0 && (
+        <div className="rounded-3xl bg-card px-3.5 py-2 text-ink">
+          <h2 className="flex min-h-9 items-center text-[15px] font-bold">{t.entry.landed}</h2>
+          {(activity.repaid ?? 0) > 0 && <p className="text-[13px] font-bold text-info">{t.history.coveredSpentAhead(formatMoney(activity.repaid ?? 0))}</p>}
+          <div className="divide-y divide-line/10">
+            {landed.map((l) => (
+              <div key={l.bankId ?? 'wallet'} className="flex min-h-11 items-center gap-2.5 text-[14.5px] font-bold tabular-nums">
+                {l.bankId === null ? <Icon name="wallet" size={16} strokeWidth={2} className="text-tteal" /> : <Swatch color={colorOf(l.bankId)} />}
+                <span className="min-w-0 flex-1 truncate">
+                  {l.bankId === null ? t.wallet.name : (banks.find((b) => b.id === l.bankId)?.name ?? t.history.deletedGoal)}
+                  {l.bankId !== null && activity.distributions.length > 1 && <span className="ml-1.5 text-[13px] font-semibold text-mute">{l.percentage}%</span>}
+                </span>
+                <span className="text-pos">+{money(l.cents)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isWithdraw && !typing && <ReceiptStrip ownerId={activity.id} ids={activity.receipts ?? []} />}
 
