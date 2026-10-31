@@ -2,6 +2,8 @@ package com.savvypiggy.app;
 
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.view.View;
+import android.view.ViewParent;
 import android.view.Window;
 
 import com.getcapacitor.Plugin;
@@ -35,7 +37,14 @@ public class BarsPlugin extends Plugin {
                 window.setNavigationBarColor(bottom);
                 // Edge to edge the bars are see-through and the window shows behind
                 // them: the top half for the status bar, the bottom for the other.
-                window.getDecorView().setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {color, color, bottom, bottom}));
+                int[] halves = {color, color, bottom, bottom};
+                window.getDecorView().setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, halves));
+                // The WebView is inset by the bars, so what shows there is its own parents.
+                ViewParent parent = getBridge().getWebView().getParent();
+                while (parent instanceof View) {
+                    ((View) parent).setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, halves));
+                    parent = parent.getParent();
+                }
                 call.resolve();
             } catch (Exception e) {
                 call.reject("color");
