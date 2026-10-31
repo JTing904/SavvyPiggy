@@ -38,17 +38,22 @@ import { applyHint, needsQuoteFetch, priceText, showHint, typePrice, type AgoUni
 import { feeEditsOf, feeMismatch, type FeeMismatch } from '../services/feePrompt';
 import { isInSplit, type GoneShareChoice } from '../services/ledger';
 import { newShortSale, type ShortSale } from '../services/tradeCheck';
-import { fromInputDate, toInputDate } from '../services/calendar';
+import { fromInputDate, readableDate, toInputDate } from '../services/calendar';
 import { useConfirm } from '../contexts/ConfirmContext';
 import DateField from './DateField';
 import RefundSheet, { ChoiceRow } from './invest/RefundSheet';
 import FeeMismatchSheet from './invest/FeeMismatchSheet';
 import GoneShareSheet from './GoneShareSheet';
+import { DetailRow } from './history/EntryFields';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
+import { Button } from './ui/Button';
+import { Group } from './ui/Group';
 import { Icon } from './ui/Icon';
+import { IconTile } from './ui/IconTile';
 import { NumberPad } from './ui/NumberPad';
-import { Sheet } from './ui/Sheet';
+import { BandLabel, PageBand } from './ui/PageBand';
+import { PageSheet } from './ui/PageSheet';
 
 /**
  * What the sheet has been opened to do. Recording a trade and correcting one
@@ -137,23 +142,26 @@ const Field: React.FC<{
   /** Draws the box in the "typed over by hand" colour. */
   flagged?: boolean;
 }> = ({ label, value, onOpen, active, prefix, placeholder = '0', compact, flagged }) => (
-  <button type="button" onClick={onOpen} aria-pressed={active} className="block min-w-0 flex-1 text-left">
-    <span className={`mb-1.5 block truncate px-1 font-bold text-mute ${compact ? 'text-[11.5px]' : 'text-[12.5px]'}`}>{label}</span>
-    <span
-      className={`flex items-center gap-2 bg-field ${compact ? 'min-h-12 rounded-2xl px-2.5' : 'min-h-14 rounded-[18px] px-4'} ${
-        active ? 'outline outline-2 outline-ink' : flagged ? 'outline outline-2 outline-warn' : ''
-      }`}
-    >
-      {prefix && <span className="shrink-0 font-bold text-mute">{prefix}</span>}
-      <span className={`min-w-0 truncate font-extrabold tabular-nums ${compact ? 'text-[15px]' : 'text-[20px]'} ${value === '' ? 'text-mute' : 'text-ink'}`}>{value === '' ? placeholder : value}</span>
+  <button
+    type="button"
+    onClick={onOpen}
+    aria-pressed={active}
+    className={`block min-h-12 min-w-0 flex-1 text-left active:opacity-80 ${compact ? 'rounded-2xl bg-page px-2.5 py-1.5' : 'rounded-3xl bg-card px-3.5 py-2.5'} ${
+      active ? 'outline outline-2 outline-ink' : flagged ? 'outline outline-2 outline-warn' : ''
+    }`}
+  >
+    <span className="block truncate text-[12.5px] font-semibold text-mute">{label}</span>
+    <span className="mt-0.5 flex items-baseline gap-1">
+      {prefix && <span className="shrink-0 text-[14px] font-bold text-mute">{prefix}</span>}
+      <span className={`min-w-0 truncate font-bold tabular-nums ${compact ? 'text-[15px]' : 'text-[20px]'} ${value === '' ? 'text-mute' : 'text-ink'}`}>{value === '' ? placeholder : value}</span>
     </span>
   </button>
 );
 
 const Line: React.FC<{ label: string; value: string; strong?: boolean; tone?: string }> = ({ label, value, strong, tone }) => (
   <div className={`flex items-baseline gap-3 py-0.5 ${strong ? 'text-[15px]' : 'text-[13.5px]'}`}>
-    <span className={`min-w-0 flex-1 ${strong ? 'font-extrabold' : 'font-medium text-mute'}`}>{label}</span>
-    <span className={`shrink-0 text-right tabular-nums ${strong ? 'text-[18px] font-extrabold' : 'font-bold'} ${tone ?? ''}`}>{value}</span>
+    <span className={`min-w-0 flex-1 ${strong ? 'font-bold' : 'font-medium text-mute'}`}>{label}</span>
+    <span className={`shrink-0 text-right tabular-nums ${strong ? 'text-[18px] font-bold' : 'font-bold'} ${tone ?? ''}`}>{value}</span>
   </div>
 );
 
@@ -215,6 +223,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
   const [problem, setProblem] = useState<string | null>(null);
   /** The number the app's pad is typing into. */
   const [pad, setPad] = useState<PadTarget>(null);
+  /** The fee boxes, folded under their total until someone wants to see them. */
+  const [feesOpen, setFeesOpen] = useState(false);
   /** The price came from the last-price hint rather than from the person; any typing clears it. */
   const [priceFromHint, setPriceFromHint] = useState(false);
   const typePriceText = (text: string) => {
@@ -829,43 +839,58 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
     });
   };
 
+  const isForm = kind !== 'dividend' && !needsCounter;
+  const feesShown = feesOpen || !broker || anyEdited;
+
   return (
     <>
-      <Sheet title={`${title}${name ? ` · ${name}` : ''}`} onClose={onClose} height="tall">
-        <div className="mt-1 flex items-start gap-2">
-          <p className="min-w-0 flex-1 px-1 text-[13px] font-medium leading-relaxed text-mute">
-            {kind === 'dividend'
-              ? editing?.money?.mode === 'pot' ? t.invest.dividendIntro : t.invest.dividendIntroLegacy
-              : editing
-              ? t.invest.editIntro
-              : prefilled
-                ? t.invest.prefilledIntro
-                : kind === 'buy'
-                  ? t.invest.buyIntro
-                  : t.invest.sellIntro}
-          </p>
-          {symbol && kind !== 'dividend' && (
-            <button
-              type="button"
-              onClick={toggleType}
-              title={t.invest.securityTypeHint}
-              aria-label={`${t.invest.securityType[securityType]} · ${t.invest.securityTypeHint}`}
-              className={`flex min-h-9 shrink-0 items-center gap-1 rounded-full px-3 text-[11.5px] font-extrabold active:opacity-70 ${isReit ? 'bg-lav' : 'bg-line/10'}`}
-            >
-              {t.invest.securityType[securityType]}
-              <Icon name="swap" size={13} />
-            </button>
-          )}
-        </div>
+      <PageSheet
+        band={
+          <PageBand title={`${title}${name ? ` · ${name}` : ''}`} onClose={onClose}>
+            {isForm && (
+              <>
+                <BandLabel className="mt-1">{kind === 'buy' ? t.invest.totalPaid : t.invest.totalReceived}</BandLabel>
+                <p className="mt-0.5 truncate text-[38px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(totalCents)}</p>
+              </>
+            )}
+          </PageBand>
+        }
+        onClose={onClose}
+        footer={
+          isForm ? (
+            <>
+              <Button onClick={() => void save()} disabled={!canSave}>
+                {editing ? t.common.saveChanges : t.invest.record[kind]}
+              </Button>
+              {editing && (
+                <Button variant="ghost" className="mt-2 !text-neg" onClick={() => void remove()} disabled={busy || !creditedLoaded}>
+                  {t.invest.deleteTrade}
+                </Button>
+              )}
+            </>
+          ) : undefined
+        }
+      >
+        <p className="px-1 text-[13px] font-medium leading-relaxed text-mute">
+          {kind === 'dividend'
+            ? editing?.money?.mode === 'pot' ? t.invest.dividendIntro : t.invest.dividendIntroLegacy
+            : editing
+            ? t.invest.editIntro
+            : prefilled
+              ? t.invest.prefilledIntro
+              : kind === 'buy'
+                ? t.invest.buyIntro
+                : t.invest.sellIntro}
+        </p>
 
         {/* A dividend was not typed in by anyone, so there is nothing here to
             re-type. It is shown as the receipt it is. */}
         {kind === 'dividend' ? (
-          <div className="mt-5">
-            <div className="space-y-1.5 rounded-3xl bg-card p-4">
-              <div className="flex text-[13px]">
-                <span className="flex-1 font-medium text-mute">{t.invest.paidOn}</span>
-                <span className="font-extrabold">
+          <>
+            <div className="space-y-1.5 rounded-3xl bg-card p-3.5">
+              <div className="flex text-[13.5px]">
+                <span className="flex-1 font-semibold text-mute">{t.invest.paidOn}</span>
+                <span className="font-bold">
                   {new Date(tradedAt).toLocaleDateString(dateLocale('en-GB'), {
                     day: 'numeric',
                     month: 'short',
@@ -873,84 +898,77 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                   })}
                 </span>
               </div>
-              <div className="flex text-[13px]">
-                <span className="flex-1 font-medium text-mute">{t.invest.unitsOnExDate}</span>
-                <span className="font-extrabold">{unitsIn.toLocaleString('en-US')}</span>
+              <div className="flex text-[13.5px]">
+                <span className="flex-1 font-semibold text-mute">{t.invest.unitsOnExDate}</span>
+                <span className="font-bold tabular-nums">{unitsIn.toLocaleString('en-US')}</span>
               </div>
-              <div className="flex text-[13px]">
-                <span className="flex-1 font-medium text-mute">{t.invest.perUnit}</span>
-                <span className="font-extrabold">
+              <div className="flex text-[13.5px]">
+                <span className="flex-1 font-semibold text-mute">{t.invest.perUnit}</span>
+                <span className="font-bold tabular-nums">
                   RM{((editing?.perUnitPoints ?? 0) / 10_000).toFixed(4)}
                 </span>
               </div>
               <div className="my-2 h-px bg-line/10" />
               <div className="flex items-center">
-                <span className="flex-1 text-[14px] font-extrabold text-pos">
+                <span className="flex-1 text-[14px] font-bold text-pos">
                   {editing?.money?.mode === 'pot' ? t.invest.paidIntoPot : t.invest.paidIntoGoals}
                   {dividendCorrected && (
-                    <span className="ml-2 rounded-full bg-sun px-2 py-0.5 align-middle text-[10.5px] font-extrabold text-ink">
+                    <span className="ml-2 rounded-md bg-sun px-1.5 py-0.5 align-middle text-[11.5px] font-bold text-ink">
                       {t.invest.dividendCorrected}
                     </span>
                   )}
                 </span>
-                <span className="text-[18px] font-extrabold text-pos">
+                <span className="text-[18px] font-bold tabular-nums text-pos">
                   {money(editing ? tradeCents(editing) : 0)}
                 </span>
               </div>
             </div>
             {dividendMode === 'view' && (
               <>
-                <p className="text-[12px] font-medium text-mute mt-4 leading-relaxed">
+                <p className="px-1 text-[12.5px] font-medium leading-relaxed text-mute">
                   {editing?.money?.mode !== 'pot'
                     ? t.invest.dividendReceiptNoteLegacy
                     : dividendCorrected
                       ? t.invest.dividendCorrectedNote
                       : t.invest.dividendReceiptNote}
                 </p>
-                {(canCorrect || canRemove) && (
-                  <div className="mt-5 space-y-3">
-                    {canCorrect && (
-                      <button
-                        onClick={() => {
-                          setProblem(null);
-                          setDividendMode('correct');
-                        }}
-                        className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-cta px-6 text-[15px] font-extrabold text-cta-fg active:opacity-80"
-                      >
-                        {t.invest.correctAmount}
-                      </button>
-                    )}
-                    {canRemove && (
-                      <button
-                        onClick={() => {
-                          setProblem(null);
-                          setDividendMode('remove');
-                        }}
-                        className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-peach px-6 text-[15px] font-extrabold text-neg active:opacity-80"
-                      >
-                        {t.invest.removeDividend}
-                      </button>
-                    )}
-                  </div>
+                {canCorrect && (
+                  <Button
+                    onClick={() => {
+                      setProblem(null);
+                      setDividendMode('correct');
+                    }}
+                  >
+                    {t.invest.correctAmount}
+                  </Button>
                 )}
-                <button
-                  onClick={onClose}
-                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-card px-6 text-[15.5px] font-extrabold text-ink active:opacity-80"
-                >
+                {canRemove && (
+                  <Button
+                    variant="ghost"
+                    className="!text-neg"
+                    onClick={() => {
+                      setProblem(null);
+                      setDividendMode('remove');
+                    }}
+                  >
+                    {t.invest.removeDividend}
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={onClose}>
                   {t.common.close}
-                </button>
+                </Button>
               </>
             )}
 
             {dividendMode === 'correct' && (
-              <div className="mt-5">
-                <p className="text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.correctAmountHint}</p>
-                <div className="mt-4 flex">
+              <>
+                <p className="px-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.correctAmountHint}</p>
+                <div className="flex">
                   <Field label={t.invest.amountReceived} value={amountText} onOpen={() => setPad('amount')} active={pad === 'amount'} prefix="RM" placeholder="0.00" />
                 </div>
-                {pad === 'amount' && <NumberPad className="mt-3" fieldKey="amount" value={amountText} decimals={2} onChange={setAmountText} onDone={() => setPad(null)} />}
+                {pad === 'amount' && <NumberPad fieldKey="amount" value={amountText} decimals={2} onChange={setAmountText} onDone={() => setPad(null)} />}
                 {correctionPlan && correctionPlan.deltaCents !== 0 && (
-                  <div className="mt-4 rounded-3xl bg-lav p-4">
+                  <div className="rounded-3xl bg-card p-3.5">
                     <Line
                       label={t.invest.potMoves(
                         money(potCents),
@@ -963,148 +981,151 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                   </div>
                 )}
                 {correction && 'problem' in correction && amountText.trim() !== '' && (
-                  <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{dividendProblemText(correction, t)}</p>
+                  <p className="px-1 text-[12.5px] font-bold leading-relaxed text-neg">{dividendProblemText(correction, t)}</p>
                 )}
-                {problem && <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{problem}</p>}
-                <button
-                  onClick={() => void saveCorrection()}
-                  disabled={!correctionPlan || correctionPlan.deltaCents === 0 || busy}
-                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-cta px-6 text-[15.5px] font-extrabold text-cta-fg disabled:opacity-40 active:opacity-80"
-                >
+                {problem && <p className="px-1 text-[12.5px] font-bold leading-relaxed text-neg">{problem}</p>}
+                <Button onClick={() => void saveCorrection()} disabled={!correctionPlan || correctionPlan.deltaCents === 0 || busy}>
                   {t.invest.saveCorrection}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={() => {
                     setProblem(null);
                     setAmountText(editing ? fromCents(tradeCents(editing)).toFixed(2) : '');
                     setDividendMode('view');
                   }}
                   disabled={busy}
-                  className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-card px-6 text-[15px] font-extrabold text-ink disabled:opacity-40 active:opacity-80"
                 >
                   {t.common.back}
-                </button>
-              </div>
+                </Button>
+              </>
             )}
 
             {dividendMode === 'remove' && (
-              <div className="mt-5">
-                <p className="text-[13px] font-medium leading-relaxed">
+              <>
+                <p className="px-1 text-[13px] font-medium leading-relaxed">
                   {t.invest.removeDividendBody(money(editing ? tradeCents(editing) : 0))}
                 </p>
                 {removal && 'problem' in removal && (
-                  <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{dividendProblemText(removal, t)}</p>
+                  <p className="px-1 text-[12.5px] font-bold leading-relaxed text-neg">{dividendProblemText(removal, t)}</p>
                 )}
-                {problem && <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{problem}</p>}
-                <button
-                  onClick={() => void confirmRemoval()}
-                  disabled={!removal || 'problem' in removal || busy}
-                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-peach px-6 text-[15.5px] font-extrabold text-neg disabled:opacity-40 active:opacity-80"
-                >
+                {problem && <p className="px-1 text-[12.5px] font-bold leading-relaxed text-neg">{problem}</p>}
+                <Button variant="danger" onClick={() => void confirmRemoval()} disabled={!removal || 'problem' in removal || busy}>
                   {t.invest.removeDividendConfirm}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={() => {
                     setProblem(null);
                     setDividendMode('view');
                   }}
                   disabled={busy}
-                  className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-card px-6 text-[15px] font-extrabold text-ink disabled:opacity-40 active:opacity-80"
                 >
                   {t.common.back}
-                </button>
-              </div>
+                </Button>
+              </>
             )}
-          </div>
+          </>
         ) : needsCounter && kind === 'sell' ? (
-          <div className="mt-5">
-            <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">
-              {t.invest.whichCounter}
-            </p>
+          <div>
+            <h2 className="mb-1 px-1 text-[15px] font-bold">{t.invest.whichCounter}</h2>
             {held.length === 0 ? (
-              <p className="text-[13px] font-medium leading-relaxed text-mute">
+              <p className="px-1 text-[13px] font-medium leading-relaxed text-mute">
                 {t.invest.nothingToSell}
               </p>
             ) : (
-              <div className="divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
+              <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
                 {held.map((holding) => (
                   <button
                     key={holding.id}
+                    type="button"
                     onClick={() => {
                       setSymbol(holding.symbol);
                       setName(holding.name);
                     }}
-                    className="flex min-h-14 w-full items-center gap-3 py-2.5 text-left active:opacity-70"
+                    className="flex min-h-14 w-full items-center gap-2.5 py-2 text-left active:opacity-70"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="truncate text-[15px] font-bold">{holding.name}</p>
-                      <p className="text-[12px] font-medium text-mute">
+                    <IconTile icon={<span className="text-[15px] font-extrabold">{holding.name.charAt(0).toUpperCase()}</span>} tint="amber" size={38} round />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15px] font-bold">{holding.name}</span>
+                      <span className="block text-[12.5px] font-semibold text-mute">
                         {t.common.units(holding.units.toLocaleString('en-US'))} · {holding.symbol}
-                      </p>
-                    </div>
-                    <Icon name="chev" size={18} className="text-mute" />
+                      </span>
+                    </span>
+                    <Icon name="chev" size={18} strokeWidth={2} className="text-mute" />
                   </button>
                 ))}
               </div>
             )}
           </div>
         ) : needsCounter ? (
-          <div className="mt-5">
-            <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">{t.invest.counter}</p>
-            <div className="flex min-h-14 items-center gap-3 rounded-[18px] bg-field px-4 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
+          <div>
+            <h2 className="mb-1 px-1 text-[15px] font-bold">{t.invest.counter}</h2>
+            <div className="flex min-h-14 items-center gap-3 rounded-3xl bg-card px-3.5 focus-within:outline focus-within:outline-2 focus-within:outline-ink">
               <Icon name="ser" size={18} className="text-mute" />
               <input
                 autoFocus
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
                 placeholder={t.invest.searchPlaceholder}
-                className="min-h-6 w-full border-0 bg-transparent p-0 text-[16px] font-bold text-ink placeholder:text-mute focus:ring-0"
+                className="min-h-6 w-full select-text border-0 bg-transparent p-0 text-[16px] font-bold text-ink placeholder:text-mute focus:ring-0"
               />
             </div>
-            {searching && <p className="mt-3 px-1 text-[12.5px] font-semibold text-mute">{t.invest.searching}</p>}
+            {searching && <p className="mt-2.5 px-1 text-[12.5px] font-semibold text-mute">{t.invest.searching}</p>}
             {!searching && term.trim().length >= 2 && hits.length === 0 && (
-              <p className="mt-3 px-1 text-[12.5px] font-semibold text-mute leading-relaxed">
+              <p className="mt-2.5 px-1 text-[12.5px] font-semibold leading-relaxed text-mute">
                 {t.invest.noMatch}
               </p>
             )}
-            <div className="mt-3 divide-y divide-line/10 rounded-3xl bg-card px-4 py-1">
-              {hits.map((hit) => (
-                <button
-                  key={hit.symbol}
-                  onClick={() => {
-                    setSymbol(normalizeSymbol(hit.symbol));
-                    setName(hit.name);
-                  }}
-                  className="flex min-h-14 w-full items-center gap-3 py-2.5 text-left active:opacity-70"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-[15px] font-bold">{hit.name}</p>
-                    <p className="text-[12px] font-medium text-mute">{hit.symbol}</p>
-                  </div>
-                  <Icon name="plus" size={18} className="text-mute" />
-                </button>
-              ))}
-            </div>
+            {hits.length > 0 && (
+              <div className="mt-2.5 divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
+                {hits.map((hit) => (
+                  <button
+                    key={hit.symbol}
+                    type="button"
+                    onClick={() => {
+                      setSymbol(normalizeSymbol(hit.symbol));
+                      setName(hit.name);
+                    }}
+                    className="flex min-h-14 w-full items-center gap-2.5 py-2 text-left active:opacity-70"
+                  >
+                    <IconTile icon={<span className="text-[15px] font-extrabold">{hit.name.charAt(0).toUpperCase()}</span>} tint="amber" size={38} round />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15px] font-bold">{hit.name}</span>
+                      <span className="block text-[12.5px] font-semibold text-mute">{hit.symbol}</span>
+                    </span>
+                    <Icon name="plus" size={18} strokeWidth={2} className="text-mute" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <>
-            <div className="mt-5">
-              <DateField
-                label={t.invest.tradeDate}
-                value={date}
-                onChange={setDate}
-                max={today}
-                title={t.invest.whenWasTrade}
-                hint={t.invest.whenWasTradeHint}
-              />
+            <div className="flex min-h-[66px] items-center gap-3 rounded-3xl bg-card px-3.5 py-2">
+              <IconTile icon={<span className="text-[16px] font-extrabold">{(name || symbol).charAt(0).toUpperCase()}</span>} tint="amber" size={42} round />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-bold">{name || symbol}</span>
+                <span className="block truncate text-[12.5px] font-semibold text-mute">{symbol}</span>
+              </span>
+              <button
+                type="button"
+                onClick={toggleType}
+                title={t.invest.securityTypeHint}
+                aria-label={`${t.invest.securityType[securityType]} · ${t.invest.securityTypeHint}`}
+                className={`flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-[12.5px] font-bold active:opacity-70 ${isReit ? 'bg-lav' : 'bg-page'}`}
+              >
+                {t.invest.securityType[securityType]}
+                <Icon name="swap" size={13} />
+              </button>
             </div>
-            <div className="flex gap-3 mt-4">
+
+            <div className="flex gap-2">
               <Field label={t.invest.units} value={units} onOpen={() => setPad('units')} active={pad === 'units'} />
               <Field label={t.invest.pricePerUnit} value={price} onOpen={() => setPad('price')} active={pad === 'price'} prefix="RM" />
             </div>
             {(pad === 'units' || pad === 'price') && (
               <NumberPad
-                className="mt-3"
                 fieldKey={pad}
                 value={pad === 'units' ? units : price}
                 decimals={pad === 'units' ? 0 : 4}
@@ -1114,8 +1135,8 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             )}
             {/* A suggestion to tap, never a silent fill: a last price is not what the order filled at. */}
             {priceHint && (
-              <div className="mt-2.5 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
-                <p className="flex-1 min-w-0 text-[12.5px] font-medium leading-relaxed text-mute">
+              <div className="flex items-center gap-3 rounded-3xl bg-card px-3.5 py-2.5">
+                <p className="min-w-0 flex-1 text-[12.5px] font-semibold leading-relaxed text-mute">
                   {t.invest.lastPrice(`RM${priceHint.text}`, agoText(priceHint.ago))}
                 </p>
                 <button
@@ -1125,63 +1146,77 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                     setPrice(next.text);
                     setPriceFromHint(next.fromHint);
                   }}
-                  className="min-h-11 shrink-0 rounded-full bg-cta px-4 text-[12px] font-extrabold text-cta-fg active:opacity-80"
+                  className="min-h-11 shrink-0 rounded-xl bg-cta px-3 text-[12.5px] font-bold text-cta-fg active:opacity-80"
                 >
                   {t.invest.useLastPrice(`RM${priceHint.text}`)}
                 </button>
               </div>
             )}
             {priceFromHint && price.trim() !== '' && (
-              <p className="text-[12.5px] font-bold text-warn mt-2.5 leading-relaxed">{t.invest.priceFromLast}</p>
+              <p className="px-1 text-[12.5px] font-bold leading-relaxed text-warn">{t.invest.priceFromLast}</p>
             )}
 
+            <Group>
+              <DateField
+                label={t.invest.tradeDate}
+                value={date}
+                onChange={setDate}
+                max={today}
+                title={t.invest.whenWasTrade}
+                hint={t.invest.whenWasTradeHint}
+                renderTrigger={(open) => (
+                  <DetailRow icon="cal" tint="blue" label={t.invest.tradeDate} onClick={open}>
+                    {readableDate(date)}
+                  </DetailRow>
+                )}
+              />
+              <DetailRow
+                icon="coin"
+                tint="violet"
+                label={t.pro.trade.feesLine(money(tradeValue))}
+                onClick={() => {
+                  setFeesOpen((open) => !open);
+                  setPad(null);
+                }}
+              >
+                {money(totalFees(fees))}
+              </DetailRow>
+            </Group>
+
             {/* Fees, filled in from the broker's rates until someone types over one. */}
-            <div className="mt-5">
-              <div className="flex items-center gap-2 mb-2">
-                <p className="shrink-0 px-1 text-[12.5px] font-bold text-mute">{t.invest.fees}</p>
-                {broker && (
-                  <p className={`flex-1 min-w-0 truncate text-[11px] font-bold ${anyEdited ? 'text-warn' : 'text-mute'}`}>
-                    {anyEdited ? t.invest.feesEdited : ratesName}
-                  </p>
-                )}
-                {!broker && <span className="flex-1" />}
-                {broker && (
-                  <button
-                    type="button"
-                    onClick={onEditBroker}
-                    className="shrink-0 min-h-11 shrink-0 px-1 text-[12.5px] font-extrabold active:opacity-60"
-                  >
-                    {t.invest.changeBroker}
-                  </button>
-                )}
-              </div>
-              <div className={`grid gap-2 ${isReit ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                {feeKeys.map((key) => (
-                  <Field key={key} compact label={t.invest.feeBox[key]} value={shown(key)} onOpen={() => setPad(key)} active={pad === key} flagged={!!broker && edited[key]} placeholder="0.00" />
-                ))}
-              </div>
-              {pad && pad !== 'units' && pad !== 'price' && pad !== 'amount' && (
-                <NumberPad className="mt-3" fieldKey={pad} value={shown(pad)} decimals={2} onChange={(text) => typeFee(pad, text)} onDone={() => setPad(null)} />
-              )}
-              {!broker && (
-                <div className="mt-2.5 rounded-3xl bg-sun px-4 py-3">
-                  <p className="text-[12.5px] font-semibold leading-relaxed">{t.invest.noBroker}</p>
-                  <button
-                    type="button"
-                    onClick={onEditBroker}
-                    className="mt-1.5 min-h-11 text-[13px] font-extrabold underline active:opacity-60"
-                  >
-                    {t.invest.chooseBroker}
-                  </button>
+            {feesShown && (
+              <div className="rounded-3xl bg-card px-3.5 py-2">
+                <div className="flex min-h-9 items-center gap-2">
+                  <h2 className="shrink-0 text-[14.5px] font-bold">{t.invest.fees}</h2>
+                  <p className={`min-w-0 flex-1 truncate text-[12px] font-semibold ${anyEdited ? 'text-warn' : 'text-mute'}`}>{broker ? (anyEdited ? t.invest.feesEdited : ratesName) : ''}</p>
+                  {broker && (
+                    <button type="button" onClick={onEditBroker} className="min-h-11 shrink-0 px-1 text-[13.5px] font-bold text-tblue active:opacity-70">
+                      {t.invest.changeBroker}
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
+                <div className={`mb-1 grid gap-2 ${isReit ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                  {feeKeys.map((key) => (
+                    <Field key={key} compact label={t.invest.feeBox[key]} value={shown(key)} onOpen={() => setPad(key)} active={pad === key} flagged={!!broker && edited[key]} placeholder="0.00" />
+                  ))}
+                </div>
+              </div>
+            )}
+            {pad && pad !== 'units' && pad !== 'price' && pad !== 'amount' && (
+              <NumberPad fieldKey={pad} value={shown(pad)} decimals={2} onChange={(text) => typeFee(pad, text)} onDone={() => setPad(null)} />
+            )}
+            {!broker && (
+              <div className="rounded-3xl bg-sun px-3.5 py-3">
+                <p className="text-[12.5px] font-semibold leading-relaxed">{t.invest.noBroker}</p>
+                <button type="button" onClick={onEditBroker} className="mt-1 min-h-11 text-[13.5px] font-bold underline active:opacity-60">
+                  {t.invest.chooseBroker}
+                </button>
+              </div>
+            )}
 
             {/* Where the money comes from, or where it goes. */}
-            <div className="mt-5">
-              <p className="mb-2 px-1 text-[12.5px] font-bold text-mute">
-                {kind === 'buy' ? t.invest.paidFrom : t.invest.depositTo}
-              </p>
+            <div>
+              <h2 className="mb-1 px-1 text-[15px] font-bold">{kind === 'buy' ? t.invest.paidFrom : t.invest.depositTo}</h2>
               <div className="space-y-2">
                 {!legacyGoalMoney && (
                   <ChoiceRow
@@ -1226,20 +1261,16 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                 )}
               </div>
               {!picked && (
-                <p className="text-[12.5px] font-bold text-warn mt-2.5 leading-relaxed">{t.invest.chooseWherePaidFrom}</p>
+                <p className="mt-2 px-1 text-[12.5px] font-bold leading-relaxed text-warn">{t.invest.chooseWherePaidFrom}</p>
               )}
               {picked && needsChoice && hasDestination && (
-                <p className="text-[12.5px] font-bold text-warn mt-2.5 leading-relaxed">{t.invest.chooseWhereSaleGoes}</p>
+                <p className="mt-2 px-1 text-[12.5px] font-bold leading-relaxed text-warn">{t.invest.chooseWhereSaleGoes}</p>
               )}
               {picked && needsChoice && !hasDestination && (
-                <div className="mt-2.5 rounded-3xl bg-sun px-4 py-3">
+                <div className="mt-2 rounded-3xl bg-sun px-3.5 py-3">
                   <p className="text-[12.5px] font-semibold leading-relaxed">{t.invest.noGoalForSale}</p>
                   {onCreateGoal && (
-                    <button
-                      type="button"
-                      onClick={onCreateGoal}
-                      className="mt-1.5 min-h-11 text-[13px] font-extrabold underline active:opacity-60"
-                    >
+                    <button type="button" onClick={onCreateGoal} className="mt-1 min-h-11 text-[13.5px] font-bold underline active:opacity-60">
                       {t.invest.createGoal}
                     </button>
                   )}
@@ -1248,7 +1279,7 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
             </div>
 
             {outcome && ready && (
-              <div className="mt-5 space-y-1 rounded-3xl bg-card p-4">
+              <div className="space-y-1 rounded-3xl bg-card p-3.5">
                 <Line label={kind === 'buy' ? t.invest.thisTrade : t.invest.sale} value={money(tradeValue)} />
                 <Line label={t.invest.fees} value={money(totalFees(fees))} />
                 <div className="my-2 h-px bg-line/10" />
@@ -1267,47 +1298,32 @@ const TradeSheet: React.FC<TradeSheetProps> = ({
                   value={outcome.after.units > 0 ? `RM${(averageCostCents(outcome.after) / 100).toFixed(4)}` : '—'}
                 />
                 {kind === 'sell' && outcome.after.units === outcome.before.units && unitsIn > 0 && (
-                  <p className="text-[12.5px] font-bold text-warn leading-relaxed">
+                  <p className="text-[12.5px] font-bold leading-relaxed text-warn">
                     {t.invest.saleChangesNothing}
                   </p>
                 )}
                 {/* Until a source is picked, the hint above already says this. */}
                 {preview?.refundPending && picked && (
-                  <p className="text-[12.5px] font-bold text-warn leading-relaxed">{t.invest.refundLater}</p>
+                  <p className="text-[12.5px] font-bold leading-relaxed text-warn">{t.invest.refundLater}</p>
                 )}
                 {preview?.takeBackPending && (
-                  <p className="text-[12.5px] font-bold text-warn leading-relaxed">{t.invest.takeBackLater}</p>
+                  <p className="text-[12.5px] font-bold leading-relaxed text-warn">{t.invest.takeBackLater}</p>
                 )}
               </div>
             )}
 
-            {blocked && <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{blocked}</p>}
-            {problem && problem !== blocked && (
-              <p className="text-[12.5px] font-bold text-neg mt-4 leading-relaxed">{problem}</p>
+            {blocked && (
+              <div className="flex items-center gap-2.5 rounded-3xl bg-sun px-3.5 py-3">
+                <IconTile icon="wallet" tint="plain" size={36} />
+                <p className="min-w-0 flex-1 text-[14px] font-bold leading-snug">{blocked}</p>
+              </div>
             )}
+            {problem && problem !== blocked && <p className="px-1 text-[12.5px] font-bold leading-relaxed text-neg">{problem}</p>}
 
-            {!creditedLoaded && <p className="mt-4 px-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.dividendsLoading}</p>}
-
-            <button
-              onClick={() => void save()}
-              disabled={!canSave}
-              className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-cta px-6 text-[15.5px] font-extrabold text-cta-fg disabled:opacity-40 active:opacity-80"
-            >
-              {editing ? t.common.saveChanges : t.invest.record[kind]}
-            </button>
-
-            {editing && (
-              <button
-                onClick={() => void remove()}
-                disabled={busy || !creditedLoaded}
-                className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-peach px-6 text-[15px] font-extrabold text-neg disabled:opacity-40 active:opacity-80"
-              >
-                {t.invest.deleteTrade}
-              </button>
-            )}
+            {!creditedLoaded && <p className="px-1 text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.dividendsLoading}</p>}
           </>
         )}
-      </Sheet>
+      </PageSheet>
 
       {refundAsk && (
         <>

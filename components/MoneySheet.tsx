@@ -41,6 +41,8 @@ interface MoneySheetProps {
   draft?: QuickDraft;
   /** Opens straight on choosing a picture to read. */
   scan?: boolean;
+  /** The goal a spend starts from, when the sheet was opened from that goal's page. */
+  fromGoal?: string;
   /** Where "change the shares" goes from the income page. */
   onOpenStrategy?: () => void;
   /** Whose remembered choices to use. */
@@ -74,6 +76,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   activities,
   draft,
   scan = false,
+  fromGoal,
   onOpenStrategy,
   uid,
   liveFrom,
@@ -101,7 +104,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   const [text, setText] = useState('');
   const [choice, setChoice] = useState<IncomeChoice>(() => defaultIncomeChoice(banks, choices.depositTarget));
   /** Spend: undefined is "not chosen yet". */
-  const [source, setSource] = useState<string | undefined>(() => defaultSpendSource(banks, choices.spendGoal));
+  const [source, setSource] = useState<string | undefined>(() => fromGoal ?? defaultSpendSource(banks, choices.spendGoal));
   const [category, setCategory] = useState<string>(UNCATEGORISED);
   const [note, setNote] = useState('');
   const [day, setDay] = useState(() => toInputDate(Date.now()));

@@ -10,7 +10,9 @@ import { Button } from './ui/Button';
 import { Chip } from './ui/Chip';
 import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
+import { IconTile, type IconTint } from './ui/IconTile';
 import { Meter } from './ui/Meter';
+import { BandLabel, PageBand } from './ui/PageBand';
 import { Toggle } from './ui/Toggle';
 
 interface AlertsProps {
@@ -62,13 +64,13 @@ const ICONS: Record<AlertKind, string> = {
   housekeeping: 'archive',
 };
 
-const TINTS: Record<AlertKind, string> = {
-  receipt: 'bg-mint',
-  milestone: 'bg-sun',
-  reached: 'bg-mint',
-  streak: 'bg-peach',
-  dividend: 'bg-lav',
-  housekeeping: 'bg-lav',
+const TINTS: Record<AlertKind, IconTint> = {
+  receipt: 'teal',
+  milestone: 'blue',
+  reached: 'teal',
+  streak: 'coral',
+  dividend: 'amber',
+  housekeeping: 'violet',
 };
 
 const OPEN_KEY = 'savvypiggy.alertsPrefsOpen';
@@ -88,10 +90,10 @@ const Pref: React.FC<{ title: string; hint: string; on: boolean; onChange: (on: 
   onChange,
   children,
 }) => (
-  <div className="flex items-center gap-3 py-2.5">
+  <div className="flex min-h-14 items-center gap-3 py-2">
     <div className="min-w-0 flex-1">
       <p className="text-[14.5px] font-bold">{name}</p>
-      <p className="text-[11.5px] font-medium leading-snug text-mute">{hint}</p>
+      <p className="text-[12.5px] font-medium leading-snug text-mute">{hint}</p>
       {children}
     </div>
     <Toggle checked={on} onChange={onChange} label={name} />
@@ -191,18 +193,18 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
   const money = (cents: number | undefined) => formatMoney(cents ?? 0);
 
   const body = (a: Alert) => {
-    const text = 'text-[13px] font-medium leading-relaxed text-mute';
+    const text = 'text-[12.5px] font-semibold leading-relaxed text-mute';
     switch (a.kind) {
       case 'receipt':
         return (
           <>
             <p className={text}>{t.alerts.splitAcross(a.lines?.length ?? 0)}</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               {a.lines?.map((l) => (
-                <div key={l.bankId} className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-line/5 px-3 py-2">
+                <div key={l.bankId} className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-page px-2.5 py-1.5">
                   {/* A receipt stores "Deleted goal" in English for a goal that was gone. */}
-                  <span className="truncate text-[12px] font-bold">{l.name === 'Deleted goal' ? t.alerts.deletedGoal : l.name}</span>
-                  <span className="shrink-0 text-[12px] font-extrabold tabular-nums">{money(l.amount)}</span>
+                  <span className="truncate text-[12.5px] font-bold">{l.name === 'Deleted goal' ? t.alerts.deletedGoal : l.name}</span>
+                  <span className="shrink-0 text-[12.5px] font-bold tabular-nums">{money(l.amount)}</span>
                 </div>
               ))}
             </div>
@@ -223,7 +225,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             {a.percent !== undefined && (
               <div className="mt-2 flex items-center gap-3">
                 <Meter percent={a.percent} status="ok" label={`${a.percent}%`} className="flex-1" />
-                <span className="text-[12px] font-extrabold tabular-nums">{a.percent}%</span>
+                <span className="text-[12.5px] font-bold tabular-nums">{a.percent}%</span>
               </div>
             )}
           </>
@@ -239,7 +241,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
             </p>
             {a.percent ? (
               <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-[12px] font-bold text-mute">{t.alerts.stillAllocated(a.percent)}</p>
+                <p className="text-[12.5px] font-semibold text-mute">{t.alerts.stillAllocated(a.percent)}</p>
                 <Button
                   full={false}
                   className="min-h-11 px-5 text-[13px]"
@@ -282,140 +284,128 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
   };
 
   return (
-    <div className="flex min-h-full flex-col px-4 pb-24 pt-3 safe-pt font-figtree text-ink">
-      <div className="mb-1 flex items-center justify-between gap-3 px-1">
-        <button type="button" onClick={onBack} aria-label={t.common.back} className="grid size-11 place-items-center rounded-full bg-card active:opacity-80">
-          <Icon name="back" size={20} />
-        </button>
-        {unread.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onMarkRead(unread.map((a) => a.id))}
-            className="flex min-h-11 items-center gap-1.5 rounded-full bg-card px-4 text-[13px] font-extrabold active:opacity-80"
-          >
-            <Icon name="check" size={16} />
-            {t.alerts.markAllRead}
+    <div className="flex min-h-full flex-col pb-24 font-figtree text-ink">
+      <PageBand title={t.alerts.title} onBack={onBack}>
+        <BandLabel>{unread.length === 0 ? t.alerts.allCaughtUp : t.alerts.newAlerts(unread.length)}</BandLabel>
+      </PageBand>
+
+      <div className="flex flex-col gap-2.5 px-4 pt-3">
+        {pending}
+
+        {/* The settings come first: with a notification a day they would otherwise sit far down the page. */}
+        <section className="rounded-3xl bg-card px-3.5 py-1">
+          <button type="button" onClick={togglePrefs} aria-expanded={prefsOpen} className="flex min-h-14 w-full items-center gap-2.5 py-1.5 text-left active:opacity-70">
+            <IconTile icon="bell" tint="plain" size={38} />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14.5px] font-bold">{t.alerts.deliveryPreferences}</span>
+              {!prefsOpen && <span className="block truncate text-[12.5px] font-semibold text-mute">{summary || t.alerts.prefsNone}</span>}
+            </span>
+            <span className="shrink-0 text-[13px] font-bold text-tblue">{prefsOpen ? t.alerts.prefsCollapse : t.alerts.prefsExpand}</span>
+            <Icon name="chev" size={16} strokeWidth={2} className={`text-mute ${prefsOpen ? '-rotate-90' : 'rotate-90'}`} />
           </button>
-        )}
-      </div>
-      <h1 className="px-1 text-[30px] font-extrabold tracking-tight">{t.alerts.title}</h1>
-      <p className="mt-0.5 px-1 text-[13.5px] font-semibold text-mute">
-        {unread.length === 0 ? t.alerts.allCaughtUp : t.alerts.newAlerts(unread.length)}
-      </p>
 
-      {pending && <div className="mt-3">{pending}</div>}
+          {prefsOpen && (
+            <div className="divide-y divide-line/10 border-t border-line/10">
+              <Pref title={t.alerts.receiptsTitle} hint={t.alerts.receiptsHint} on={prefs.receipts} onChange={(receipts) => onSavePrefs({ receipts })} />
+              <Pref title={t.alerts.milestonesTitle} hint={t.alerts.milestonesHint} on={prefs.milestones} onChange={(milestones) => onSavePrefs({ milestones })} />
+              <Pref title={t.alerts.dailyReminder} hint={t.alerts.dailyReminderHint} on={prefs.reminder} onChange={(on) => void enableSystem({ reminder: on })}>
+                {prefs.reminder && (
+                  <TimeField value={prefs.reminderTime} onChange={(reminderTime) => onSavePrefs({ reminderTime })} title={t.alerts.remindMeAt} hint={t.alerts.remindHint} />
+                )}
+              </Pref>
+              <Pref title={t.alerts.monthlyReport} hint={t.alerts.monthlyReportHint} on={prefs.digest} onChange={(on) => void enableSystem({ digest: on })} />
+              <Pref title={t.alerts.exDates} hint={t.alerts.exDatesHint} on={prefs.exDates} onChange={(on) => void enableSystem({ exDates: on })} />
+              <Pref title={t.alerts.billReminders} hint={t.alerts.billRemindersHint} on={prefs.bills} onChange={(on) => void enableSystem({ bills: on })} />
+            </div>
+          )}
+          {prefsOpen && <p className="pb-2 pt-1.5 text-[12.5px] font-medium leading-relaxed text-mute">{t.alerts.footer}</p>}
+        </section>
 
-      {/* The settings come first: with a notification a day they would otherwise sit far down the page. */}
-      <section className="mt-4 rounded-3xl bg-card px-4 py-3">
-        <button type="button" onClick={togglePrefs} aria-expanded={prefsOpen} className="flex min-h-11 w-full items-center gap-3 text-left active:opacity-70">
-          <span className="min-w-0 flex-1">
-            <span className="block text-[15px] font-extrabold">{t.alerts.deliveryPreferences}</span>
-            {!prefsOpen && <span className="block truncate text-[12px] font-semibold text-mute">{summary || t.alerts.prefsNone}</span>}
-          </span>
-          <span className="shrink-0 text-[13px] font-extrabold">{prefsOpen ? t.alerts.prefsCollapse : t.alerts.prefsExpand}</span>
-          <Icon name="chev" size={16} className={prefsOpen ? '-rotate-90' : 'rotate-90'} />
-        </button>
-
-        {prefsOpen && (
-          <div className="divide-y divide-line/10">
-            <Pref title={t.alerts.receiptsTitle} hint={t.alerts.receiptsHint} on={prefs.receipts} onChange={(receipts) => onSavePrefs({ receipts })} />
-            <Pref title={t.alerts.milestonesTitle} hint={t.alerts.milestonesHint} on={prefs.milestones} onChange={(milestones) => onSavePrefs({ milestones })} />
-            <Pref title={t.alerts.dailyReminder} hint={t.alerts.dailyReminderHint} on={prefs.reminder} onChange={(on) => void enableSystem({ reminder: on })}>
-              {prefs.reminder && (
-                <TimeField value={prefs.reminderTime} onChange={(reminderTime) => onSavePrefs({ reminderTime })} title={t.alerts.remindMeAt} hint={t.alerts.remindHint} />
-              )}
-            </Pref>
-            <Pref title={t.alerts.monthlyReport} hint={t.alerts.monthlyReportHint} on={prefs.digest} onChange={(on) => void enableSystem({ digest: on })} />
-            <Pref title={t.alerts.exDates} hint={t.alerts.exDatesHint} on={prefs.exDates} onChange={(on) => void enableSystem({ exDates: on })} />
-            <Pref title={t.alerts.billReminders} hint={t.alerts.billRemindersHint} on={prefs.bills} onChange={(on) => void enableSystem({ bills: on })} />
-          </div>
-        )}
-        {prefsOpen && <p className="px-1 pb-1 pt-2 text-[11.5px] font-medium leading-relaxed text-mute">{t.alerts.footer}</p>}
-      </section>
-
-      {blocked && (
-        <div role="alert" className="mt-3 flex items-start gap-3 rounded-3xl bg-sun px-5 py-4">
-          <Icon name="bell" size={20} className="mt-0.5" />
-          <div className="min-w-0">
-            <p className="text-[14px] font-extrabold">{t.alerts.blockedTitle}</p>
-            <p className="mt-1 text-[12.5px] font-medium leading-relaxed">{t.alerts.blockedBody}</p>
-          </div>
-        </div>
-      )}
-
-      {/*
-        An inexact alarm is handed to the system as a suggestion: a dozing
-        phone can sit on it for the best part of an hour, and an aggressive
-        battery saver can drop it entirely. Since Android 13 this is not
-        granted on install, and the app never asked — which is the most
-        likely reason an evening reminder simply never arrived.
-      */}
-      {!blocked && permission === 'granted' && wantsAlarms && !exact && (
-        <div className="mt-3 rounded-3xl bg-sun px-5 py-4">
-          <div className="flex items-start gap-3">
-            <Icon name="hist" size={20} className="mt-0.5" />
+        {blocked && (
+          <div role="alert" className="flex items-start gap-2.5 rounded-3xl bg-sun px-3.5 py-3">
+            <Icon name="bell" size={20} strokeWidth={2} className="mt-0.5" />
             <div className="min-w-0">
-              <p className="text-[14px] font-extrabold">{t.alerts.lateTitle}</p>
-              <p className="mt-1 text-[12.5px] font-medium leading-relaxed">{t.alerts.lateBody}</p>
+              <p className="text-[14px] font-bold">{t.alerts.blockedTitle}</p>
+              <p className="mt-0.5 text-[12.5px] font-medium leading-relaxed">{t.alerts.blockedBody}</p>
             </div>
           </div>
-          <Button className="mt-3" onClick={() => void requestExactAlarms().then(setExact)}>
-            {t.alerts.allowExact}
-          </Button>
-        </div>
-      )}
+        )}
 
-      {/* Filters */}
-      <div className="no-scrollbar -mx-4 mt-4 flex gap-2 overflow-x-auto px-4">
-        {FILTERS.map((f) => {
-          const n = countOf(f.key);
-          return (
-            <Chip key={f.key} selected={filter === f.key} onClick={() => setFilter(f.key)} className="inline-flex items-center gap-2">
-              {t.alerts.filters[f.key]}
-              {n > 0 && <span className={`rounded-full px-1.5 text-[11px] ${filter === f.key ? 'bg-cta-fg/20' : 'bg-line/10'}`}>{n}</span>}
-            </Chip>
-          );
-        })}
-      </div>
-
-      {/* Timeline */}
-      {groups.length === 0 ? (
-        <EmptyState icon="bell" title={t.alerts.emptyTitle} body={t.alerts.emptyBody} className="mt-4" />
-      ) : (
-        groups.map((g) => (
-          <section key={g.label} className="mt-5">
-            <div className="mb-2 flex items-baseline justify-between px-1">
-              <h2 className="text-[15px] font-extrabold">{g.label}</h2>
-              <p className="text-[12px] font-bold text-mute">{t.alerts.updates(g.items.length)}</p>
+        {/*
+          An inexact alarm is handed to the system as a suggestion: a dozing
+          phone can sit on it for the best part of an hour, and an aggressive
+          battery saver can drop it entirely. Since Android 13 this is not
+          granted on install, and the app never asked — which is the most
+          likely reason an evening reminder simply never arrived.
+        */}
+        {!blocked && permission === 'granted' && wantsAlarms && !exact && (
+          <div className="rounded-3xl bg-sun px-3.5 py-3">
+            <div className="flex items-start gap-2.5">
+              <Icon name="hist" size={20} strokeWidth={2} className="mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-[14px] font-bold">{t.alerts.lateTitle}</p>
+                <p className="mt-0.5 text-[12.5px] font-medium leading-relaxed">{t.alerts.lateBody}</p>
+              </div>
             </div>
-            <div className="space-y-2.5">
-              {g.items.map((a) => (
-                <div
-                  key={a.id}
-                  onClick={() => !a.read && onMarkRead([a.id])}
-                  className={`rounded-3xl bg-card p-4 ${a.read ? '' : 'outline outline-1 outline-ink/25'}`}
-                >
-                  <div className="flex items-start gap-3">
+            <Button className="mt-2.5" onClick={() => void requestExactAlarms().then(setExact)}>
+              {t.alerts.allowExact}
+            </Button>
+          </div>
+        )}
+
+        <div className="mt-1 flex min-h-11 items-center justify-between gap-2 px-1">
+          <h2 className="text-[15px] font-bold">{t.pro.alerts.recent}</h2>
+          {unread.length > 0 && (
+            <button type="button" onClick={() => onMarkRead(unread.map((a) => a.id))} className="min-h-11 text-[13.5px] font-bold text-tblue active:opacity-70">
+              {t.alerts.markAllRead}
+            </button>
+          )}
+        </div>
+
+        {/* Filters */}
+        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+          {FILTERS.map((f) => {
+            const n = countOf(f.key);
+            return (
+              <Chip key={f.key} selected={filter === f.key} onClick={() => setFilter(f.key)} className="inline-flex items-center gap-2">
+                {t.alerts.filters[f.key]}
+                {n > 0 && <span className={`rounded-full px-1.5 text-[11.5px] ${filter === f.key ? 'bg-cta-fg/20' : 'bg-page'}`}>{n}</span>}
+              </Chip>
+            );
+          })}
+        </div>
+
+        {/* Timeline */}
+        {groups.length === 0 ? (
+          <EmptyState icon="bell" title={t.alerts.emptyTitle} body={t.alerts.emptyBody} />
+        ) : (
+          groups.map((g) => (
+            <section key={g.label}>
+              <div className="mb-1 flex items-baseline justify-between gap-2 px-1 text-[12.5px] font-semibold text-mute">
+                <h3 className="font-bold">{g.label}</h3>
+                <p>{t.alerts.updates(g.items.length)}</p>
+              </div>
+              <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5 py-0.5">
+                {g.items.map((a) => (
+                  <div key={a.id} onClick={() => !a.read && onMarkRead([a.id])} className="flex min-h-[62px] items-start gap-2.5 py-2.5">
                     <span className="relative shrink-0">
-                      <span className={`grid size-10 place-items-center rounded-xl text-ink ${TINTS[a.kind]}`}>
-                        <Icon name={ICONS[a.kind]} size={20} />
-                      </span>
-                      {!a.read && <span className="absolute -left-1 -top-1 size-3 rounded-full bg-neg ring-2 ring-card" />}
+                      <IconTile icon={ICONS[a.kind]} tint={TINTS[a.kind]} size={38} round />
+                      {!a.read && <span className="absolute -left-0.5 -top-0.5 size-3 rounded-full bg-neg ring-2 ring-card" />}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-[14.5px] font-extrabold leading-snug">{title(a)}</p>
-                        <p className="mt-0.5 shrink-0 text-[11.5px] font-semibold text-mute">{timeLabel(new Date(a.date), now, t)}</p>
+                        <p className="text-[14.5px] font-bold leading-snug">{title(a)}</p>
+                        <p className="mt-0.5 shrink-0 text-[12px] font-semibold text-mute">{timeLabel(new Date(a.date), now, t)}</p>
                       </div>
-                      <div className="mt-1.5">{body(a)}</div>
+                      <div className="mt-0.5">{body(a)}</div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))
-      )}
+                ))}
+              </div>
+            </section>
+          ))
+        )}
+      </div>
     </div>
   );
 };

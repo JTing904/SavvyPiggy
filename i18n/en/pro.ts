@@ -77,6 +77,43 @@ export const pro = {
     source: 'From',
     noteOptional: 'Note, optional',
   },
+  report: {
+    totalSpent: 'Total spent',
+    assets: (amount: string) => `Assets ${amount}`,
+    debts: (amount: string) => `Debts ${amount}`,
+    donut: (total: string, parts: string) => `Spent ${total}: ${parts}`,
+    netTrend: (latest: string) => `Net worth over recent months, latest ${latest}`,
+  },
+  alerts: {
+    recent: 'Recent notices',
+  },
+  goal: {
+    target: (amount: string) => `Target ${amount}`,
+    stillToGo: (amount: string) => `${amount} to go`,
+    ring: (name: string, percent: number) => `${name} is at ${percent}%`,
+    spendHere: 'Spend from here',
+    monthly: 'Put in each month',
+    monthAmount: (month: string, amount: string) => `${month} ${amount}`,
+    monthlyChart: (parts: string) => `Put in each month: ${parts}`,
+  },
+  entry: {
+    tapToChange: 'Tap the figure to change it',
+  },
+  trade: {
+    feesLine: (shares: string) => `Shares ${shares}, fees`,
+  },
+  debt: {
+    paid: (amount: string) => `Paid ${amount}`,
+  },
+  budget: {
+    used: 'Used',
+    limit: 'Budget',
+    spent: 'Spent',
+    left: 'Left',
+  },
+  bills: {
+    due: (amount: string) => `Due ${amount}`,
+  },
   update: {
     title: 'New version',
     version: (v: string) => `Version ${v}`,

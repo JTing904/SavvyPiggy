@@ -78,6 +78,43 @@ export const pro: typeof English = {
     source: '从',
     noteOptional: '备注，可以不写',
   },
+  report: {
+    totalSpent: '总支出',
+    assets: (amount) => `资产 ${amount}`,
+    debts: (amount) => `负债 ${amount}`,
+    donut: (total, parts) => `支出 ${total}：${parts}`,
+    netTrend: (latest) => `净资产近几个月走势，最新 ${latest}`,
+  },
+  alerts: {
+    recent: '最近通知',
+  },
+  goal: {
+    target: (amount) => `目标 ${amount}`,
+    stillToGo: (amount) => `还差 ${amount}`,
+    ring: (name, percent) => `${name}已达 ${percent}%`,
+    spendHere: '从这里花',
+    monthly: '每月存入',
+    monthAmount: (month, amount) => `${month} ${amount}`,
+    monthlyChart: (parts) => `每月存入：${parts}`,
+  },
+  entry: {
+    tapToChange: '点数字可以改',
+  },
+  trade: {
+    feesLine: (shares) => `股票 ${shares}，手续费`,
+  },
+  debt: {
+    paid: (amount) => `已还 ${amount}`,
+  },
+  budget: {
+    used: '已用',
+    limit: '预算',
+    spent: '已花',
+    left: '还剩',
+  },
+  bills: {
+    due: (amount) => `要付 ${amount}`,
+  },
   update: {
     title: '发现新版本',
     version: (v) => `版本 ${v}`,

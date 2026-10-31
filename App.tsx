@@ -111,6 +111,11 @@ const App: React.FC = () => {
   const [showMonthlyBuy, setShowMonthlyBuy] = useState(false);
   /** The move page opened from Investing starts on the investing cash. */
   const [moveFromPot, setMoveFromPot] = useState(false);
+  /** A spend or a move opened from a goal's page starts on that goal. */
+  const [quickGoal, setQuickGoal] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (quickAction === null) setQuickGoal(undefined);
+  }, [quickAction]);
   /**
    * The questions asked before something can open: the broker before a first
    * buy (its fees depend on it), with the buy waiting behind it; the style
@@ -1053,6 +1058,14 @@ const App: React.FC = () => {
             setShowStrategy(true);
           }}
           onOpenTrade={openTradeById}
+          onMove={() => {
+            setQuickGoal(selectedGoal.id);
+            setQuickAction('move');
+          }}
+          onSpend={() => {
+            setQuickGoal(selectedGoal.id);
+            setQuickAction('withdraw');
+          }}
         />
       );
     }
@@ -1334,7 +1347,13 @@ const App: React.FC = () => {
             streak={streak.run}
             budgets={budgets}
             walletCents={toCents(wallet.balance)}
-            netWorth={{ totalCents: netParts.totalCents, changeCents: netChange }}
+            netWorth={{
+              totalCents: netParts.totalCents,
+              changeCents: netChange,
+              assetsCents: netParts.savingsCents + netParts.investingCents,
+              debtsCents: netParts.debtsCents,
+              trend: netTrend,
+            }}
             onOpenNetWorth={() => setShowNetWorth(true)}
             onOpenReview={(month) => setReviewMonth(month)}
             onOpenBudgets={() => setShowBudgets(true)}
@@ -1597,6 +1616,7 @@ const App: React.FC = () => {
         <MoneySheet
           mode={quickAction === 'deposit' ? 'deposit' : 'spend'}
           scan={quickAction === 'scan'}
+          fromGoal={quickGoal}
           onOpenStrategy={() => {
             setQuickAction(null);
             setShowStrategy(true);
@@ -1633,7 +1653,7 @@ const App: React.FC = () => {
           wallet={wallet}
           savings={savings}
           potCents={toCents(invest.potBalance ?? 0)}
-          from={moveFromPot ? POT_PLACE : WALLET_PLACE}
+          from={moveFromPot ? POT_PLACE : quickGoal ?? WALLET_PLACE}
           onWalletMove={handleMoveWallet}
           onPotMove={(direction, target, cents) => {
             const job = (async () => {

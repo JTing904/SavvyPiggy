@@ -23,9 +23,11 @@ interface TimeFieldProps {
   /** "HH:MM", 24-hour. */
   value: string;
   onChange: (value: string) => void;
+  /** Draws whatever opens the picker in place of the labelled box. */
+  renderTrigger?: (open: () => void) => React.ReactNode;
 }
 
-const EntryTimeField: React.FC<TimeFieldProps> = ({ label, value, onChange }) => {
+const EntryTimeField: React.FC<TimeFieldProps> = ({ label, value, onChange, renderTrigger }) => {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [h, m] = value.split(':').map(Number);
@@ -33,14 +35,20 @@ const EntryTimeField: React.FC<TimeFieldProps> = ({ label, value, onChange }) =>
 
   return (
     <div className="min-w-0 flex-1">
-      <p className="mb-2 text-[11.5px] font-bold text-mute">{label}</p>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex min-h-14 w-full items-center gap-3 rounded-[18px] bg-field px-4 text-left active:opacity-80"
-      >
-        <span className="min-w-0 flex-1 truncate text-base font-semibold tabular-nums text-ink">{value}</span>
-      </button>
+      {renderTrigger ? (
+        renderTrigger(() => setOpen(true))
+      ) : (
+        <>
+          <p className="mb-2 text-[11.5px] font-bold text-mute">{label}</p>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex min-h-14 w-full items-center gap-3 rounded-[18px] bg-field px-4 text-left active:opacity-80"
+          >
+            <span className="min-w-0 flex-1 truncate text-base font-semibold tabular-nums text-ink">{value}</span>
+          </button>
+        </>
+      )}
 
       {open && (
         <Sheet

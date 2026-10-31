@@ -80,7 +80,7 @@ const ReceiptStrip: React.FC<{ ownerId: string; ids: string[] }> = ({ ownerId, i
 
   return (
     <div>
-      <div className="mb-2 mt-5 flex items-baseline justify-between px-0.5">
+      <div className="mb-2 flex items-baseline justify-between px-1">
         <p className="text-[12.5px] font-bold text-mute">{n.receiptsTitle}</p>
         <p className="text-[11.5px] font-semibold text-mute">{n.receiptMax}</p>
       </div>
