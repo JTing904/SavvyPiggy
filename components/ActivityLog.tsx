@@ -137,14 +137,14 @@ const ActivityLog: React.FC<ActivityLogProps> = ({ activities, ledger, banks, on
           <IconTile icon="dep" tint="teal" size={36} />
           <span className="min-w-0">
             <span className="block text-[12.5px] font-semibold text-mute">{t.pro.records.income}</span>
-            <span className="block truncate text-[15.5px] font-bold tabular-nums">{formatMoney(fromCents(summary.inCents))}</span>
+            <span className="block truncate text-[15.5px] font-bold tabular-nums">{ready ? formatMoney(fromCents(summary.inCents)) : '—'}</span>
           </span>
         </div>
         <div className="flex items-center gap-2.5 rounded-3xl bg-card p-3 shadow-[0_2px_10px_rgba(20,35,58,0.1)]">
           <IconTile icon="out" tint="coral" size={36} />
           <span className="min-w-0">
             <span className="block text-[12.5px] font-semibold text-mute">{t.pro.records.spent}</span>
-            <span className="block truncate text-[15.5px] font-bold tabular-nums">{formatMoney(fromCents(summary.outCents))}</span>
+            <span className="block truncate text-[15.5px] font-bold tabular-nums">{ready ? formatMoney(fromCents(summary.outCents)) : '—'}</span>
           </span>
         </div>
       </div>

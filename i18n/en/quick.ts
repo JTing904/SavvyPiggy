@@ -38,6 +38,7 @@ export const quick = {
   readPick: 'Figures in the picture. Tap the one you paid:',
   readZero: 'The picture says RM0.00 was paid. That can mean points, coins or a voucher paid for it. Type what you actually spent, or record RM0 on purpose.',
   readNoDate: 'No date was read, so it is left as today.',
+  readTooOld: 'The date on it is older than the records this app keeps, so it is left as today.',
   readOldDate: 'The date in the picture is before the records the app keeps, so it was left as today.',
   readCategory: 'The use was not read. If you pick none, it is filed as Other.',
   readEmpty: 'Nothing readable in that picture.',

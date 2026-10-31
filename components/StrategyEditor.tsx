@@ -44,7 +44,6 @@ const clampPct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
 interface StepperProps {
   value: number;
   disabled: boolean;
-  color: string;
   /** Opens the sheet that types an exact share on the app's own pad. */
   onType: () => void;
   onChange: (next: number) => void;
@@ -55,7 +54,7 @@ interface StepperProps {
  * next multiple so a hand-typed 33 becomes 35 rather than 38. Tapping the
  * number opens a pad for an exact value.
  */
-const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onType, onChange }) => {
+const PercentStepper: React.FC<StepperProps> = ({ value, disabled, onType, onChange }) => {
   const t = useT();
   const step = (dir: 1 | -1) => {
     const snapped = dir > 0 ? Math.floor(value / STEP) * STEP + STEP : Math.ceil(value / STEP) * STEP - STEP;
@@ -67,7 +66,7 @@ const PercentStepper: React.FC<StepperProps> = ({ value, disabled, color, onType
       <button type="button" disabled={disabled || value <= 0} onClick={() => step(-1)} className={btn} aria-label={t.goals.less}>
         <Icon name="minus" size={16} />
       </button>
-      <button type="button" disabled={disabled} onClick={onType} className="min-h-11 min-w-[3.4rem] rounded-xl text-center text-[16px] font-extrabold tabular-nums active:opacity-70 disabled:opacity-60" style={{ color: disabled ? undefined : color }}>
+      <button type="button" disabled={disabled} onClick={onType} className="min-h-11 min-w-[3.4rem] rounded-xl text-center text-[16px] font-extrabold tabular-nums text-ink active:opacity-70 disabled:opacity-60">
         {value}%
       </button>
       <button type="button" disabled={disabled || value >= 100} onClick={() => step(1)} className={btn} aria-label={t.goals.more}>
@@ -314,7 +313,6 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                   <PercentStepper
                     value={bank.splitPercentage}
                     disabled={bank.isLocked || !inSplitNow}
-                    color={color}
                     onType={() => setTyping(bank.id)}
                     onChange={(next) => edit(bank, { splitPercentage: next })}
                   />
@@ -366,9 +364,9 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
         </div>
       )}
 
-      {/* The save bar only exists while there is something to save, and sits just above the bottom bar. */}
+      {/* The save bar only exists while there is something to save, and sits at the foot of the page. */}
       {localBanks.length > 0 && dirtyOrInvalid && (
-        <div className="pointer-events-none fixed bottom-0 left-0 right-0 px-4" style={{ paddingBottom: 'calc(6.2rem + env(safe-area-inset-bottom))' }}>
+        <div className="pointer-events-none fixed bottom-0 left-0 right-0 px-4" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
           <div className="pointer-events-auto mx-auto max-w-xl">
             <div className="flex items-center gap-3 rounded-[2rem] bg-card p-3 pl-5 shadow-[0_6px_28px_rgba(0,0,0,0.18)]">
               <div className="min-w-0 flex-1">

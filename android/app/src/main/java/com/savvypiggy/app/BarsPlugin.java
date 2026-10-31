@@ -1,10 +1,13 @@
 package com.savvypiggy.app;
 
 import android.graphics.Color;
+import android.os.Build;
 import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 import android.view.ViewParent;
 import android.view.Window;
+
+import androidx.core.graphics.ColorUtils;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -32,6 +35,8 @@ public class BarsPlugin extends Plugin {
                 int color = Color.parseColor(value);
                 String nav = call.getString("nav");
                 int bottom = nav == null ? color : Color.parseColor(nav);
+                // Dark navigation icons only exist from Android 8: on a pale bar the white ones would vanish.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O && ColorUtils.calculateLuminance(bottom) > 0.5) bottom = Color.BLACK;
                 Window window = getActivity().getWindow();
                 window.setStatusBarColor(color);
                 window.setNavigationBarColor(bottom);

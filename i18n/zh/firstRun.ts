@@ -10,5 +10,6 @@ export const firstRun: typeof English = {
     own: '我自己取名',
   },
   onlyGoalNote: '只有一个钱罐时，每笔存入都会自动放进它，不用再设定分配。',
+  settings: '设置',
   samples: '或者先加三个示例钱罐',
 };

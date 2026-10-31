@@ -1,5 +1,5 @@
 import type { PiggyBank } from '../types';
-import { atFromPicked, defaultIncomeChoice, defaultSpendSource } from '../services/moneySheet';
+import { atFromPicked, defaultIncomeChoice } from '../services/moneySheet';
 import { eq, report } from './harness';
 
 const bank = (id: string, over: Partial<PiggyBank> = {}): PiggyBank => ({
@@ -21,13 +21,7 @@ const b = bank('b');
 const gone = (id: string) => bank(id, { archivedAt: 5 });
 
 // --- spend source: the goal used last time, otherwise the wallet
-eq('spend: last used goal', defaultSpendSource([a, b], 'b'), 'b');
-eq('spend: last used wallet', defaultSpendSource([a, b], 'wallet'), 'wallet');
-eq('spend: no history starts from the wallet', defaultSpendSource([a]), 'wallet');
-eq('spend: a goal that is gone falls back to the wallet', defaultSpendSource([a, b], 'zzz'), 'wallet');
-eq('spend: no goals is the wallet', defaultSpendSource([]), 'wallet');
-eq('spend: only archived goals leave the wallet too', defaultSpendSource([gone('c')]), 'wallet');
-eq('spend: an archived last is not used', defaultSpendSource([a, gone('c')], 'c'), 'wallet');
+eq('income: split is not offered when no goal is in it', defaultIncomeChoice([{ ...a, splitPercentage: 0 }], 'split'), 'wallet');
 
 // --- income
 eq('income: the wallet by default', defaultIncomeChoice([a, b]), 'wallet');

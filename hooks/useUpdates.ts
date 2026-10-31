@@ -50,7 +50,10 @@ export const useUpdates = () => {
   const [checking, setChecking] = useState(false);
   /** The result of a check the person asked for: null until one finishes. */
   const [upToDate, setUpToDate] = useState<boolean | null>(null);
+  /** A check the person asked for could not reach an answer. */
+  const [checkFailed, setCheckFailed] = useState(false);
   const installed = useRef('');
+  const installing = useRef(false);
 
   const check = useCallback(async (asked: boolean) => {
     if (!Capacitor.isNativePlatform() || !installed.current) return;
@@ -58,11 +61,13 @@ export const useUpdates = () => {
     const payload = await getJson(LATEST_RELEASE, {});
     setChecking(false);
     const latest = payload ? parseRelease(payload) : null;
-    if (payload) write(CHECKED_KEY, String(Date.now()));
+    // A release still waiting for its APK is no answer: asked again next time.
+    if (latest) write(CHECKED_KEY, String(Date.now()));
     setRelease(latest);
     if (asked) {
       const newer = !!latest && isNewer(latest.version, installed.current);
-      setUpToDate(payload ? !newer : null);
+      setUpToDate(latest ? !newer : null);
+      setCheckFailed(!latest);
       if (newer) setOffer(true);
     } else if (shouldOffer(latest, installed.current, read(SKIPPED_KEY))) {
       setOffer(true);
@@ -84,18 +89,25 @@ export const useUpdates = () => {
   }, [check]);
 
   const install = useCallback(async () => {
-    if (!release) return;
-    const { allowed } = await Updater.canInstall();
-    if (!allowed) {
-      setState({ step: 'needsPermission' });
-      return Updater.openInstallSettings();
-    }
-    setState({ step: 'downloading', percent: 0, doneBytes: 0, totalBytes: release.sizeBytes });
+    // Asking Android takes a moment: a second tap in it must not start a second download.
+    if (!release || installing.current) return;
+    installing.current = true;
     try {
+      const { allowed } = await Updater.canInstall();
+      if (!allowed) {
+        setState({ step: 'needsPermission' });
+        // Should Android end the app while it is being allowed, the page comes back on the next start.
+        write(CHECKED_KEY, '0');
+        await Updater.openInstallSettings();
+        return;
+      }
+      setState({ step: 'downloading', percent: 0, doneBytes: 0, totalBytes: release.sizeBytes });
       await Updater.install({ url: release.apkUrl });
       setState({ step: 'idle' });
     } catch {
       setState({ step: 'failed' });
+    } finally {
+      installing.current = false;
     }
   }, [release]);
 
@@ -104,5 +116,5 @@ export const useUpdates = () => {
     setOffer(false);
   }, [release]);
 
-  return { current, release, offer, state, checking, upToDate, check: () => check(true), install, skip, close: () => setOffer(false) };
+  return { current, release, offer, state, checking, upToDate, checkFailed, check: () => check(true), install, skip, close: () => setOffer(false) };
 };

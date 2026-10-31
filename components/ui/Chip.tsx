@@ -11,7 +11,8 @@ export const Chip: React.FC<{
     type="button"
     onClick={onClick}
     aria-pressed={selected}
-    className={`min-h-11 whitespace-nowrap rounded-full px-4 text-[13px] font-bold ${
+    // shrink-0 keeps a scrolling row of chips scrolling; truncate alone would squeeze them to fit.
+    className={`min-h-11 max-w-full shrink-0 truncate rounded-full px-4 text-[13px] font-bold ${
       selected ? 'bg-cta text-cta-fg' : 'bg-card text-mute'
     } ${className ?? ''}`}
   >

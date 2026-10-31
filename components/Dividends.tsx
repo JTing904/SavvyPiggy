@@ -6,6 +6,7 @@ import { dayStart, tradeCents } from '../services/holdings';
 import { formatMoney, fromCents } from '../services/money';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
+import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
 import { IconTile } from './ui/IconTile';
 import { BandLabel, PageBand } from './ui/PageBand';
@@ -78,15 +79,18 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, credited, trades, busy
         title={t.invest.dividendsTitle}
         onBack={onBack}
         trailing={
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={busy}
-            aria-label={t.common.older.retry}
-            className="-mr-2.5 grid size-11 shrink-0 place-items-center active:opacity-70 disabled:opacity-40"
-          >
-            <Icon name="repeat" size={21} strokeWidth={1.9} className={busy ? 'animate-spin motion-reduce:animate-none' : ''} />
-          </button>
+          // With no trades there is no counter to ask about, so refreshing would do nothing.
+          trades.length > 0 && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={busy}
+              aria-label={t.common.older.retry}
+              className="-mr-2.5 grid size-11 shrink-0 place-items-center active:opacity-70 disabled:opacity-40"
+            >
+              <Icon name="repeat" size={21} strokeWidth={1.9} className={busy ? 'animate-spin motion-reduce:animate-none' : ''} />
+            </button>
+          )
         }
       >
         {paid.length > 0 && (
@@ -149,8 +153,10 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, credited, trades, busy
           </div>
         )}
 
-        <h2 className="mt-2 px-1 text-[15px] font-bold">{t.invest.comingUp}</h2>
-        {upcoming.length === 0 ? (
+        {trades.length > 0 && <h2 className="mt-2 px-1 text-[15px] font-bold">{t.invest.comingUp}</h2>}
+        {trades.length === 0 ? (
+          <EmptyState icon="coin" title={t.invest.noDividends} body={t.invest.noDividendsBody} />
+        ) : upcoming.length === 0 ? (
           <div className="rounded-3xl bg-card p-3.5">
             {/*
               An empty list means one of two very different things, and saying
@@ -215,7 +221,7 @@ const Dividends: React.FC<DividendsProps> = ({ dividends, credited, trades, busy
           </>
         )}
 
-        <p className="mt-1 px-3 text-center text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.dividendsFooter}</p>
+        {trades.length > 0 && <p className="mt-1 px-3 text-center text-[12.5px] font-medium leading-relaxed text-mute">{t.invest.dividendsFooter}</p>}
       </div>
     </div>
   );

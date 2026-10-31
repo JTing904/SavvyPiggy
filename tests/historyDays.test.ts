@@ -157,4 +157,9 @@ eq('a week has seven days', weekOf(new Date()).length, 7);
 }
 
 
+{
+  const payment = { id: 'p', type: 'loanPayment', date: new Date(2026, 8, 3, 12).toISOString(), amount: 500, distributions: [], wallet: -500, interest: 20 } as unknown as Activity;
+  eq('a loan payment counts its interest, not its principal', outflow(payment), 2000);
+}
+
 report();

@@ -162,7 +162,7 @@ const MoveSheet: React.FC<MoveSheetProps> = ({ banks, wallet, savings, potCents,
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
       <div className="mx-auto flex min-h-full max-w-xl flex-col">
         <PageBand title={p.title} onClose={onClose}>
           <p className="mt-1 text-[38px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(cents)}</p>
@@ -236,6 +236,7 @@ const MoveSheet: React.FC<MoveSheetProps> = ({ banks, wallet, savings, potCents,
       {picking && (
         <Sheet title={picking === 'from' ? p.from : p.to} onClose={() => setPicking(null)} z={60}>
           <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5">
+            {picking === 'to' && targets.length === 0 && <p className="py-4 text-center text-[13px] font-semibold text-mute">{t.report.noGoalsYet}</p>}
             {(picking === 'from' ? froms : targets).map((place) => {
               const { icon, tint } = tile(place);
               const now = heldBy(place);

@@ -27,6 +27,7 @@ export const alerts: typeof English = {
   dividendTitle: (counter, amount) => `${counter} 派发了 ${amount}`,
 
   splitAcross: (n) => `分到 ${n} 个钱罐：`,
+  toWallet: '进了钱包（如有预支，先还预支）。',
   milestoneBefore: '一笔存入让',
   milestonePast: '突破了 ',
   milestoneEnd: '。',

@@ -74,6 +74,7 @@ export const invest = {
   lastPrice: (price: string, ago: string) => `Last price ${price} · ${ago} — not your fill. Check your contract note.`,
   useLastPrice: (price: string) => `Use ${price}`,
   priceFromLast: 'Filled from the last price, not from your contract note. Change it to what you actually paid.',
+  priceFromLastSell: 'Filled from the last price, not from your contract note. Change it to what you actually received.',
   priceAgo: {
     justNow: 'just now',
     minutes: (n: number) => `${n} min ago`,
@@ -235,6 +236,8 @@ export const invest = {
   ifStillHeld: 'If you still hold on the ex-date',
   declaredNote:
     'Only what has actually been announced. A counter that has declared nothing for a quarter adds nothing here — this is not a forecast.',
+  noDividends: 'No dividends yet',
+  noDividendsBody: 'Record a buy and the dividends your shares earn will show here.',
   comingUp: 'COMING UP',
   nothingAnnounced:
     'Nothing announced for the counters you hold. A dividend appears here as soon as the company declares it, and is paid into your investing cash on its pay date.',
@@ -249,7 +252,7 @@ export const invest = {
     'Nothing was held before this ex-date, so this one is not yours. Buying now does not qualify — the shares had to be held the day before.',
   paidIn: 'PAID IN',
   dividendsFooter:
-    'A dividend belongs to whoever held the shares the day before the ex-date, so these are worked out from your trade log rather than from what you hold today. Each is paid into your investing cash at the amount announced — if less reaches your account, open the payment below and correct the amount.',
+    'A dividend belongs to whoever held the shares the day before the ex-date, so these are worked out from your trade log rather than from what you hold today. Each is paid into your investing cash at the amount announced — if less reaches your account, open that payment under All trades and correct the amount.',
 
   // Growth
   growthTitle: 'Growth',

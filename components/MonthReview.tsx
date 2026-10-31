@@ -298,7 +298,10 @@ const MonthReview: React.FC<MonthReviewProps> = ({ activities, ledger, budgets, 
             </div>
             <div className="flex items-baseline justify-between gap-3 py-1.5">
               <span className="min-w-0 font-semibold">{v.explainTakenOut}</span>
-              <b className="shrink-0">−{money(fig.takenOutCents)}</b>
+              <b className="shrink-0">
+                {fig.takenOutCents !== 0 && '−'}
+                {money(fig.takenOutCents)}
+              </b>
             </div>
             <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-line/10 pt-2.5 text-[15px] font-extrabold">
               <span>{v.explainSaved}</span>

@@ -170,7 +170,10 @@ const NetWorthPage: React.FC<NetWorthPageProps> = ({
               <Swatch color={4} />
               {n.debts}
             </span>
-            <span className="shrink-0 tabular-nums text-neg">−{money(parts.debtsCents)}</span>
+            <span className="shrink-0 tabular-nums text-neg">
+              {parts.debtsCents !== 0 && '−'}
+              {money(parts.debtsCents)}
+            </span>
           </div>
           <p className="border-t border-line/10 pb-1 pt-2 text-[12.5px] font-medium leading-relaxed text-mute">{n.leftOut}</p>
         </div>

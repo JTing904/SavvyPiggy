@@ -142,7 +142,14 @@ const SavingsHome: React.FC<SavingsHomeProps> = ({
               {p.walletBalance}
               {overdrawn && <span className="ml-2 rounded-full bg-band-fg/20 px-2 py-0.5 text-[11.5px] font-bold text-band-fg">{w.overdrawn}</span>}
             </BandLabel>
-            <p className="mt-0.5 truncate text-[36px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(held)}</p>
+            {/* Beside the sparkline a long figure steps down only as far as a narrow phone needs, so the digits stay. */}
+            <p
+              className={`mt-0.5 truncate font-bold leading-[1.15] tracking-[-0.015em] tabular-nums ${
+                !moved || money(held).length <= 10 ? 'text-[36px]' : money(held).length <= 12 ? 'text-[min(36px,7.7vw)]' : 'text-[min(36px,6.6vw)]'
+              }`}
+            >
+              {money(held)}
+            </p>
           </div>
           {moved && (
             <span className="mb-1.5">

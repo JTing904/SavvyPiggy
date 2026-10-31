@@ -450,7 +450,12 @@ const App: React.FC = () => {
         setEntryId(null);
         setShowAutoDeposits(false);
         setShowStrategy(false);
+        setShowBudgets(false);
+        setShowNetWorth(false);
+        setReviewMonth(null);
         setQuickAction(null);
+        setQuickDraft(null);
+        setMoveFromPot(false);
         setTradeDraft(null);
         setSetup(null);
         setActiveTab(target === 'report' ? Tab.STATS : target === 'dividends' ? Tab.DIVIDENDS : Tab.HOME);
@@ -467,8 +472,9 @@ const App: React.FC = () => {
     setQuickAction(action);
   };
 
+  // What the goals on show hold: an archived goal keeps its money but is not listed here.
   const totalBalance = useMemo(
-    () => banks.reduce((sum, bank) => sum + bank.currentAmount, 0),
+    () => banks.filter((bank) => !bank.archivedAt).reduce((sum, bank) => sum + bank.currentAmount, 0),
     [banks]
   );
   // "Today" moves at midnight even if nothing else changes; resuming the app
@@ -1211,6 +1217,7 @@ const App: React.FC = () => {
           version={updates.current}
           checking={updates.checking}
           upToDate={updates.upToDate}
+          checkFailed={updates.checkFailed}
           onCheckUpdate={() => void updates.check()}
         />
       );
@@ -1289,7 +1296,7 @@ const App: React.FC = () => {
     switch (activeTab) {
       case Tab.HOME:
         if (banks.length === 0 && activities.length === 0 && trades.length === 0) {
-          return <FirstRun onCreateGoal={openCreateGoal} onSeedSamples={handleSeedSamples} />;
+          return <FirstRun onCreateGoal={openCreateGoal} onSeedSamples={handleSeedSamples} onOpenSettings={() => setShowProfile(true)} />;
         }
         return (
           <SavingsHome
@@ -1461,7 +1468,7 @@ const App: React.FC = () => {
       {/* Showing yesterday's numbers is fine; showing them as if they were
           today's is not. */}
       {offline && !failure && (
-        <div className="fixed inset-x-0 top-0 z-[55] px-4 pt-3 safe-pt pointer-events-none">
+        <div className="fixed inset-x-0 z-[55] px-4 pointer-events-none" style={{ top: 'calc(env(safe-area-inset-top) + 60px)' }}>
           <div className="mx-auto flex max-w-md items-center gap-2.5 rounded-2xl bg-sun px-4 py-2.5 shadow-lg">
             <span className="material-symbols-rounded shrink-0 text-lg text-warn">cloud_off</span>
             <p className="text-[12px] font-extrabold text-ink">
@@ -1619,6 +1626,7 @@ const App: React.FC = () => {
           fromGoal={quickGoal}
           onOpenStrategy={() => {
             setQuickAction(null);
+            setQuickDraft(null);
             setShowStrategy(true);
           }}
           banks={activeBanks}

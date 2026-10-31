@@ -433,7 +433,7 @@ export const summarize = (
         share: percent(c, distributed),
         current: b.currentAmount,
         target: b.targetAmount,
-        funded: b.targetAmount > 0 ? Math.round((b.currentAmount / b.targetAmount) * 100) : null,
+        funded: b.targetAmount > 0 ? Math.floor((toCents(b.currentAmount) / toCents(b.targetAmount)) * 100) : null,
       };
     })
     .sort((x, y) => y.credited - x.credited || banks.findIndex((b) => b.id === x.bankId) - banks.findIndex((b) => b.id === y.bankId));
@@ -442,9 +442,9 @@ export const summarize = (
   const targetSum = withTarget.reduce((sum, b) => sum + toCents(b.targetAmount), 0);
   const currentSum = withTarget.reduce((sum, b) => sum + Math.max(0, toCents(b.currentAmount)), 0);
   const collective = {
-    funded: targetSum > 0 ? Math.round((currentSum / targetSum) * 1000) / 10 : null,
+    funded: targetSum > 0 ? Math.floor((currentSum / targetSum) * 1000) / 10 : null,
     goals: withTarget.length,
-    reached: withTarget.filter((b) => b.currentAmount >= b.targetAmount).length,
+    reached: withTarget.filter((b) => toCents(b.currentAmount) >= toCents(b.targetAmount)).length,
   };
 
   const buckets = bucketsFor(period, range).map((bucket) => ({

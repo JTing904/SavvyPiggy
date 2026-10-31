@@ -214,7 +214,8 @@ export const LineChart: React.FC<LineChartProps> = ({ points, ticks, color = 1, 
     setTouched(best);
   };
   const end = plotted.length - 1;
-  const shown = touched ?? end;
+  // A shorter range can arrive under a finger still on the longer one.
+  const shown = Math.min(touched ?? end, end);
   const dot = plotted[shown];
   const nearRight = dot.x > W * 0.7;
   return (

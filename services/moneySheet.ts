@@ -1,5 +1,5 @@
 import type { PiggyBank } from '../types';
-import { isArchived } from './ledger';
+import { isArchived, isInSplit } from './ledger';
 
 /**
  * Starting points for the income / spend sheet. Pure, so what a person finds
@@ -24,19 +24,9 @@ export type IncomeChoice = 'split' | 'wallet' | string;
  */
 export const defaultIncomeChoice = (banks: PiggyBank[], last?: string): IncomeChoice => {
   const goals = activeGoals(banks);
-  if (last === 'split' && goals.length > 0) return 'split';
+  if (last === 'split' && goals.some(isInSplit)) return 'split';
   if (last && last !== WALLET && last !== 'split' && last !== 'rule' && goals.some((b) => b.id === last)) return last;
   return WALLET;
-};
-
-/**
- * Where a spend starts: the goal used last time if it still exists, otherwise
- * the wallet. The source is on the page before saving, and spending past the
- * wallet says so there.
- */
-export const defaultSpendSource = (banks: PiggyBank[], last?: string): string => {
-  const goals = activeGoals(banks);
-  return last && goals.some((b) => b.id === last) ? last : WALLET;
 };
 
 const sameDay = (a: Date, b: Date) =>

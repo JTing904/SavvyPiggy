@@ -24,12 +24,16 @@ export const inflow = (a: Activity) =>
     : // Income kept in the wallet (or clearing an overdraft) arrived all the same.
       credited(a) + Math.max(0, toCents(a.wallet ?? 0));
 
-export const outflow = (a: Activity) =>
-  a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' || a.type === 'walletMove'
-    ? 0
-    : a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0) +
-      // Spending out of the wallet touches no goal, but it is spending.
-      (a.type === 'withdraw' || a.type === 'loanPayment' ? Math.max(0, -toCents(a.wallet ?? 0)) : 0);
+export const outflow = (a: Activity) => {
+  if (a.type === 'invest' || a.type === 'divest' || a.type === 'transfer' || a.type === 'toInvest' || a.type === 'walletMove') return 0;
+  // A loan's principal lowers the debt; only the interest was spent.
+  if (a.type === 'loanPayment') return toCents(a.interest ?? 0);
+  return (
+    a.distributions.reduce((s, d) => (d.amount < 0 ? s - toCents(d.amount) : s), 0) +
+    // Spending out of the wallet touches no goal, but it is spending.
+    (a.type === 'withdraw' ? Math.max(0, -toCents(a.wallet ?? 0)) : 0)
+  );
+};
 
 /** Everything a trade's row moved, in cents: a sale's proceeds include any spent ahead they covered. */
 export const sharesCents = (a: Activity) =>

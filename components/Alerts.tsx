@@ -196,9 +196,11 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
     const text = 'text-[12.5px] font-semibold leading-relaxed text-mute';
     switch (a.kind) {
       case 'receipt':
+        // No goal took a share. The receipt does not say how much went where, so the line holds for any of it.
+        if (!a.lines?.length) return <p className={text}>{t.alerts.toWallet}</p>;
         return (
           <>
-            <p className={text}>{t.alerts.splitAcross(a.lines?.length ?? 0)}</p>
+            <p className={text}>{t.alerts.splitAcross(a.lines.length)}</p>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               {a.lines?.map((l) => (
                 <div key={l.bankId} className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-page px-2.5 py-1.5">

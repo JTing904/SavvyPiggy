@@ -195,6 +195,8 @@ export const planActivityEdit = (i: ActivityEditInput): ActivityEditResult => {
 
     const plan = planDeposit(newCents, before, open, target ? target.goalId : null, overflow);
     if (plan.movements.length === 0 && plan.repayments.length === 0) return problem('noDestination');
+    // Shares under 100% leave a part with nowhere to go here; a new entry keeps it in the wallet.
+    if (plan.movements.reduce((s, m) => s + m.cents, 0) + plan.repaidCents < newCents) return problem('walletRow');
 
     const newByBank: Record<string, number> = {};
     plan.movements.forEach((m) => bump(newByBank, m.bankId, m.cents));

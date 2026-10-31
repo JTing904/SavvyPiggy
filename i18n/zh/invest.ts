@@ -60,6 +60,7 @@ export const invest: typeof English = {
   lastPrice: (price, ago) => `最新价 ${price} · ${ago} — 不是你的成交价。请对照成交单。`,
   useLastPrice: (price) => `用 ${price}`,
   priceFromLast: '这是用最新价填的，不是成交单上的价格。请改成你实际付的价格。',
+  priceFromLastSell: '这是用最新价填的，不是成交单上的价格。请改成你实际卖到的价格。',
   priceAgo: {
     justNow: '刚刚',
     minutes: (n) => `${n} 分钟前`,
@@ -209,6 +210,8 @@ export const invest: typeof English = {
   alreadyYours: '已经是你的——除权日已过',
   ifStillHeld: '除权日仍持有才能拿到',
   declaredNote: '只算已经宣布的。一只股票一个季度没宣布股息，这里就不加——这不是预测。',
+  noDividends: '还没有股息',
+  noDividendsBody: '记录一笔买入，你的股票派发的股息就会出现在这里。',
   comingUp: '即将派发',
   nothingAnnounced: '你持有的股票还没有宣布股息。公司一宣布就会出现在这里，并在派息日存进你的投资资金。',
   couldNotFetch: '没能获取公告，所以这不代表没有股息——只是还没有答案。恢复网络后，点上方的刷新。',
@@ -220,7 +223,7 @@ export const invest: typeof English = {
   notYours: '这个除权日之前你没有持股，所以这次股息不是你的。现在买入也不算——必须在除权日前一天就持有。',
   paidIn: '已派发',
   dividendsFooter:
-    '股息属于除权日前一天持有股票的人，所以这些是根据你的交易记录算的，而不是根据你今天的持股。每笔都按公布的金额存进投资资金——如果实际到账的少了，打开下面那笔付款，修改金额。',
+    '股息属于除权日前一天持有股票的人，所以这些是根据你的交易记录算的，而不是根据你今天的持股。每笔都按公布的金额存进投资资金——如果实际到账的少了，到“全部交易”里打开那笔付款，修改金额。',
 
   growthTitle: '增长',
   nothingToMeasure: '还没有可以衡量的',

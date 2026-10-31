@@ -81,4 +81,19 @@ eq(
 );
 eq('since keeps the days from then on', since([{ day: '2026-10-02', cents: 1 }, { day: '2026-10-05', cents: 2 }], '2026-10-03'), [{ day: '2026-10-05', cents: 2 }]);
 
+{
+  const two: Trade[] = [
+    { id: 'o', symbol: 'OLD', name: 'OLD', kind: 'buy', units: 100, priceCents: 100, pricePoints: 10000, tradedAt: new Date(2026, 0, 1).getTime(), fees: 0, securityType: 'stock', createdAt: 1 } as unknown as Trade,
+    { id: 'n', symbol: 'NEW', name: 'NEW', kind: 'buy', units: 100, priceCents: 100, pricePoints: 10000, tradedAt: new Date(2026, 0, 1).getTime(), fees: 0, securityType: 'stock', createdAt: 2 } as unknown as Trade,
+  ];
+  const line = valueSeries(two, {
+    OLD: [
+      { day: '2026-01-02', points: 10000 },
+      { day: '2026-01-03', points: 10000 },
+    ],
+    NEW: [{ day: '2026-01-03', points: 20000 }],
+  });
+  eq('held before its first close: that day is skipped, the line stays', line?.map((p) => [p.day, p.cents]), [['2026-01-03', 30000]]);
+}
+
 report();

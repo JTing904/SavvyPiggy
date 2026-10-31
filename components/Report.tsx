@@ -163,7 +163,7 @@ const Report: React.FC<ReportProps> = ({
           bank: b,
           index: i,
           credited: credited.get(b.id) ?? 0,
-          funded: b.targetAmount > 0 ? Math.round((b.currentAmount / b.targetAmount) * 100) : null,
+          funded: b.targetAmount > 0 ? Math.floor((b.currentAmount / b.targetAmount) * 100) : null,
         }))
         .sort((x, y) => y.credited - x.credited || x.index - y.index),
     [banks, credited]
@@ -450,7 +450,7 @@ const Report: React.FC<ReportProps> = ({
       <Heading title={r.inAndOut} hint={r.inAndOutHint} />
       <Card className="!py-2.5">
         <Line label={v.income} cents={figures.incomeCents} />
-        {summary.repaid > 0 && <Line label={r.coveredEarlier} cents={-Math.round(summary.repaid * 100)} muted />}
+        {summary.repaid > 0 && <Line label={r.coveredEarlier} cents={Math.round(summary.repaid * 100)} muted />}
         <Line label={v.intoGoals} cents={figures.putInCents} />
         {figures.spentCents > 0 && (
           <>
