@@ -36,8 +36,16 @@ export default {
           ['page', 'card', 'sheet', 'ink', 'mute', 'cta', 'cta-fg', 'pos', 'neg', 'info',
             'line', 'peach', 'mint', 'lav', 'sun', 'hero', 'field', 'dot1', 'dot2', 'dot3',
             'warn', 'brand', 'cat1', 'cat2', 'cat3', 'cat4', 'cat5', 'cat6',
+            'band', 'band-fg', 'band-sub', 'track', 'tblue', 'tteal', 'tamber', 'tcoral', 'tviolet',
+            'c1', 'c2', 'c3', 'c4', 'c5',
           ].map((name) => [name, `rgb(var(--${name}) / <alpha-value>)`]),
         ),
+      },
+      // The approved look is squarer than the one before it: every card takes
+      // this from here rather than from a class on each of them.
+      borderRadius: {
+        "2xl": "14px",
+        "3xl": "16px",
       },
       fontFamily: {
         "sans": ["Plus Jakarta Sans", "sans-serif"],

@@ -30,16 +30,13 @@ export const defaultIncomeChoice = (banks: PiggyBank[], last?: string): IncomeCh
 };
 
 /**
- * Where a spend starts: the wallet or goal used last time if it still exists.
- * With no goal at all the wallet is the only source there is. Otherwise
- * nothing is chosen (undefined) and the sheet makes the person pick, so money
- * is never taken from somewhere, or an overdraft made, by default.
+ * Where a spend starts: the goal used last time if it still exists, otherwise
+ * the wallet. The source is on the page before saving, and spending past the
+ * wallet says so there.
  */
-export const defaultSpendSource = (banks: PiggyBank[], last?: string): string | undefined => {
-  if (last === WALLET) return WALLET;
+export const defaultSpendSource = (banks: PiggyBank[], last?: string): string => {
   const goals = activeGoals(banks);
-  if (last && goals.some((b) => b.id === last)) return last;
-  return goals.length === 0 ? WALLET : undefined;
+  return last && goals.some((b) => b.id === last) ? last : WALLET;
 };
 
 const sameDay = (a: Date, b: Date) =>

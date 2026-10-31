@@ -10,7 +10,7 @@ import { addMonthsTo, centsChange, creditedByGoal, figuresFor, monthFigures, mon
 import { useLedgerRange, type Ledger } from '../hooks/useOlderLedger';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale } from '../i18n';
-import Avatar from './Avatar';
+import { PageBand } from './ui/PageBand';
 import { Amount } from './ui/Amount';
 import { Button } from './ui/Button';
 import { EmptyState } from './ui/EmptyState';
@@ -28,10 +28,10 @@ interface ReportProps {
   budgets: Budgets;
   /** What the wallet holds now, in cents. */
   walletCents: number;
+  onBack: () => void;
   onOpenStrategy: () => void;
   /** The empty report's one action. */
   onDeposit?: () => void;
-  onOpenProfile: () => void;
   onOpenStatements: () => void;
   /** Opens the full review of the month starting on this day. */
   onOpenReview: (month: Date) => void;
@@ -88,8 +88,8 @@ const Report: React.FC<ReportProps> = ({
   streak,
   budgets,
   walletCents,
+  onBack,
   onOpenStrategy,
-  onOpenProfile,
   onOpenStatements,
   onDeposit,
   onOpenReview,
@@ -175,15 +175,7 @@ const Report: React.FC<ReportProps> = ({
 
   const head = (
     <>
-      <div className="flex items-start justify-between gap-3 px-1">
-        <div className="min-w-0">
-          <h1 className="text-[30px] font-extrabold tracking-tight">{r.title}</h1>
-          <p className="mt-0.5 text-[13.5px] font-semibold text-mute">{v.reportHint}</p>
-        </div>
-        <Avatar plain onClick={onOpenProfile} />
-      </div>
-
-      <div role="tablist" aria-label={v.period} className="mt-4 flex rounded-full bg-line/10 p-1">
+      <div role="tablist" aria-label={v.period} className="flex rounded-full bg-line/10 p-1">
         {PERIODS.map((p) => {
           const on = p.key === period;
           return (
@@ -207,7 +199,10 @@ const Report: React.FC<ReportProps> = ({
   );
 
   const frame = (children: React.ReactNode) => (
-    <div className="flex min-h-full flex-col px-4 pb-40 pt-3 safe-pt font-figtree text-ink">{children}</div>
+    <div className="flex min-h-full flex-col pb-10 font-figtree text-ink">
+      <PageBand title={r.title} onBack={onBack} />
+      <div className="flex flex-col px-4 pt-3">{children}</div>
+    </div>
   );
 
   // Nothing is summed from part of a period: until its older records are

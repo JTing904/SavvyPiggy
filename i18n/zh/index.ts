@@ -5,6 +5,7 @@ import { language } from './language';
 import { app } from './app';
 import { auth } from './auth';
 import { home } from './home';
+import { pro } from './pro';
 import { history } from './history';
 import { goals } from './goals';
 import { report } from './report';
@@ -31,4 +32,4 @@ import { backup } from './backup';
 
 import type { en } from '../en';
 
-export const zh: typeof en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick, net, invite, backup };
+export const zh: typeof en = { common, nav, pickers, language, app, auth, home, history, goals, report, profile, alerts, invest, files, errors, plan, setup, ui, entry, calendar, money, goalEdit, firstRun, wallet, bills, review, quick, net, invite, backup, pro };

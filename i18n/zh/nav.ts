@@ -2,6 +2,8 @@ import type { nav as English } from '../en/nav';
 
 export const nav: typeof English = {
   home: '首页',
+  goals: '钱罐',
+  invest: '投资',
   history: '记录',
   strategy: '分配',
   report: '报表',

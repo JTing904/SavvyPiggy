@@ -23,6 +23,11 @@ import { Toggle } from './ui/Toggle';
 const RECEIPT_WARN = 5400;
 
 interface ProfileProps {
+  /** The version on this phone; empty where there is nothing to update. */
+  version?: string;
+  checking?: boolean;
+  upToDate?: boolean | null;
+  onCheckUpdate?: () => void;
   banks: PiggyBank[];
   activities: Activity[];
   /** The current saving streak, counted by the app. */
@@ -63,6 +68,10 @@ const Profile: React.FC<ProfileProps> = ({
   liveBills,
   savings,
   unreadAlerts,
+  version,
+  checking = false,
+  upToDate = null,
+  onCheckUpdate,
   onBack,
   onToggleOverflow,
   onUnarchive,
@@ -391,6 +400,17 @@ const Profile: React.FC<ProfileProps> = ({
             tone="mute"
             onClick={() => setShowLanguage(true)}
           />
+          {version && (
+            <Row
+              icon="dep"
+              tint="lav"
+              title={t.pro.update.check}
+              sub={`${t.pro.update.row} ${version}`}
+              trailing={<span className="text-[13px] font-bold text-mute">{checking ? t.pro.update.checking : upToDate ? t.pro.update.latest : <Chevron />}</span>}
+              tone="mute"
+              onClick={onCheckUpdate}
+            />
+          )}
           <Row icon="check" tint="mint" title={t.profile.synced} sub={t.profile.syncedHint} />
         </Group>
       </Section>

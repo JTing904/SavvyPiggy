@@ -20,6 +20,8 @@ interface AlertsProps {
   onMarkRead: (ids: string[]) => void;
   onSavePrefs: (patch: Partial<NotificationPrefs>) => void;
   onOpenStrategy: () => void;
+  /** Bills and repayments waiting for an answer; they go first, before anything that is only news. */
+  pending?: React.ReactNode;
 }
 
 type Filter = 'all' | 'deposits' | 'milestones' | 'streaks';
@@ -96,7 +98,7 @@ const Pref: React.FC<{ title: string; hint: string; on: boolean; onChange: (on: 
   </div>
 );
 
-const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSavePrefs, onOpenStrategy }) => {
+const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSavePrefs, onOpenStrategy, pending }) => {
   const t = useT();
   const [filter, setFilter] = useState<Filter>('all');
   const [permission, setPermission] = useState<Permission>('unsupported');
@@ -301,8 +303,10 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
         {unread.length === 0 ? t.alerts.allCaughtUp : t.alerts.newAlerts(unread.length)}
       </p>
 
+      {pending && <div className="mt-3">{pending}</div>}
+
       {/* The settings come first: with a notification a day they would otherwise sit far down the page. */}
-      <section className="mt-4 rounded-3xl bg-mint px-4 py-3">
+      <section className="mt-4 rounded-3xl bg-card px-4 py-3">
         <button type="button" onClick={togglePrefs} aria-expanded={prefsOpen} className="flex min-h-11 w-full items-center gap-3 text-left active:opacity-70">
           <span className="min-w-0 flex-1">
             <span className="block text-[15px] font-extrabold">{t.alerts.deliveryPreferences}</span>

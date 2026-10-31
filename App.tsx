@@ -1,7 +1,13 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Tab, PiggyBank, Schedule, NotificationPrefs, SavingsSettings, type Activity } from './types';
-import Dashboard from './components/Dashboard';
+import SavingsHome, { type MoneyAction } from './components/SavingsHome';
+import InvestHome from './components/InvestHome';
+import GoalsPage from './components/GoalsPage';
+import PendingList, { pendingCount } from './components/PendingList';
+import MoneySheet from './components/MoneySheet';
+import MoveSheet from './components/MoveSheet';
+import { POT_PLACE, WALLET_PLACE } from './services/movePlaces';
 import StrategyEditor from './components/StrategyEditor';
 import ActivityLog from './components/ActivityLog';
 import CreateGoal from './components/CreateGoal';
@@ -28,8 +34,6 @@ import Dividends from './components/Dividends';
 import Growth from './components/Growth';
 import TradeSheet, { type TradeDraft } from './components/TradeSheet';
 import ArchiveSchedulesSheet from './components/ArchiveSchedulesSheet';
-import PotTransferSheet from './components/invest/PotTransferSheet';
-import type { Mode } from './components/Navigation';
 import LanguagePicker from './components/LanguagePicker';
 import MonthlyBuy from './components/invest/MonthlyBuy';
 import StyleQuiz from './components/invest/StyleQuiz';
@@ -47,6 +51,9 @@ import { useDividends } from './hooks/useDividends';
 import { useLedgerPruning } from './hooks/useLedgerPruning';
 import { useSnapshots } from './hooks/useSnapshots';
 import { useQuotes } from './hooks/useQuotes';
+import { useValueTrail } from './hooks/useValueTrail';
+import { useUpdates } from './hooks/useUpdates';
+import UpdatePage from './components/UpdatePage';
 import { cachedRecords } from './hooks/useAdvisor';
 import { exitApp, listenForBack } from './services/back';
 import { isFirebaseConfigured } from './lib/firebase';
@@ -67,7 +74,6 @@ import { useTradeRow } from './hooks/useTradeRow';
 import { OlderRecordsSheet } from './components/OlderRecordsNotice';
 import { Button } from './components/ui/Button';
 import { Icon } from './components/ui/Icon';
-import { Sheet } from './components/ui/Sheet';
 import { Splash } from './components/Splash';
 import { checkPermission, onNotificationOpen, requestPermission, syncNotifications } from './services/notifications';
 
@@ -96,16 +102,15 @@ const App: React.FC = () => {
   const [reviewMonth, setReviewMonth] = useState<Date | null>(null);
   const [showBudgets, setShowBudgets] = useState(false);
   const [showNetWorth, setShowNetWorth] = useState(false);
-  /* Which half of the app the bar and Home body are showing. The card the
-     user swipes to on Home sets it; nothing else does. */
-  const [mode, setMode] = useState<Mode>('save');
+  const [showStrategy, setShowStrategy] = useState(false);
+  const updates = useUpdates();
   const [tradeDraft, setTradeDraft] = useState<TradeDraft | null>(null);
-  const [showQuickPick, setShowQuickPick] = useState(false);
-  const [quickAction, setQuickAction] = useState<'deposit' | 'withdraw' | null>(null);
+  /** The money sheet that is open. Any page can ask for one. */
+  const [quickAction, setQuickAction] = useState<MoneyAction | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [showMonthlyBuy, setShowMonthlyBuy] = useState(false);
-  /** Moving money between savings and the investment pot. */
-  const [potSheet, setPotSheet] = useState<'in' | 'out' | null>(null);
+  /** The move page opened from Investing starts on the investing cash. */
+  const [moveFromPot, setMoveFromPot] = useState(false);
   /**
    * The questions asked before something can open: the broker before a first
    * buy (its fees depend on it), with the buy waiting behind it; the style
@@ -121,7 +126,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (user) return;
     setActiveTab(Tab.HOME);
-    setMode('save');
+    setShowStrategy(false);
     setShowProfile(false);
     setShowAlerts(false);
     setShowStatements(false);
@@ -134,19 +139,9 @@ const App: React.FC = () => {
     setSelectedGoalId(null);
     setEntryId(null);
     setTradeDraft(null);
-    setShowQuickPick(false);
     setQuickAction(null);
-    setPotSheet(null);
     setSetup(null);
   }, [user]);
-
-  // A tab belongs to one half of the app, so the bar follows it. Screens reached
-  // from Profile or an alert (the split, the report) used to open under the
-  // investing bar with nothing lit.
-  useEffect(() => {
-    if ([Tab.LOG, Tab.BANKS, Tab.STATS].includes(activeTab)) setMode('save');
-    else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setMode('invest');
-  }, [activeTab]);
 
   const { banks, activities, ledger, alertsCapped, schedules, loans, alerts, prefs, savings, trades, holdings, invest, wallet, bills, budgets, liabilities, netWorthPoints, loading: dataLoading, offline, error, retry } =
     usePiggyData(uid);
@@ -160,6 +155,7 @@ const App: React.FC = () => {
     [trades, invest.watchlist]
   );
   const { quotes } = useQuotes(symbols);
+  const { trail: valueTrail, closes: dailyCloses } = useValueTrail(trades);
   // The quiz shows each style's record only if this month's run already exists; it never starts one.
   const quizRecords = useMemo(
     () => (setup?.step === 'style' ? cachedRecords(invest.watchlist.map((w) => w.symbol)) : null),
@@ -363,7 +359,6 @@ const App: React.FC = () => {
   // only then leave the app. Sheets inside a screen take it first — they push
   // their own handler on top of this one.
   useEffect(listenForBack, []);
-  useBackHandler(showQuickPick, () => setShowQuickPick(false));
   useBackHandler(tradeDraft !== null, () => setTradeDraft(null));
 
   /**
@@ -404,8 +399,8 @@ const App: React.FC = () => {
       setReviewMonth(null);
       setSelectedGoalId(null);
       setEntryId(null);
-      setMode('save');
       setActiveTab(Tab.HOME);
+      setQuickAction('withdraw');
       setQuickDraft({ at: Date.now(), ...(shared.kind === 'text' ? { text: shared.text } : { imageUri: shared.uri }) });
       toast.show({ message: t.quick.sharedIn, tone: 'success' });
     };
@@ -427,9 +422,11 @@ const App: React.FC = () => {
     else if (showAutoDeposits) setShowAutoDeposits(false);
     else if (showAlerts) setShowAlerts(false);
     else if (showProfile) setShowProfile(false);
+    else if (showStrategy) setShowStrategy(false);
     else if (selectedGoalId) setSelectedGoalId(null);
+    else if (activeTab === Tab.STATS) setActiveTab(Tab.LOG);
+    else if ([Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)) setActiveTab(Tab.INVEST);
     else if (activeTab !== Tab.HOME) setActiveTab(Tab.HOME);
-    else if (mode !== 'save') setMode('save');
     else exitApp();
   });
 
@@ -447,17 +444,23 @@ const App: React.FC = () => {
         setShowCreateGoal(false);
         setEntryId(null);
         setShowAutoDeposits(false);
-        setShowQuickPick(false);
+        setShowStrategy(false);
         setQuickAction(null);
         setTradeDraft(null);
         setSetup(null);
-        setMode(target === 'dividends' ? 'invest' : 'save');
         setActiveTab(target === 'report' ? Tab.STATS : target === 'dividends' ? Tab.DIVIDENDS : Tab.HOME);
       }),
     []
   );
 
   const unread = alerts.filter((a) => !a.read).length;
+
+  /** A money sheet from anywhere. With no goal yet a spend or a move has nowhere to come from but the wallet, and an income needs a goal to start. */
+  const openMoney = (action: MoneyAction) => {
+    if (action === 'deposit' && banks.length === 0) return openCreateGoal();
+    setSelectedGoalId(null);
+    setQuickAction(action);
+  };
 
   const totalBalance = useMemo(
     () => banks.reduce((sum, bank) => sum + bank.currentAmount, 0),
@@ -574,7 +577,8 @@ const App: React.FC = () => {
   };
 
   // What is known, less what is owed, and the figure kept for each month the app is opened in.
-  const holdingsValueCents = useMemo(() => portfolioTotals(holdings, quotes).valueCents, [holdings, quotes]);
+  const portfolio = useMemo(() => portfolioTotals(holdings, quotes), [holdings, quotes]);
+  const holdingsValueCents = portfolio.valueCents;
   const netParts = useMemo(
     () =>
       netWorthOf({
@@ -733,9 +737,6 @@ const App: React.FC = () => {
     // since the goals list has nothing else to show yet.
     const first = activeBanks.length === 0;
     closeCreateGoal();
-    // A goal can be started from the investing side (a sale with nowhere to go);
-    // the goals page belongs to saving, so its tab bar has to come with it.
-    setMode('save');
     setActiveTab(first ? Tab.HOME : Tab.BANKS);
     settleOrQueue(api.createBank(uid, newGoal, banks)).then(
       () => toast.show({ message: t.app.toast.goalCreated, tone: 'success' }),
@@ -991,16 +992,17 @@ const App: React.FC = () => {
             ? 'profile'
             : showAutoDeposits
               ? 'autoDeposits'
-              : null;
+              : showStrategy
+                ? 'strategy'
+                : null;
   // Every screen shares one scrolling column, so a new screen would open at wherever the last one was left.
   useEffect(() => {
     document.querySelector('main')?.scrollTo({ top: 0 });
   }, [topOverlay, activeTab]);
-  // Home's savings half is a redesigned screen; its investing half is not yet.
   // Everything before the app proper (setup, language, sign-in, invite, the first load) is the new look too.
   const beforeApp = !isFirebaseConfigured || !languageChosen || authLoading || !user || isMember !== true;
   useScreenLook({
-    tab: activeTab === Tab.HOME && mode === 'save' ? 'homeSave' : activeTab,
+    tab: activeTab,
     overlays: beforeApp ? ['auth'] : topOverlay ? [topOverlay] : [],
   });
 
@@ -1048,7 +1050,7 @@ const App: React.FC = () => {
           onUnarchive={() => uid && run(() => api.unarchiveBank(uid, selectedGoal.id))}
           onEditStrategy={() => {
             setSelectedGoalId(null);
-            setActiveTab(Tab.BANKS);
+            setShowStrategy(true);
           }}
           onOpenTrade={openTradeById}
         />
@@ -1065,8 +1067,22 @@ const App: React.FC = () => {
           onSavePrefs={handleSavePrefs}
           onOpenStrategy={() => {
             setShowAlerts(false);
-            setActiveTab(Tab.BANKS);
+            setShowStrategy(true);
           }}
+          pending={
+            <PendingList
+              bills={visibleBills}
+              liabilities={liabilities}
+              activities={visibleActivities}
+              banks={activeBanks}
+              walletCents={toCents(wallet.balance)}
+              liveFrom={ledger.liveFrom}
+              onRecordBill={handleRecordBill}
+              onSkipBill={handleSkipBill}
+              onConfirmDebt={handleDebtPayment}
+              onSkipDebt={handleSkipDebtDay}
+            />
+          }
         />
       );
     }
@@ -1163,7 +1179,7 @@ const App: React.FC = () => {
           }}
           onOpenStrategy={() => {
             setShowProfile(false);
-            setActiveTab(Tab.BANKS);
+            setShowStrategy(true);
           }}
           onOpenAlerts={() => {
             setShowProfile(false);
@@ -1176,10 +1192,13 @@ const App: React.FC = () => {
           }}
           onOpenHoldings={() => {
             setShowProfile(false);
-            setMode('invest');
-            setActiveTab(Tab.HOME);
+            setActiveTab(Tab.INVEST);
           }}
           holdingCount={holdings.length}
+          version={updates.current}
+          checking={updates.checking}
+          upToDate={updates.upToDate}
+          onCheckUpdate={() => void updates.check()}
         />
       );
     }
@@ -1237,56 +1256,73 @@ const App: React.FC = () => {
       );
     }
 
+    if (showStrategy) {
+      return (
+        <StrategyEditor
+          wallet={wallet}
+          banks={activeBanks}
+          onBack={() => setShowStrategy(false)}
+          onUpdateBanks={handleSaveStrategy}
+          onDeleteBank={handleDeleteBank}
+          onArchiveBank={handleArchiveBank}
+          onAddGoal={() => openCreateGoal()}
+          scheduleCount={schedules.filter((s) => s.enabled).length}
+          schedules={schedules}
+          onOpenAutoDeposits={() => setShowAutoDeposits(true)}
+        />
+      );
+    }
+
     switch (activeTab) {
       case Tab.HOME:
-        if (mode === 'save' && banks.length === 0 && activities.length === 0 && trades.length === 0) {
+        if (banks.length === 0 && activities.length === 0 && trades.length === 0) {
           return <FirstRun onCreateGoal={openCreateGoal} onSeedSamples={handleSeedSamples} />;
         }
         return (
-          <Dashboard
-            uid={uid!}
-            liveFrom={ledger.liveFrom}
-            onOpenEntry={setEntryId}
-            totalBalance={totalBalance}
-            savingsToday={savingsToday}
+          <SavingsHome
             banks={activeBanks}
             activities={visibleActivities}
             loans={loans}
             wallet={wallet}
             bills={visibleBills}
             budgets={budgets}
+            totalBalance={totalBalance}
+            waitingCount={unread + pendingCount(visibleBills, liabilities, new Date(), ledger.liveFrom)}
+            investCents={holdingsValueCents + toCents(invest.potBalance ?? 0)}
+            gainCents={holdings.length > 0 ? portfolio.gainCents : null}
+            investTrail={(valueTrail ?? []).slice(-30).map((p) => p.cents)}
+            onMoney={openMoney}
             onOpenBudgets={() => setShowBudgets(true)}
-            liabilities={liabilities}
-            onConfirmDebt={handleDebtPayment}
-            onSkipDebt={handleSkipDebtDay}
-            onRecordBill={handleRecordBill}
-            onSkipBill={handleSkipBill}
             onOpenAuto={() => setShowAutoDeposits(true)}
-            onDeposit={handleDeposit}
-            onWithdraw={handleWithdraw}
-            onMoveWallet={handleMoveWallet}
+            onOpenInvest={() => setActiveTab(Tab.INVEST)}
             onAddGoal={() => openCreateGoal()}
             onViewAll={() => setActiveTab(Tab.BANKS)}
             onSelectGoal={setSelectedGoalId}
             onOpenProfile={() => setShowProfile(true)}
             onOpenAlerts={() => setShowAlerts(true)}
-            mode={mode}
-            onModeChange={setMode}
-            onTrade={(holding, kind) => openTrade({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })}
-            investSettings={invest}
-            onPotMove={setPotSheet}
-            onOpenMonthlyBuy={openMonthlyBuy}
+            onOpenEntry={setEntryId}
             onOpenTrade={openTradeById}
-            onOpenTrades={() => setActiveTab(Tab.TRADES)}
+          />
+        );
+      case Tab.INVEST:
+        return (
+          <InvestHome
             holdings={holdings}
             trades={trades}
             quotes={quotes}
-            savings={savings}
-            unreadAlerts={unread}
-            quickAction={quickAction}
-            quickDraft={quickDraft ?? undefined}
-            onQuickDraftHandled={() => setQuickDraft(null)}
-            onQuickActionHandled={() => setQuickAction(null)}
+            investSettings={invest}
+            trail={valueTrail}
+            closes={dailyCloses}
+            onOpenTrades={() => setActiveTab(Tab.TRADES)}
+            onOpenDividends={() => setActiveTab(Tab.DIVIDENDS)}
+            onOpenGrowth={() => setActiveTab(Tab.GROWTH)}
+            onTrade={(holding, kind) => openTrade({ mode: 'new', kind, symbol: holding.symbol, name: holding.name })}
+            onNewTrade={(kind) => openTrade({ mode: 'new', kind })}
+            onMove={() => {
+              setMoveFromPot(true);
+              setQuickAction('move');
+            }}
+            onOpenMonthlyBuy={openMonthlyBuy}
           />
         );
       case Tab.STATS:
@@ -1302,28 +1338,21 @@ const App: React.FC = () => {
             onOpenNetWorth={() => setShowNetWorth(true)}
             onOpenReview={(month) => setReviewMonth(month)}
             onOpenBudgets={() => setShowBudgets(true)}
-            onOpenStrategy={() => setActiveTab(Tab.BANKS)}
-            onOpenProfile={() => setShowProfile(true)}
+            onBack={() => setActiveTab(Tab.LOG)}
+            onOpenStrategy={() => setShowStrategy(true)}
             onOpenStatements={() => setShowStatements(true)}
-            onDeposit={() => {
-              if (banks.length === 0) return openCreateGoal();
-              setActiveTab(Tab.HOME);
-              setQuickAction('deposit');
-            }}
+            onDeposit={() => openMoney('deposit')}
           />
         );
       case Tab.BANKS:
         return (
-          <StrategyEditor
-            wallet={wallet}
+          <GoalsPage
             banks={activeBanks}
-            onUpdateBanks={handleSaveStrategy}
-            onDeleteBank={handleDeleteBank}
-            onArchiveBank={handleArchiveBank}
+            totalBalance={totalBalance}
+            onSelectGoal={setSelectedGoalId}
             onAddGoal={() => openCreateGoal()}
-            scheduleCount={schedules.filter((s) => s.enabled).length}
-            schedules={schedules}
-            onOpenAutoDeposits={() => setShowAutoDeposits(true)}
+            onMove={() => openMoney('move')}
+            onOpenStrategy={() => setShowStrategy(true)}
           />
         );
       case Tab.LOG:
@@ -1334,11 +1363,11 @@ const App: React.FC = () => {
             banks={banks}
             onOpenEntry={setEntryId}
             onOpenTrade={openTradeById}
-            onDeposit={() => {
-              if (banks.length === 0) return openCreateGoal();
-              setActiveTab(Tab.HOME);
-              setQuickAction('deposit');
-            }}
+            onDeposit={() => openMoney('deposit')}
+            onOpenReport={() => setActiveTab(Tab.STATS)}
+            onOpenBudgets={() => setShowBudgets(true)}
+            onOpenBills={() => setShowAutoDeposits(true)}
+            onOpenStatements={() => setShowStatements(true)}
           />
         );
       case Tab.TRADES:
@@ -1359,7 +1388,7 @@ const App: React.FC = () => {
             onCreateGoal={() => openCreateGoal()}
             onRecordBuy={() => openTrade({ mode: 'new', kind: 'buy' })}
             quotes={quotes}
-            onBack={() => setActiveTab(Tab.HOME)}
+            onBack={() => setActiveTab(Tab.INVEST)}
           />
         );
       case Tab.DIVIDENDS:
@@ -1371,7 +1400,7 @@ const App: React.FC = () => {
             busy={dividendsBusy}
             known={dividendsKnown}
             onRefresh={() => void refreshDividends(true)}
-            onBack={() => setActiveTab(Tab.HOME)}
+            onBack={() => setActiveTab(Tab.INVEST)}
           />
         );
       case Tab.GROWTH:
@@ -1380,7 +1409,7 @@ const App: React.FC = () => {
             trades={trades}
             quotes={quotes}
             snapshots={snapshots}
-            onBack={() => setActiveTab(Tab.HOME)}
+            onBack={() => setActiveTab(Tab.INVEST)}
           />
         );
       default:
@@ -1441,16 +1470,15 @@ const App: React.FC = () => {
       )}
       {withNav && (
         <Navigation
-          mode={mode}
           activeTab={activeTab}
           onTabChange={(tab) => {
             // Leaving for another tab should close whatever detail is open.
             setSelectedGoalId(null);
             setShowProfile(false);
             setShowAlerts(false);
+            setShowStrategy(false);
             setActiveTab(tab);
           }}
-          onQuickAction={() => setShowQuickPick(true)}
         />
       )}
 
@@ -1536,34 +1564,6 @@ const App: React.FC = () => {
           onClose={() => setSetup(null)}
         />
       )}
-      {potSheet && uid && (
-        <PotTransferSheet
-          direction={potSheet}
-          banks={banks}
-          potBalance={invest.potBalance ?? 0}
-          savings={savings}
-          uid={uid}
-          onConfirm={(target, cents) => {
-            const direction = potSheet;
-            setPotSheet(null);
-            const job = (async () => {
-              if (direction === 'in' && target) await api.transferToPot(uid, banks, target, cents);
-              else if (direction === 'out') await api.transferFromPot(uid, banks, invest.potBalance ?? 0, target, cents, savings);
-            })();
-            const amount = formatMoney(fromCents(cents));
-            return settleOrQueue(job).then(
-              () => {
-                toast.show({ message: direction === 'in' ? t.app.toast.movedToInvesting(amount) : t.app.toast.movedBack(amount), tone: 'success' });
-              },
-              (e) => {
-                fail(e);
-                throw e;
-              }
-            );
-          }}
-          onClose={() => setPotSheet(null)}
-        />
-      )}
       {archiving && uid && banks.some((b) => b.id === archiving) && (
         <ArchiveSchedulesSheet
           bank={banks.find((b) => b.id === archiving)!}
@@ -1593,47 +1593,69 @@ const App: React.FC = () => {
         />
       )}
 
-      {showQuickPick && (
-        // The same button, two jobs: which one follows the card on Home.
-        <Sheet title={mode === 'save' ? t.app.quick.moveMoney : t.app.quick.recordTrade} onClose={() => setShowQuickPick(false)}>
-          <div className="grid grid-cols-2 gap-3">
-            {(mode === 'save'
-              ? ([
-                  { key: 'deposit', label: t.app.quick.deposit, icon: 'dep', square: 'bg-mint' },
-                  { key: 'withdraw', label: t.app.quick.spend, icon: 'out', square: 'bg-peach' },
-                ] as const)
-              : ([
-                  { key: 'buy', label: t.app.quick.buy, icon: 'trend', square: 'bg-lav' },
-                  { key: 'sell', label: t.app.quick.sell, icon: 'minus', square: 'bg-peach' },
-                ] as const)
-            ).map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => {
-                  setShowQuickPick(false);
-                  setSelectedGoalId(null);
-                  setShowProfile(false);
-                  setShowAlerts(false);
-                  if (option.key === 'buy' || option.key === 'sell') {
-                    openTrade({ mode: 'new', kind: option.key });
-                    return;
-                  }
-                  if (banks.length === 0) return openCreateGoal();
-                  setActiveTab(Tab.HOME);
-                  setQuickAction(option.key);
-                }}
-                className="flex flex-col items-center gap-2 rounded-3xl bg-card py-6 text-ink active:opacity-80"
-              >
-                <span className={`grid size-12 place-items-center rounded-2xl ${option.square}`}>
-                  <Icon name={option.icon} size={24} />
-                </span>
-                <span className="text-[15px] font-extrabold">{option.label}</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-4 px-1 text-[12.5px] font-medium leading-relaxed text-mute">{mode === 'save' ? t.app.quick.saveHint : t.app.quick.tradeHint}</p>
-        </Sheet>
+      {(quickAction === 'deposit' || quickAction === 'withdraw' || quickAction === 'scan') && uid && (
+        <MoneySheet
+          mode={quickAction === 'deposit' ? 'deposit' : 'spend'}
+          scan={quickAction === 'scan'}
+          onOpenStrategy={() => {
+            setQuickAction(null);
+            setShowStrategy(true);
+          }}
+          banks={activeBanks}
+          loans={loans}
+          savings={savings}
+          wallet={wallet}
+          activities={visibleActivities}
+          draft={quickDraft ?? undefined}
+          uid={uid}
+          liveFrom={ledger.liveFrom}
+          onDeposit={handleDeposit}
+          onWithdraw={handleWithdraw}
+          onClose={() => {
+            setQuickAction(null);
+            setQuickDraft(null);
+          }}
+        />
+      )}
+      {updates.offer && updates.release && (
+        <UpdatePage
+          release={updates.release}
+          current={updates.current}
+          state={updates.state}
+          onInstall={() => void updates.install()}
+          onSkip={updates.skip}
+          onClose={updates.close}
+        />
+      )}
+      {quickAction === 'move' && uid && (
+        <MoveSheet
+          banks={activeBanks}
+          wallet={wallet}
+          savings={savings}
+          potCents={toCents(invest.potBalance ?? 0)}
+          from={moveFromPot ? POT_PLACE : WALLET_PLACE}
+          onWalletMove={handleMoveWallet}
+          onPotMove={(direction, target, cents) => {
+            const job = (async () => {
+              if (direction === 'in' && target) await api.transferToPot(uid, banks, target, cents);
+              else if (direction === 'out') await api.transferFromPot(uid, banks, invest.potBalance ?? 0, target, cents, savings);
+            })();
+            const amount = formatMoney(fromCents(cents));
+            return settleOrQueue(job).then(
+              () => {
+                toast.show({ message: direction === 'in' ? t.app.toast.movedToInvesting(amount) : t.app.toast.movedBack(amount), tone: 'success' });
+              },
+              (e) => {
+                fail(e);
+                throw e;
+              }
+            );
+          }}
+          onClose={() => {
+            setQuickAction(null);
+            setMoveFromPot(false);
+          }}
+        />
       )}
     </div>
   );
@@ -1647,7 +1669,18 @@ const App: React.FC = () => {
 
   return shell(
     renderContent(),
-    !showAutoDeposits && !showProfile && !showAlerts && !showStatements && !showMonthlyBuy && !reviewMonth && !showBudgets && !showNetWorth && !dataLoading
+    !showAutoDeposits &&
+      !showProfile &&
+      !showAlerts &&
+      !showStatements &&
+      !showMonthlyBuy &&
+      !reviewMonth &&
+      !showBudgets &&
+      !showNetWorth &&
+      !showStrategy &&
+      !selectedGoalId &&
+      !dataLoading &&
+      ![Tab.STATS, Tab.TRADES, Tab.DIVIDENDS, Tab.GROWTH].includes(activeTab)
   );
 };
 

@@ -13,22 +13,21 @@ import { planIncome, walletCents, type IncomeTarget } from '../services/wallet';
 import { walletProblemText } from '../services/problemText';
 import { fromInputDate, readableDate, toInputDate } from '../services/calendar';
 import { useT } from '../contexts/LanguageContext';
+import { safeGoalIcon } from '../services/goalIcons';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { Sheet } from './ui/Sheet';
-import { Segmented } from './ui/Segmented';
 import { Chip } from './ui/Chip';
-import { Tile, type TileTint } from './ui/Tile';
 import { Button } from './ui/Button';
-import { Amount } from './ui/Amount';
 import { Keypad } from './ui/Keypad';
+import { IconTile, TINT_ORDER, type IconTint } from './ui/IconTile';
+import { PageBand } from './ui/PageBand';
+import { StackedBar, type ChartColor } from './ui/Charts';
 import { Toggle } from './ui/Toggle';
 import { Field } from './ui/Field';
 import { Icon } from './ui/Icon';
 import DateField from './DateField';
 
 type Tab = 'deposit' | 'spend';
-
-const QUICK_AMOUNTS = [10, 25, 50, 100];
-const TINTS: TileTint[] = ['peach', 'lav', 'sun', 'mint'];
 
 interface MoneySheetProps {
   mode: Tab;
@@ -40,6 +39,10 @@ interface MoneySheetProps {
   activities: Activity[];
   /** A line of text or a picture to start from (written, shared in from another app). */
   draft?: QuickDraft;
+  /** Opens straight on choosing a picture to read. */
+  scan?: boolean;
+  /** Where "change the shares" goes from the income page. */
+  onOpenStrategy?: () => void;
   /** Whose remembered choices to use. */
   uid: string;
   /** The earliest day an entry can be dated: the start of the history the app keeps. */
@@ -52,40 +55,15 @@ interface MoneySheetProps {
   onClose: () => void;
 }
 
-const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="mb-2 mt-5 px-0.5 text-[12.5px] font-bold text-mute">{children}</p>
-);
-
-/** One choice in a row of tinted tiles. */
-const Choice: React.FC<{
-  tint: TileTint;
-  selected: boolean;
-  onClick: () => void;
-  icon?: string;
-  title: string;
-  small: string;
-}> = ({ tint, selected, onClick, icon, title, small }) => (
-  <div className="w-40 shrink-0">
-    <Tile tint={tint} selected={selected} onClick={onClick}>
-      <span className="flex items-center gap-1.5 pr-6 text-[14px] font-extrabold">
-        {icon && <Icon name={icon} size={16} />}
-        <span className="min-w-0 truncate">{title}</span>
-      </span>
-      <span className="mt-0.5 block text-[12px] font-semibold leading-snug opacity-70">{small}</span>
-    </Tile>
-  </div>
-);
-
 const targetOf = (choice: IncomeChoice): IncomeTarget =>
   choice === 'split' || choice === 'wallet' ? { mode: choice } : { mode: 'goal', goalId: choice };
 
 /**
  * Income and spending, in one sheet.
  *
- * Nothing is chosen for the person where a wrong guess moves money: an income
- * starts in the wallet (or where it went last time), but a spend
- * starts from nothing unless it is the same as last time or the wallet is the
- * only place there is. What was chosen is remembered only after the save succeeds.
+ * An income starts in the wallet or where it went last time, a spend from the
+ * wallet or the goal used last time, and both say so on the page before saving.
+ * What was chosen is remembered only after the save succeeds.
  */
 const MoneySheet: React.FC<MoneySheetProps> = ({
   mode,
@@ -95,6 +73,8 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   wallet,
   activities,
   draft,
+  scan = false,
+  onOpenStrategy,
   uid,
   liveFrom,
   onDeposit,
@@ -108,7 +88,16 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   // Read once: what was picked last time, minus anything that no longer exists.
   const [choices] = useState(() => usableChoices(loadLastChoices(uid), banks));
 
+  useBackHandler(true, onClose);
   const [tab, setTab] = useState<Tab>(mode);
+  /** An income is typed first, then placed. */
+  const [step, setStep] = useState<'amount' | 'place'>(draft?.text ? 'place' : 'amount');
+  const [writing, setWriting] = useState(!!draft?.text);
+  const [choosing, setChoosing] = useState(scan);
+  const [pickingSource, setPickingSource] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  /** A picture that was read leaves the keys folded away: there is nothing to type. */
+  const [keysOpen, setKeysOpen] = useState(true);
   const [text, setText] = useState('');
   const [choice, setChoice] = useState<IncomeChoice>(() => defaultIncomeChoice(banks, choices.depositTarget));
   /** Spend: undefined is "not chosen yet". */
@@ -158,6 +147,7 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   const applyRead = (r: ReceiptRead) => {
     setLine('');
+    setKeysOpen(r.cents === null);
     setReadInfo(r);
     setOptions(r.cents === null ? r.candidates : []);
     setTab(r.income ? 'deposit' : 'spend');
@@ -239,12 +229,6 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     return first ? [...CATEGORIES].sort((a, b) => Number(b.key === first) - Number(a.key === first)) : CATEGORIES;
   }, [choices.spendCategory]);
 
-  const quick = useMemo(() => {
-    const remembered = deposit ? choices.quick?.deposit : choices.quick?.spend;
-    const fixed = QUICK_AMOUNTS.map((v) => v * 100);
-    return remembered && !fixed.includes(remembered) ? [remembered, ...fixed] : fixed;
-  }, [deposit, choices.quick?.deposit, choices.quick?.spend]);
-
   const remember = () => {
     const patch: ChoicePatch = deposit
       ? { depositTarget: choice, quick: { deposit: cents } }
@@ -259,7 +243,8 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
   // The same spending twice is asked about once; any change to it asks again.
   useEffect(() => setRepeatAsked(false), [cents, category, day, tab, source]);
 
-  const confirm = async () => {
+  /** `again` keeps the page open, cleared for the next spending. */
+  const confirm = async (again = false) => {
     if (!ready || busy) return;
     if (!deposit && !repeatAsked && findDuplicate(activities, { cents, category, day: pickedDay }, new Date())) {
       setRepeatAsked(true);
@@ -279,287 +264,374 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
       return;
     }
     remember();
-    onClose();
+    if (!again) return onClose();
+    setBusy(false);
+    setText('');
+    setNote('');
+    setLine('');
+    setCategory(UNCATEGORISED);
+    setReadInfo(null);
+    setReceiptImage(null);
+    setAttach(false);
+    setRepeatAsked(false);
+    setKeysOpen(true);
   };
 
   const money = (c: number) => formatMoney(fromCents(c));
-  const label = deposit ? (cents > 0 ? w.confirmDeposit(money(cents)) : w.deposit) : cents > 0 ? w.confirmSpend(money(cents)) : w.recordSpending;
+  const p = t.pro.sheet;
 
-  const footer = (
-    <Button variant={deposit ? 'primary' : 'danger'} disabled={!ready} loading={busy} onClick={confirm}>
-      {repeatAsked ? q.recordAgain : label}
-    </Button>
+  const sourceName = source === WALLET || source === undefined ? w.wallet : goals.find((b) => b.id === source)?.name ?? w.wallet;
+  const shownCategories = showAll ? orderedCategories : orderedCategories.slice(0, 7);
+
+  const band = (
+    <PageBand
+      title={deposit ? p.income : p.spend}
+      onClose={onClose}
+      trailing={
+        <span className="-mr-2.5 flex shrink-0">
+          <button type="button" onClick={() => setWriting((v) => !v)} aria-label={p.write} aria-pressed={writing} className="grid size-11 place-items-center active:opacity-70">
+            <Icon name="pencil" size={22} strokeWidth={1.9} />
+          </button>
+          {canReadPictures() && (
+            <button type="button" onClick={() => setChoosing(true)} aria-label={p.scan} className="grid size-11 place-items-center active:opacity-70">
+              <Icon name="camera" size={22} strokeWidth={1.9} />
+            </button>
+          )}
+        </span>
+      }
+    >
+      <button type="button" onClick={() => { setKeysOpen(true); setStep('amount'); }} className="mt-1 block max-w-full text-left active:opacity-80">
+        <span className="block truncate text-[38px] font-bold leading-[1.15] tracking-[-0.015em] tabular-nums">{money(cents)}</span>
+        {readInfo?.evidence.amount ? (
+          <span className="mt-0.5 block truncate text-[13.5px] font-semibold text-band-sub">{p.readFrom(readInfo.evidence.amount)}</span>
+        ) : (
+          deposit && step === 'place' && <span className="mt-0.5 block truncate text-[13.5px] font-semibold text-band-sub">{p.tapToChange}</span>
+        )}
+      </button>
+    </PageBand>
   );
 
-  return (
-    <Sheet title={w.title} onClose={onClose} footer={footer} height="tall">
+  const quickLine = writing && (
+    <div>
       <Field label={q.lineLabel} value={line} onChange={setLine} placeholder={q.linePlaceholder} autoComplete="off" enterKeyHint="done" />
-
       {parsed && (
-        <>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <span className="rounded-full bg-card px-3 py-1.5 text-[13px] font-bold">{parsed.kind === 'income' ? q.income : q.spend}</span>
-            {parsed.kind !== 'income' && (
-              <span className={`rounded-full px-3 py-1.5 text-[13px] font-bold ${parsed.category ? 'bg-card' : 'bg-sun'}`}>
-                {parsed.category ? categoryOf(parsed.category).label : q.noCategory}
-              </span>
-            )}
-            <span
-              className={`rounded-full px-3 py-1.5 text-[13px] font-extrabold ${parsed.cents !== null ? 'bg-cta text-cta-fg' : 'bg-sun'}`}
-            >
-              {parsed.cents !== null ? formatMoney(fromCents(parsed.cents)) : q.noAmount}
-            </span>
-            <span className="rounded-full bg-card px-3 py-1.5 text-[13px] font-bold">
-              {parsed.kind === 'income'
-                ? choice === WALLET
-                  ? q.toWallet
-                  : choice === 'split'
-                    ? w.allToGoals
-                    : q.toGoal(goals.find((g) => g.id === choice)?.name ?? '')
-                : source === WALLET || source === undefined
-                  ? q.fromWallet
-                  : q.fromGoal(goals.find((g) => g.id === source)?.name ?? '')}
-            </span>
-            <span className="rounded-full bg-card px-3 py-1.5 text-[13px] font-bold">{pastDay ? readableDate(day) : q.today}</span>
-          </div>
-          {parsed.issues.includes('tooOld') && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{q.tooOld}</p>}
-          {parsed.issues.includes('badDay') && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{q.badDay}</p>}
-        </>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-card px-3 py-1 text-[13px] font-bold">{parsed.kind === 'income' ? q.income : q.spend}</span>
+          {parsed.kind !== 'income' && (
+            <span className={`rounded-full px-3 py-1 text-[13px] font-bold ${parsed.category ? 'bg-card' : 'bg-sun'}`}>{parsed.category ? categoryOf(parsed.category).label : q.noCategory}</span>
+          )}
+          <span className={`rounded-full px-3 py-1 text-[13px] font-bold ${parsed.cents !== null ? 'bg-card' : 'bg-sun'}`}>{parsed.cents !== null ? money(parsed.cents) : q.noAmount}</span>
+          <span className="rounded-full bg-card px-3 py-1 text-[13px] font-bold">{pastDay ? readableDate(day) : q.today}</span>
+        </div>
       )}
-
-      {options.length > 0 && (
-        <>
-          <p className="mb-2 mt-3 px-0.5 text-[12.5px] font-bold text-mute">{readInfo ? q.readPick : q.manyAmounts}</p>
-          <div role="group" aria-label={q.manyAmounts} className="flex flex-wrap gap-2">
-            {options.map((c) => (
-              <Chip key={c} selected={cents === c} onClick={() => setText(typedFromCents(c))}>
-                {money(c)}
-              </Chip>
-            ))}
-          </div>
-        </>
-      )}
-
-      {!parsed && !readInfo && !reading && !line && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <span className="px-0.5 text-[12px] font-bold text-mute">{q.examplesLabel}</span>
+      {parsed?.issues.includes('tooOld') && <p className="mt-1.5 px-0.5 text-[12.5px] font-semibold text-mute">{q.tooOld}</p>}
+      {parsed?.issues.includes('badDay') && <p className="mt-1.5 px-0.5 text-[12.5px] font-semibold text-mute">{q.badDay}</p>}
+      {!parsed && !line && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {q.examples.map((example) => (
-            <button
-              key={example}
-              type="button"
-              onClick={() => setLine(example)}
-              className="min-h-9 rounded-full bg-line/10 px-3 text-[13px] font-bold active:opacity-70"
-            >
+            <button key={example} type="button" onClick={() => setLine(example)} className="min-h-9 rounded-full bg-card px-3 text-[13px] font-bold active:opacity-70">
               {example}
             </button>
           ))}
         </div>
       )}
+    </div>
+  );
 
-      {canReadPictures() && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Chip className="inline-flex items-center" onClick={() => void pick('camera')}>
-            <Icon name="camera" size={16} className="mr-1.5" />
-            {q.fromCamera}
+  const manyAmounts = options.length > 0 && (
+    <div>
+      <p className="mb-1.5 px-0.5 text-[12.5px] font-bold text-mute">{readInfo ? q.readPick : q.manyAmounts}</p>
+      <div role="group" aria-label={q.manyAmounts} className="flex flex-wrap gap-2">
+        {options.map((c) => (
+          <Chip key={c} selected={cents === c} onClick={() => setText(typedFromCents(c))}>
+            {money(c)}
           </Chip>
-          <Chip className="inline-flex items-center" onClick={() => void pick('gallery')}>
-            <Icon name="image" size={16} className="mr-1.5" />
-            {q.fromGallery}
-          </Chip>
-        </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const readNotes = (
+    <>
+      {reading && <p className="px-0.5 text-[13px] font-semibold text-mute">{q.reading}</p>}
+      {readError && <p className="rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{readError}</p>}
+      {readInfo && (readInfo.zeroPaid || (readInfo.cents === null && readInfo.candidates.length > 0)) && (
+        <p className="rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold">{readInfo.zeroPaid ? q.readZero : q.readNoAmount}</p>
       )}
-      {reading && <p className="mt-3 px-0.5 text-[13px] font-semibold text-mute">{q.reading}</p>}
-      {readError && <p className="mt-3 rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{readError}</p>}
-      {readInfo && (
-        <div className="mt-3 rounded-3xl bg-card px-4 py-3 text-[13px] font-medium leading-relaxed">
-          <p className="text-[12.5px] font-extrabold">{q.readHeading}</p>
-          {readInfo.evidence.amount && <p className="mt-1 text-mute">{q.readAmountFrom(readInfo.evidence.amount)}</p>}
-          {readInfo.evidence.date && <p className="text-mute">{q.readDateFrom(readInfo.evidence.date)}</p>}
-          {readInfo.merchant && <p className="text-mute">{q.readMerchant(readInfo.merchant)}</p>}
-          {!readInfo.day && <p className="text-mute">{q.readNoDate}</p>}
-          {readInfo.cents === null && !readInfo.zeroPaid && readInfo.candidates.length > 0 && (
-            <p className="mt-2 rounded-2xl bg-sun px-3 py-2 font-semibold text-ink">{q.readNoAmount}</p>
-          )}
-          {readInfo.zeroPaid && <p className="mt-2 rounded-2xl bg-sun px-3 py-2 font-semibold text-ink">{q.readZero}</p>}
-          {readInfo.cents === null && !readInfo.zeroPaid && readInfo.candidates.length === 0 && !readInfo.day && !readInfo.merchant && (
-            <p className="mt-2 rounded-2xl bg-sun px-3 py-2 font-semibold text-ink">{q.readEmpty}</p>
-          )}
-          {!deposit && category === UNCATEGORISED && <p className="mt-2 text-mute">{q.readCategory}</p>}
-          <p className="mt-2 text-[11.5px] text-mute">{q.readOnPhone}</p>
-        </div>
+      {readInfo && readInfo.cents === null && !readInfo.zeroPaid && readInfo.candidates.length === 0 && !readInfo.day && !readInfo.merchant && (
+        <p className="rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold">{q.readEmpty}</p>
       )}
+      {readInfo && !readInfo.day && <p className="px-0.5 text-[12.5px] font-semibold text-mute">{q.readNoDate}</p>}
+      {readInfo && <p className="px-0.5 text-[12.5px] font-medium text-mute">{q.readOnPhone}</p>}
       {receiptImage && !deposit && (
-        <div className="mt-3 flex items-center gap-3 rounded-3xl bg-card px-4 py-3">
-          <img src={`data:image/jpeg;base64,${receiptImage}`} alt="" className="h-14 w-10 shrink-0 rounded-lg object-cover" />
+        <div className="flex items-center gap-3 rounded-3xl bg-card px-3.5 py-2.5">
+          <img src={`data:image/jpeg;base64,${receiptImage}`} alt="" className="h-12 w-9 shrink-0 rounded-md object-cover" />
           <span className="min-w-0 flex-1">
             <span className="block text-[14.5px] font-bold">{t.net.attach}</span>
-            <span className="block text-[12px] font-medium text-mute">{t.net.attachHint}</span>
+            <span className="block text-[12.5px] font-medium text-mute">{t.net.attachHint}</span>
           </span>
           <Toggle checked={attach} onChange={setAttach} label={t.net.attach} />
         </div>
       )}
       {repeatAsked && (
-        <div className="mt-3 rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold leading-snug text-ink">
+        <div className="rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold leading-snug">
           <p className="font-extrabold">{q.dupTitle}</p>
           <p className="mt-0.5">{q.dupBody(money(cents), categoryOf(category).label)}</p>
         </div>
       )}
+    </>
+  );
 
-      <div className="mt-4" />
-      <Segmented<Tab>
-        ariaLabel={w.tabs}
-        value={tab}
-        onChange={(next) => {
-          setTab(next);
-          setFailed(false);
-        }}
-        options={[
-          { value: 'deposit', label: w.deposit },
-          { value: 'spend', label: w.spend },
-        ]}
-      />
+  const failure = failed && (
+    <p role="alert" className="rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">
+      {t.ui.toastError}
+    </p>
+  );
 
-      <Label>{deposit ? w.goesTo : w.comesFrom}</Label>
-      <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-        {deposit ? (
-          <>
-            <Choice tint="mint" selected={choice === 'wallet'} onClick={() => setChoice('wallet')} icon="wallet" title={w.keepInWallet} small={w.keepInWalletSmall} />
-            {goals.length > 0 && (
-              <Choice tint="lav" selected={choice === 'split'} onClick={() => setChoice('split')} title={w.allToGoals} small={w.allToGoalsSmall} />
-            )}
-            {goals.map((b, i) => (
-              <Choice
-                key={b.id}
-                tint={TINTS[i % TINTS.length]}
-                selected={choice === b.id}
-                onClick={() => setChoice(b.id)}
-                title={b.name}
-                small={money(toCents(b.currentAmount))}
-              />
-            ))}
-          </>
-        ) : (
-          <>
-            <Choice
-              tint="mint"
-              selected={source === WALLET}
-              onClick={() => setSource(WALLET)}
-              icon="wallet"
-              title={w.wallet}
-              small={money(held)}
-            />
-            {goals.map((b, i) => (
-              <Choice
-                key={b.id}
-                tint={TINTS[i % TINTS.length]}
-                selected={source === b.id}
-                onClick={() => setSource(b.id)}
-                title={b.name}
-                small={money(toCents(b.currentAmount))}
-              />
-            ))}
-          </>
-        )}
-      </div>
-      {needsSource && <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-mute">{w.pickSource}</p>}
-      {overBalance && sourceGoal && (
-        <p className="mt-2 px-0.5 text-[12.5px] font-semibold text-neg">{w.overBalance(formatMoney(sourceGoal.currentAmount))}</p>
+  const dayButton = (
+    <DateField
+      label={w.date}
+      value={day}
+      onChange={setDay}
+      min={liveFrom}
+      max={todayKey}
+      title={w.pickDayTitle}
+      hint={w.pickDayHint}
+      renderTrigger={(open) => (
+        <button type="button" onClick={open} className="flex min-h-12 w-full min-w-0 items-center gap-2 rounded-xl bg-card px-3 text-left text-[14px] font-bold active:opacity-80">
+          <Icon name="cal" size={20} strokeWidth={2} className="shrink-0 text-tblue" />
+          <span className="min-w-0 flex-1 truncate">{pastDay ? readableDate(day) : w.dateToday}</span>
+          {pastDay && <span className="shrink-0 rounded-full bg-sun px-2 py-0.5 text-[11.5px] font-bold">{w.backDated}</span>}
+        </button>
       )}
+    />
+  );
+
+  const frame = (children: React.ReactNode) => (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-page font-figtree text-ink no-scrollbar">
+      <div className="mx-auto flex min-h-full max-w-md flex-col">
+        {band}
+        <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
+          {children}
+        </div>
+      </div>
+      {choosing && (
+        <Sheet title={p.scan} z={60} onClose={() => setChoosing(false)}>
+          <div className="grid grid-cols-2 gap-2 pb-2">
+            <Button variant="ghost" onClick={() => { setChoosing(false); void pick('camera'); }}>
+              <Icon name="camera" size={20} strokeWidth={2} />
+              {q.fromCamera}
+            </Button>
+            <Button variant="ghost" onClick={() => { setChoosing(false); void pick('gallery'); }}>
+              <Icon name="image" size={20} strokeWidth={2} />
+              {q.fromGallery}
+            </Button>
+          </div>
+        </Sheet>
+      )}
+      {pickingSource && (
+        <Sheet title={w.comesFrom} z={60} onClose={() => setPickingSource(false)}>
+          <div className="divide-y divide-line/10 rounded-3xl bg-card px-3.5">
+            {[{ id: WALLET, name: w.wallet, cents: held, icon: 'wallet' as React.ReactNode, tint: 'teal' as IconTint }, ...goals.map((b, i) => ({
+              id: b.id,
+              name: b.name,
+              cents: toCents(b.currentAmount),
+              icon: <span className="material-symbols-rounded text-[20px] leading-none">{safeGoalIcon(b.icon)}</span> as React.ReactNode,
+              tint: TINT_ORDER[i % TINT_ORDER.length],
+            }))].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  setSource(option.id);
+                  setPickingSource(false);
+                }}
+                className="flex min-h-14 w-full items-center gap-2.5 py-1.5 text-left active:opacity-70"
+              >
+                <IconTile icon={option.icon} tint={option.tint} size={38} />
+                <span className="min-w-0 flex-1 truncate text-[15px] font-bold">{option.name}</span>
+                <span className="shrink-0 text-[13px] font-semibold tabular-nums text-mute">{money(option.cents)}</span>
+                {source === option.id && <Icon name="check" size={18} strokeWidth={2.4} className="text-tblue" />}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
+    </div>
+  );
+
+  if (deposit) {
+    const goalChoice = choice !== 'wallet' && choice !== 'split';
+    const slices = plan ? plan.movements.map((m) => ({ value: m.cents, color: (((goals.findIndex((b) => b.id === m.bankId) % 5) + 1) as ChartColor) })) : [];
+    return frame(
+      step === 'amount' ? (
+        <>
+          {quickLine}
+          {manyAmounts}
+          {readNotes}
+          <div className="mt-auto">
+            <Keypad value={text} onChange={setText} compact />
+            <Button className="mt-2" disabled={cents <= 0} onClick={() => setStep('place')}>
+              {p.next}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: 'wallet', icon: 'wallet', tint: 'teal' as IconTint, label: p.keep, on: choice === 'wallet', go: () => setChoice('wallet') },
+              ...(goals.length > 0
+                ? [
+                    { key: 'split', icon: 'pie', tint: 'blue' as IconTint, label: p.bySplit, on: choice === 'split', go: () => setChoice('split') },
+                    { key: 'goal', icon: 'target', tint: 'amber' as IconTint, label: p.oneGoal, on: goalChoice, go: () => setChoice(goals[0].id) },
+                  ]
+                : []),
+            ].map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={option.on}
+                onClick={option.go}
+                className={`flex min-h-[92px] flex-col items-center justify-center gap-1.5 rounded-3xl bg-card px-1 text-[13px] font-bold active:opacity-80 ${option.on ? 'outline outline-2 -outline-offset-2 outline-cta' : ''}`}
+              >
+                <IconTile icon={option.icon} tint={option.tint} />
+                <span className="w-full truncate text-center">{option.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {goalChoice && (
+            <div role="group" aria-label={p.oneGoal} className="flex flex-wrap gap-2">
+              {goals.map((b) => (
+                <Chip key={b.id} selected={choice === b.id} onClick={() => setChoice(b.id)}>
+                  {b.name}
+                </Chip>
+              ))}
+            </div>
+          )}
+
+          {plan && (
+            <div className="rounded-3xl bg-card px-3.5 py-2.5">
+              <div className="flex min-h-9 items-center justify-between gap-2">
+                <h2 className="text-[15px] font-bold">{p.lands}</h2>
+                {choice === 'split' && onOpenStrategy && (
+                  <button type="button" onClick={onOpenStrategy} className="min-h-9 text-[13.5px] font-bold text-tblue active:opacity-70">
+                    {p.changeSplit}
+                  </button>
+                )}
+              </div>
+              {slices.length > 1 && <StackedBar slices={slices} label={p.lands} />}
+              {plan.repaidCents > 0 && <p className="mt-1.5 text-[13px] font-bold text-info">{w.coversEarlier(money(plan.repaidCents))}</p>}
+              {plan.coveredCents > 0 && <p className="mt-1.5 text-[13px] font-bold text-info">{w.clearsOverdraft(money(plan.coveredCents))}</p>}
+              {plan.movements.map((m) => {
+                const at = goals.findIndex((b) => b.id === m.bankId);
+                const bank = goals[at];
+                return (
+                  <div key={m.bankId} className="flex min-h-[50px] items-center gap-2.5 text-[14.5px] font-bold tabular-nums">
+                    <IconTile icon={<span className="material-symbols-rounded text-[19px] leading-none">{safeGoalIcon(bank?.icon)}</span>} tint={TINT_ORDER[Math.max(0, at) % TINT_ORDER.length]} size={36} round />
+                    <span className="min-w-0 flex-1 truncate">{bank?.name}</span>
+                    <span className="text-pos">+{money(m.cents)}</span>
+                  </div>
+                );
+              })}
+              {plan.walletCents > 0 && (
+                <div className="flex min-h-[50px] items-center gap-2.5 text-[14.5px] font-bold tabular-nums">
+                  <IconTile icon="wallet" tint="teal" size={36} round />
+                  <span className="min-w-0 flex-1 truncate">{w.wallet}</span>
+                  <span className="text-pos">+{money(plan.walletCents)}</span>
+                </div>
+              )}
+            </div>
+          )}
+          {incomeProblem && <p className="rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{walletProblemText({ kind: incomeProblem, goalId: choice }, t, banks)}</p>}
+          {dayButton}
+          {failure}
+          <div className="mt-auto">
+            <Button disabled={!ready} loading={busy} onClick={() => void confirm()}>
+              {p.confirm}
+            </Button>
+          </div>
+        </>
+      )
+    );
+  }
+
+  return frame(
+    <>
+      {quickLine}
+      {manyAmounts}
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setPickingSource(true)} className="flex min-h-12 min-w-0 items-center gap-2 rounded-xl bg-card px-3 text-left text-[14px] font-bold active:opacity-80">
+          <Icon name="wallet" size={20} strokeWidth={2} className="shrink-0 text-tteal" />
+          <span className="min-w-0 truncate">{p.fromSource(sourceName)}</span>
+        </button>
+        {dayButton}
+      </div>
+      {overBalance && sourceGoal && <p className="px-0.5 text-[12.5px] font-semibold text-neg">{w.overBalance(formatMoney(sourceGoal.currentAmount))}</p>}
       {overdrawn && walletAfter !== null && (
-        <p className="mt-3 rounded-3xl bg-sun px-4 py-3 text-[13px] font-semibold leading-snug text-ink">
+        <p className="rounded-3xl bg-sun px-4 py-2.5 text-[13px] font-semibold leading-snug">
           {held > 0 ? w.overdrawnFrom(money(held), money(-walletAfter)) : w.overdrawnMore(money(-walletAfter))}
         </p>
       )}
 
-      <div
-        role="group"
-        aria-label={w.quickAmounts}
-        className="no-scrollbar -mx-5 mt-4 flex gap-2 overflow-x-auto px-5"
-      >
-        {quick.map((c) => (
-          <Chip key={c} selected={cents === c} onClick={() => setText(typedFromCents(c))}>
-            {`RM${c / 100 === Math.round(c / 100) ? c / 100 : (c / 100).toFixed(2)}`}
-          </Chip>
-        ))}
+      <div role="group" aria-label={w.whatFor} className="grid grid-cols-4 gap-1 rounded-3xl bg-card px-1 py-2">
+        {shownCategories.map((c, i) => {
+          const on = category === c.key;
+          return (
+            <button key={c.key} type="button" aria-pressed={on} onClick={() => setCategory(c.key)} className="flex min-h-[60px] min-w-0 flex-col items-center justify-center gap-0.5 active:opacity-70">
+              <IconTile
+                icon={<span className="material-symbols-rounded text-[20px] leading-none">{c.icon}</span>}
+                tint={TINT_ORDER[i % TINT_ORDER.length]}
+                size={38}
+                round
+                className={on ? '!bg-cta !text-cta-fg' : ''}
+              />
+              <span className={`w-full truncate text-center text-[12.5px] ${on ? 'font-bold' : 'font-semibold'}`}>{c.label}</span>
+            </button>
+          );
+        })}
+        {!showAll && (
+          <button type="button" onClick={() => setShowAll(true)} className="flex min-h-[60px] min-w-0 flex-col items-center justify-center gap-0.5 active:opacity-70">
+            <IconTile icon="more" tint="plain" size={38} round />
+            <span className="w-full truncate text-center text-[12.5px] font-semibold">{p.more}</span>
+          </button>
+        )}
       </div>
 
-      <Keypad value={text} onChange={setText} className="mt-1" />
+      <label className="flex min-h-11 items-center rounded-xl bg-card px-3.5">
+        <span className="sr-only">{w.note}</span>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={p.noteOptional}
+          autoComplete="off"
+          className="w-full border-0 bg-transparent p-0 text-[14.5px] font-medium text-ink placeholder:text-mute focus:ring-0"
+        />
+      </label>
 
-      {deposit && cents > 0 && plan && (
-        <div className="mt-4 rounded-3xl bg-card px-4 py-3">
-          <p className="mb-1.5 text-[12.5px] font-bold text-mute">{w.landsHeading}</p>
-          {plan.repaidCents > 0 && <p className="mb-1.5 text-[13px] font-bold text-info">{w.coversEarlier(money(plan.repaidCents))}</p>}
-          {plan.coveredCents > 0 && <p className="mb-1.5 text-[13px] font-bold text-info">{w.clearsOverdraft(money(plan.coveredCents))}</p>}
-          {plan.movements.map((m) => (
-            <div key={m.bankId} className="flex items-center justify-between gap-3 py-0.5">
-              <span className="min-w-0 truncate text-[13.5px] font-semibold">{banks.find((b) => b.id === m.bankId)?.name}</span>
-              <Amount cents={m.cents} size="sm" tone="pos" signed />
-            </div>
-          ))}
-          {plan.walletCents > 0 && (
-            <div className="flex items-center justify-between gap-3 py-0.5">
-              <span className="min-w-0 truncate text-[13.5px] font-semibold">{w.wallet}</span>
-              <Amount cents={plan.walletCents} size="sm" tone="pos" signed />
-            </div>
+      {readNotes}
+      {failure}
+
+      <div className="mt-auto">
+        {keysOpen && <Keypad value={text} onChange={setText} compact />}
+        <div className="mt-2 grid grid-cols-[2fr_1fr] gap-2">
+          <Button disabled={!ready} loading={busy} onClick={() => void confirm()}>
+            {repeatAsked ? q.recordAgain : p.save}
+          </Button>
+          {readInfo ? (
+            <Button variant="ghost" className="!px-2" onClick={() => setChoosing(true)}>
+              {p.readAgain}
+            </Button>
+          ) : (
+            <Button variant="ghost" className="!px-2" disabled={!ready || busy} onClick={() => void confirm(true)}>
+              {p.saveAnother}
+            </Button>
           )}
         </div>
-      )}
-
-      {incomeProblem && cents > 0 && (
-        <p className="mt-4 rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">
-          {walletProblemText({ kind: incomeProblem, goalId: choice }, t, banks)}
-        </p>
-      )}
-
-      {!deposit && (
-        <>
-          <Label>{w.whatFor}</Label>
-          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-            {orderedCategories.map((c) => (
-              <Chip key={c.key} selected={category === c.key} onClick={() => setCategory(c.key)}>
-                {c.label}
-              </Chip>
-            ))}
-          </div>
-          <Field className="mt-3" label={w.note} value={note} onChange={setNote} placeholder={w.spendPlaceholder} autoComplete="off" />
-        </>
-      )}
-
-      <div className="mt-4">
-        <DateField
-          label={w.date}
-          value={day}
-          onChange={setDay}
-          min={liveFrom}
-          max={todayKey}
-          title={w.pickDayTitle}
-          hint={w.pickDayHint}
-          renderTrigger={(open) => (
-            <button
-              type="button"
-              onClick={open}
-              className="flex min-h-14 w-full items-center gap-3 rounded-[18px] bg-field px-4 py-2.5 text-left active:opacity-80"
-            >
-              <Icon name="cal" size={20} className="text-mute" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[11.5px] font-bold text-mute">{w.date}</span>
-                <span className="block truncate text-base font-semibold">{pastDay ? readableDate(day) : w.dateToday}</span>
-              </span>
-              {pastDay && (
-                <span className="shrink-0 rounded-full bg-sun px-2.5 py-1 text-[11.5px] font-extrabold text-ink">{w.backDated}</span>
-              )}
-              <Icon name="chev" size={18} className="text-mute" />
-            </button>
-          )}
-        />
       </div>
-
-      {failed && (
-        <p role="alert" className="mt-4 rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">
-          {t.ui.toastError}
-        </p>
-      )}
-    </Sheet>
+    </>
   );
 };
 
