@@ -63,6 +63,11 @@ export interface Activity {
    * every entry made before the wallet existed, which read as 0.
    */
   wallet?: number;
+  /**
+   * Of `wallet`, what cleared an overdraft first, in ringgit. Written on
+   * income since 2.3 (0 when nothing was cleared); absent on older rows.
+   */
+  covered?: number;
   /** Portion of a deposit that cleared debt instead of feeding the split. */
   repaid?: number;
   /** Which debts this entry paid down, so deleting it can put them back. */
@@ -362,6 +367,12 @@ export interface SavingsSettings {
    * this may be deleted; absent means nothing has been shown yet.
    */
   retentionAcknowledgedCutoff?: string;
+  /**
+   * Where the odd sen a split leaves over go: 'wallet' (absent means the
+   * wallet too) or a goal's id. A goal that is no longer in the split falls
+   * back to the wallet.
+   */
+  leftoverTo?: string;
 }
 
 export interface NotificationPrefs {

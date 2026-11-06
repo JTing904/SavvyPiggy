@@ -8,6 +8,7 @@ import {
   formFromActivity,
   goalPreview,
   hasChanges,
+  clearedOverdraft,
   landedLines,
   pickableGoals,
   sourceOf,
@@ -159,11 +160,11 @@ eq('a deposit over two goals has no single source', sourceOf(deposit), null);
 {
   const banks = [bank('a', 'Travel', 100), bank('b', 'Car', 50.5), bank('c', 'Idle', 9), bank('d', 'Overspent', -3.25)];
   eq(
-    'goals in list order with before and after',
+    'the biggest change first, with before and after',
     goalPreview({ b: -1250, a: 500, c: 0 }, banks),
     [
-      { id: 'a', name: 'Travel', beforeCents: 10000, afterCents: 10500, deltaCents: 500 },
       { id: 'b', name: 'Car', beforeCents: 5050, afterCents: 3800, deltaCents: -1250 },
+      { id: 'a', name: 'Travel', beforeCents: 10000, afterCents: 10500, deltaCents: 500 },
     ]
   );
   eq('a negative balance is signed correctly', goalPreview({ d: 100 }, banks)[0].beforeCents, -325);
@@ -227,9 +228,34 @@ eq('a deposit over two goals has no single source', sourceOf(deposit), null);
   ]);
   eq('money kept in the wallet is listed last', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 87.5, percentage: 100 }], wallet: 12.5 }), [
     { bankId: 'car', cents: 8750, percentage: 100 },
-    { bankId: null, cents: 1250, percentage: 0 },
+    { bankId: null, cents: 1250, percentage: 0, overdraft: true },
   ]);
+  eq('a newer row says what cleared the overdraft and what was kept', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 87.5, percentage: 100 }], wallet: 12.52, covered: 12.5 }), [
+    { bankId: 'car', cents: 8750, percentage: 100 },
+    { bankId: null, cents: 1250, percentage: 0, overdraft: true },
+    { bankId: null, cents: 2, percentage: 0 },
+  ]);
+  eq('nothing cleared: it is only kept', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 99.99, percentage: 100 }], wallet: 0.01, covered: 0 }).at(-1), { bankId: null, cents: 1, percentage: 0 });
   eq('a spend out of the wallet lists nothing', landedLines({ ...split, distributions: [], wallet: -5 }), []);
+  const mixed: Activity = {
+    ...split,
+    amount: 20,
+    distributions: [
+      { bankId: 'car', amount: 1.01, percentage: 15 },
+      { bankId: 'inv', amount: 1.41, percentage: 20 },
+      { bankId: 'soc', amount: 1.35, percentage: 20 },
+      { bankId: 'gift', amount: 0.33, percentage: 5 },
+      { bankId: 'web', amount: 0.67, percentage: 10 },
+      { bankId: 'fix', amount: 1.01, percentage: 15 },
+      { bankId: 'em', amount: 0.67, percentage: 10 },
+      { bankId: 'trip', amount: 0.33, percentage: 5 },
+    ],
+    wallet: 13.22,
+  };
+  eq('largest first, the wallet last', landedLines(mixed).map((l) => l.bankId), ['inv', 'soc', 'car', 'fix', 'web', 'em', 'gift', 'trip', null]);
+  eq('every share used: the wallet part cleared an overdraft', clearedOverdraft(mixed), true);
+  eq('shares under 100%: it may be the unsplit part', clearedOverdraft({ ...mixed, distributions: mixed.distributions.slice(1) }), false);
+  eq('kept in the wallet is not an overdraft', clearedOverdraft({ ...mixed, distributions: [] }), false);
 }
 
 report();

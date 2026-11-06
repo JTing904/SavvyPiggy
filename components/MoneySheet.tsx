@@ -211,9 +211,10 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
             wallet: held,
             target: targetOf(choice),
             overflow: savings.overflow,
+            leftoverTo: savings.leftoverTo,
           })
         : null,
-    [deposit, cents, banks, loans, held, choice, savings.overflow, day] // eslint-disable-line react-hooks/exhaustive-deps
+    [deposit, cents, banks, loans, held, choice, savings.overflow, savings.leftoverTo, day] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const incomeProblem = income && 'problem' in income ? income.problem : null;
   const plan = income && 'plan' in income ? income.plan : null;
@@ -434,17 +435,34 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
 
   if (deposit) {
     const goalChoice = choice !== 'wallet' && choice !== 'split';
+    const restShare = Math.max(0, 100 - goals.filter(isInSplit).reduce((s, b) => s + b.splitPercentage, 0));
     const colorOf = (id: string) => ((Math.max(0, goals.findIndex((b) => b.id === id)) % 5) + 1) as ChartColor;
     // Before an amount is typed the same rows show at zero, so the page already says where it will go.
     const lands: { id: string; cents: number; share?: number }[] = plan
       ? [
-          ...plan.movements.map((m) => ({ id: m.bankId, cents: m.cents, share: choice === 'split' ? goals.find((b) => b.id === m.bankId)?.splitPercentage : undefined })),
+          ...[...plan.movements]
+            .sort((x, y) => y.cents - x.cents || y.percentage - x.percentage)
+            .map((m) => ({ id: m.bankId, cents: m.cents, share: choice === 'split' ? goals.find((b) => b.id === m.bankId)?.splitPercentage : undefined })),
           ...(plan.walletCents > 0 ? [{ id: WALLET, cents: plan.walletCents }] : []),
         ]
       : choice === 'split'
-        ? goals.filter((b) => b.splitPercentage > 0).map((b) => ({ id: b.id, cents: 0, share: b.splitPercentage }))
+        ? [
+            ...goals
+              .filter(isInSplit)
+              .sort((x, y) => y.splitPercentage - x.splitPercentage)
+              .map((b) => ({ id: b.id, cents: 0, share: b.splitPercentage })),
+            ...(restShare > 0 ? [{ id: WALLET, cents: 0 }] : []),
+          ]
         : [{ id: choice, cents: 0 }];
-    const slices = lands.filter((l) => l.id !== WALLET).map((l) => ({ value: plan ? l.cents : l.share ?? 0, color: colorOf(l.id) }));
+    // What the split leaves the wallet: shares under 100%, and the odd sen.
+    const unsplit = plan ? plan.unsplitCents > 0 : choice === 'split' && restShare > 0;
+    const leftover = plan ? plan.leftoverCents : 0;
+    const walletNote = choice === 'split' ? [unsplit && p.restUnsplit(restShare), leftover > 0 && p.restLeftover(money(leftover))].filter(Boolean).join(' + ') : '';
+    const restValue = plan ? plan.unsplitCents + plan.leftoverCents : restShare;
+    const slices = [
+      ...lands.filter((l) => l.id !== WALLET).map((l) => ({ value: plan ? l.cents : l.share ?? 0, color: colorOf(l.id) })),
+      ...(choice === 'split' && restValue > 0 ? [{ value: restValue, color: 2 as ChartColor, hatch: true }] : []),
+    ];
     return frame(
       <>
         {manyAmounts}
@@ -501,11 +519,18 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
                 <span className="min-w-0 flex-1 truncate">
                   {l.id === WALLET ? w.wallet : goals.find((b) => b.id === l.id)?.name}
                   {l.share !== undefined && l.share > 0 && <span className="ml-1.5 text-[13px] font-semibold text-mute">{l.share}%</span>}
+                  {l.id === WALLET && walletNote && <span className="ml-1.5 text-[13px] font-semibold text-mute">{walletNote}</span>}
                 </span>
                 <span className={l.cents > 0 ? 'text-pos' : 'text-mute'}>+{money(l.cents)}</span>
               </div>
             ))}
           </div>
+          {unsplit && onOpenStrategy && (
+            <button type="button" onClick={onOpenStrategy} className="flex min-h-9 items-center gap-1 text-[13px] font-bold text-tblue active:opacity-70">
+              {p.giveRest(restShare)}
+              <Icon name="chev" size={15} strokeWidth={2.2} />
+            </button>
+          )}
         </div>
 
         {incomeProblem && <p className="rounded-3xl bg-card px-4 py-3 text-[13px] font-bold text-neg">{walletProblemText({ kind: incomeProblem, goalId: choice }, t, banks)}</p>}

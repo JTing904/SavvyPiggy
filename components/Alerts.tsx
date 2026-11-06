@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { Alert, AlertKind, NotificationPrefs } from '../types';
 import { formatTime } from '../services/alerts';
 import { checkPermission, exactAlarmAllowed, requestExactAlarms, requestPermission, type Permission } from '../services/notifications';
-import { formatMoney } from '../services/money';
+import { formatMoney, toCents } from '../services/money';
 import TimeField from './TimeField';
 import { useT } from '../contexts/LanguageContext';
 import { dateLocale, type Messages } from '../i18n';
@@ -202,7 +202,7 @@ const Alerts: React.FC<AlertsProps> = ({ alerts, prefs, onBack, onMarkRead, onSa
           <>
             <p className={text}>{t.alerts.splitAcross(a.lines.length)}</p>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-              {a.lines?.map((l) => (
+              {[...a.lines].sort((x, y) => toCents(y.amount) - toCents(x.amount)).map((l) => (
                 <div key={l.bankId} className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-page px-2.5 py-1.5">
                   {/* A receipt stores "Deleted goal" in English for a goal that was gone. */}
                   <span className="truncate text-[12.5px] font-bold">{l.name === 'Deleted goal' ? t.alerts.deletedGoal : l.name}</span>

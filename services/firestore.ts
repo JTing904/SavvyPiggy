@@ -540,7 +540,7 @@ export const deposit = async (
   const { stamp, when } = stampOrThrow(at, now, notBefore, allowedRetention(savings.retentionMonths));
   // A deposit recorded for a past day can only repay a debt that was already owed that day.
   const owed = at ? loans.filter((l) => debtExistedOn(new Date(l.createdAt).toISOString(), when)) : loans;
-  let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
+  let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number; coveredCents?: number };
   if (wallet) {
     const target: IncomeTarget = targetBankId ? { mode: 'goal', goalId: targetBankId } : { mode: incomeMode };
     const income = planIncome({
@@ -550,6 +550,7 @@ export const deposit = async (
       wallet: walletCents(wallet),
       target,
       overflow: savings.overflow,
+      leftoverTo: savings.leftoverTo,
     });
     if ('problem' in income) throw new Error(walletProblemText({ kind: income.problem }, messages(), banks));
     plan = income.plan;
@@ -573,6 +574,8 @@ export const deposit = async (
     repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
     // Only when the wallet took part, so every other row stays exactly as it was.
     ...(plan.walletCents !== 0 ? { wallet: fromCents(plan.walletCents) } : {}),
+    // What of it cleared an overdraft, so the row can say so and its amount can be changed later.
+    ...(wallet ? { covered: fromCents(plan.coveredCents ?? 0) } : {}),
   });
 
   plan.movements.forEach((m) =>
@@ -1810,7 +1813,7 @@ export const runDueSchedules = async (
     let seen = scheduleDay(schedule.lastRunAt);
     for (const day of due) {
       const when = localDate(day);
-      let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number };
+      let plan: { repayments: { loan: Loan; cents: number }[]; repaidCents: number; movements: Movement[]; walletCents: number; coveredCents?: number };
       if (wallet) {
         // Into the wallet, into one goal, or (nothing named) split over the goals by their shares.
         const income = planIncome({
@@ -1825,6 +1828,7 @@ export const runDueSchedules = async (
                 ? { mode: 'goal', goalId: schedule.targetBankId }
                 : { mode: 'split' },
           overflow: savings.overflow,
+          leftoverTo: savings.leftoverTo,
         });
         plan = 'plan' in income ? income.plan : { repayments: [], repaidCents: 0, movements: [], walletCents: 0 };
       } else {
@@ -1855,6 +1859,7 @@ export const runDueSchedules = async (
           repaid: fromCents(plan.repaidCents),
           repayments: plan.repayments.map((r) => ({ loanId: r.loan.id, amount: fromCents(r.cents) })),
           ...(plan.walletCents !== 0 ? { wallet: fromCents(plan.walletCents) } : {}),
+          ...(wallet ? { covered: fromCents(plan.coveredCents ?? 0) } : {}),
         });
         plan.movements.forEach((m) =>
           tx.update(bankRef(uid, m.bankId), { currentAmount: increment(fromCents(m.cents)) })

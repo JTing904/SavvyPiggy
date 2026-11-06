@@ -56,7 +56,7 @@ export const profile = {
   overflowHint: 'A goal that hits its target stops taking a cut; its share goes to the goals still short of theirs.',
   distributionSplit: 'Distribution split',
   fullyAllocated: 'Fully allocated',
-  allocatedUnassigned: (allocated: number, unassigned: number) => `${allocated}% allocated · ${unassigned}% unassigned`,
+  allocatedUnassigned: (allocated: number, unassigned: number) => `Goals ${allocated}% · wallet ${unassigned}%`,
 
   manageAll: (n: number) => `Manage all (${n})`,
   activeDistribution: 'Active distribution',

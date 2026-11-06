@@ -51,6 +51,8 @@ export const Ring: React.FC<RingProps> = ({ percent, color = 1, size = 58, width
 export interface Slice {
   value: number;
   color: ChartColor;
+  /** Striped: the wallet's part of a split, which is no goal's. */
+  hatch?: boolean;
 }
 
 interface DonutProps {
@@ -129,7 +131,16 @@ export const StackedBar: React.FC<{ slices: Slice[]; label: string; height?: num
       {total > 0 &&
         slices
           .filter((s) => s.value > 0)
-          .map((s, i) => <span key={i} style={{ width: `${(s.value / total) * 100}%`, background: stroke(s.color) }} />)}
+          .map((s, i) => (
+            <span
+              key={i}
+              style={{
+                width: `${(s.value / total) * 100}%`,
+                // Hatched: money that is not a goal's, the wallet's part.
+                background: s.hatch ? `repeating-linear-gradient(135deg, ${stroke(s.color)} 0 4px, rgb(var(--c${s.color}) / 0.3) 4px 8px)` : stroke(s.color),
+              }}
+            />
+          ))}
     </span>
   );
 };

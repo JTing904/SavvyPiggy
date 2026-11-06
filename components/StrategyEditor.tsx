@@ -1,6 +1,6 @@
 import { safeGoalIcon } from '../services/goalIcons';
 import React, { useState } from 'react';
-import { PiggyBank, Schedule, type WalletSettings } from '../types';
+import { PiggyBank, Schedule, type SavingsSettings, type WalletSettings } from '../types';
 import { evenSplit, sortBanks } from '../services/sorting';
 import { useSortOrder } from '../hooks/useSortOrder';
 import SortMenu from './SortMenu';
@@ -12,6 +12,7 @@ import MoveGoalMoneySheet from './MoveGoalMoneySheet';
 import { percentReached, toCents } from '../services/money';
 import type { GoalMoneyChoice } from '../services/ledger';
 import { Button } from './ui/Button';
+import { Chip } from './ui/Chip';
 import { EmptyState } from './ui/EmptyState';
 import { Icon } from './ui/Icon';
 import { PageBand } from './ui/PageBand';
@@ -34,6 +35,8 @@ interface StrategyEditorProps {
   schedules: Schedule[];
   onOpenAutoDeposits: () => void;
   wallet: WalletSettings;
+  savings: SavingsSettings;
+  onSaveSavings: (patch: Partial<SavingsSettings>) => void;
 }
 
 type Draft = Record<string, { splitPercentage: number; isLocked: boolean; autoSplit: boolean }>;
@@ -115,6 +118,8 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   onAddGoal,
   scheduleCount,
   schedules,
+  savings,
+  onSaveSavings,
   onOpenAutoDeposits,
   wallet,
 }) => {
@@ -135,7 +140,11 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
   const inSplit = localBanks.filter((b) => b.autoSplit !== false);
   // Excluded goals do not take a share, so they do not count toward 100 either.
   const totalAllocation = inSplit.reduce((sum, b) => sum + b.splitPercentage, 0);
-  const isValid = totalAllocation === 100;
+  // Under 100% is a choice: the rest stays in the wallet. Only over 100% cannot be saved.
+  const isValid = totalAllocation <= 100;
+  const rest = Math.max(0, 100 - totalAllocation);
+  const leftoverTo = inSplit.some((b) => b.id === savings.leftoverTo) ? (savings.leftoverTo as string) : 'wallet';
+  const hatch = 'repeating-linear-gradient(135deg, rgb(var(--c2)) 0 4px, rgb(var(--c2) / 0.3) 4px 8px)';
   // Dirty means something really differs from what is saved: typing a goal's own value back in is not a change.
   const isDirty = localBanks.some((b) => {
     const saved = banks.find((x) => x.id === b.id);
@@ -233,7 +242,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
           <div className="flex items-center justify-between gap-3">
             <p className="text-[12.5px] font-bold">{t.report.donutAllocated}</p>
             <span className={`rounded-full px-3 py-0.5 text-[12px] font-extrabold ${isValid ? 'bg-card text-pos' : 'bg-peach text-neg'}`}>
-              {isValid ? t.goals.balanced : totalAllocation > 100 ? t.goals.percentOver(totalAllocation - 100) : t.goals.percentLeft(100 - totalAllocation)}
+              {totalAllocation === 100 ? t.goals.balanced : totalAllocation > 100 ? t.goals.percentOver(totalAllocation - 100) : t.goals.walletShare(rest)}
             </span>
           </div>
           <div className="mt-3 flex h-4 gap-0.5 overflow-hidden rounded-full bg-line/10" role="img" aria-label={`${totalAllocation}%`}>
@@ -242,6 +251,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
               .map((b) => (
                 <i key={b.id} className="block h-full transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${(b.splitPercentage / Math.max(100, totalAllocation)) * 100}%`, background: colorOf(b.id) }} />
               ))}
+            {rest > 0 && inSplit.length > 0 && <i className="block h-full transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${rest}%`, background: hatch }} />}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
             {inSplit.length === 0 ? (
@@ -254,6 +264,61 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
                 </span>
               ))
             )}
+            {rest > 0 && inSplit.length > 0 && (
+              <span className="flex items-center gap-1.5 text-[12.5px] font-bold">
+                <span className="size-2.5 rounded-[3px]" style={{ background: hatch }} />
+                {t.wallet.name} <b className="font-extrabold tabular-nums">{rest}%</b>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* What the goals do not take stays in the wallet; one tap gives it to a goal instead. */}
+      {rest > 0 && inSplit.length > 0 && (
+        <div className="mt-3 rounded-3xl bg-card p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-mint">
+              <Icon name="wallet" size={22} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[15px] font-bold">{t.goals.walletShare(rest)}</span>
+              <span className="block text-[12.5px] font-medium leading-snug text-mute">{t.goals.walletShareBody}</span>
+            </span>
+          </div>
+          {inSplit.some((b) => !b.isLocked) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[12.5px] font-bold text-mute">{t.goals.giveTo}</span>
+              {inSplit
+                .filter((b) => !b.isLocked)
+                .map((b) => (
+                  <Chip key={b.id} onClick={() => edit(b, { splitPercentage: b.splitPercentage + rest })}>
+                    {t.goals.giveChip(b.name, rest)}
+                  </Chip>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* The odd sen a split leaves over. Saved at once, like the other settings. */}
+      {inSplit.length > 0 && (
+        <div className="mt-3 rounded-3xl bg-card p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-sun">
+              <Icon name="coin" size={22} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[15px] font-bold">{t.goals.leftoverTitle}</span>
+              <span className="block text-[12.5px] font-medium leading-snug text-mute">{t.goals.leftoverBody}</span>
+            </span>
+          </div>
+          <div role="radiogroup" aria-label={t.goals.leftoverTitle} className="mt-3 flex flex-wrap gap-2">
+            {[{ id: 'wallet', name: t.wallet.name }, ...inSplit.map((b) => ({ id: b.id, name: b.name }))].map((o) => (
+              <Chip key={o.id} selected={leftoverTo === o.id} onClick={() => onSaveSavings({ leftoverTo: o.id })}>
+                {o.name}
+              </Chip>
+            ))}
           </div>
         </div>
       )}
@@ -371,7 +436,7 @@ const StrategyEditor: React.FC<StrategyEditorProps> = ({
             <div className="flex items-center gap-3 rounded-[2rem] bg-card p-3 pl-5 shadow-[0_6px_28px_rgba(0,0,0,0.18)]">
               <div className="min-w-0 flex-1">
                 <p className={`text-[20px] font-extrabold tabular-nums ${isValid ? 'text-pos' : 'text-neg'}`}>{totalAllocation}%</p>
-                <p className="truncate text-[12px] font-bold text-mute">{isValid ? t.goals.unsavedChanges : totalAllocation > 100 ? t.goals.percentOver(totalAllocation - 100) : t.goals.percentLeft(100 - totalAllocation)}</p>
+                <p className="truncate text-[12px] font-bold text-mute">{isValid ? t.goals.unsavedChanges : t.goals.percentOver(totalAllocation - 100)}</p>
               </div>
               <Button full={false} className="px-7" onClick={handleSave} disabled={!isValid}>
                 {t.goals.saveStrategy}
