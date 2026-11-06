@@ -228,8 +228,14 @@ eq('a deposit over two goals has no single source', sourceOf(deposit), null);
   ]);
   eq('money kept in the wallet is listed last', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 87.5, percentage: 100 }], wallet: 12.5 }), [
     { bankId: 'car', cents: 8750, percentage: 100 },
-    { bankId: null, cents: 1250, percentage: 0 },
+    { bankId: null, cents: 1250, percentage: 0, overdraft: true },
   ]);
+  eq('a newer row says what cleared the overdraft and what was kept', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 87.5, percentage: 100 }], wallet: 12.52, covered: 12.5 }), [
+    { bankId: 'car', cents: 8750, percentage: 100 },
+    { bankId: null, cents: 1250, percentage: 0, overdraft: true },
+    { bankId: null, cents: 2, percentage: 0 },
+  ]);
+  eq('nothing cleared: it is only kept', landedLines({ ...split, distributions: [{ bankId: 'car', amount: 99.99, percentage: 100 }], wallet: 0.01, covered: 0 }).at(-1), { bankId: null, cents: 1, percentage: 0 });
   eq('a spend out of the wallet lists nothing', landedLines({ ...split, distributions: [], wallet: -5 }), []);
   const mixed: Activity = {
     ...split,

@@ -42,7 +42,7 @@ export const profile: typeof English = {
   overflowHint: '钱罐存够目标后就不再分钱，它的份额会转给还没存够的钱罐。',
   distributionSplit: '分配比例',
   fullyAllocated: '已全部分配',
-  allocatedUnassigned: (allocated, unassigned) => `已分配 ${allocated}% · 未分配 ${unassigned}%`,
+  allocatedUnassigned: (allocated, unassigned) => `钱罐 ${allocated}% · 钱包 ${unassigned}%`,
 
   manageAll: (n) => `管理全部（${n}）`,
   activeDistribution: '当前分配',

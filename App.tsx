@@ -1289,6 +1289,8 @@ const App: React.FC = () => {
           scheduleCount={schedules.filter((s) => s.enabled).length}
           schedules={schedules}
           onOpenAutoDeposits={() => setShowAutoDeposits(true)}
+          savings={savings}
+          onSaveSavings={handleSaveSavings}
         />
       );
     }

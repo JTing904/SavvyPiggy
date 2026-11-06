@@ -53,7 +53,18 @@ eq('junk becomes the default', cleanWallet({ balance: NaN }), { balance: 0 });
 }
 {
   const p = planOf(income({ amountCents: 1001, target: { mode: 'split' } }));
-  eq('every cent is placed, the odd one to the larger share', p?.movements.map((m) => [m.bankId, m.cents]), [['a', 601], ['b', 400]]);
+  eq('the odd sen stay in the wallet by default', [p?.movements.map((m) => [m.bankId, m.cents]), p?.walletCents, p?.leftoverCents, p?.unsplitCents], [[['a', 600], ['b', 400]], 1, 1, 0]);
+  const toA = planOf(income({ amountCents: 1001, target: { mode: 'split' }, leftoverTo: 'a' }));
+  eq('or go to the goal chosen for them', [toA?.movements.map((m) => [m.bankId, m.cents]), toA?.walletCents], [[['a', 601], ['b', 400]], 0]);
+  const gone = planOf(income({ amountCents: 1001, target: { mode: 'split' }, leftoverTo: 'zzz' }));
+  eq('a chosen goal no longer in the split leaves them in the wallet', gone?.walletCents, 1);
+}
+{
+  const share = (id: string, percent: number) => ({ ...bank(id, percent), splitPercentage: percent });
+  const p = planOf(planIncome({ ...base, banks: [share('a', 50), share('b', 30)], amountCents: 10005, target: { mode: 'split' } }));
+  eq('shares under 100% and odd sen are told apart', [p?.movements.map((m) => [m.bankId, m.cents]), p?.unsplitCents, p?.leftoverCents, p?.walletCents], [[['a', 5002], ['b', 3001]], 2001, 1, 2002]);
+  const tiny = planOf(planIncome({ ...base, banks: [share('a', 50), share('b', 50)], amountCents: 1, target: { mode: 'split' } }));
+  eq('a single sen with goals in the split is kept, not refused', [tiny?.movements, tiny?.walletCents], [[], 1]);
 }
 {
   const p = planOf(income({ amountCents: 5000, target: { mode: 'goal', goalId: 'b' } }));

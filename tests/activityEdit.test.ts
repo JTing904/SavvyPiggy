@@ -269,4 +269,15 @@ eq('its category can change', planOf(plan(walletSpend, { category: 'transport' }
 eq('wallet moves are not editable', kindOf(plan(row({ type: 'walletMove', amount: 5, wallet: -5, distributions: [{ bankId: 'a', amount: 5, percentage: 100 }] }), { amount: 6 }, AB)), 'notEditable');
 
 
+// --- a split income that kept its odd sen in the wallet (2.3 rows say what cleared an overdraft)
+{
+  const banks = [bank('a', 60, 6000), bank('b', 40, 4000)];
+  const kept = row({ amount: 100.01, distributions: [{ bankId: 'a', amount: 60, percentage: 60 }, { bankId: 'b', amount: 40, percentage: 40 }], wallet: 0.01, covered: 0 });
+  const p = planOf(plan(kept, { amount: 200.02 }, banks));
+  eq('nothing cleared: the amount can change and every part scales', [p?.patch.distributions?.map((d) => d.amount), p?.patch.wallet, p?.walletDelta], [[120, 80], 0.02, 1]);
+  eq('and the goals move by their part', p?.bankDeltas, { a: 6000, b: 4000 });
+  eq('an overdraft cleared still asks for a new entry', kindOf(plan({ ...kept, covered: 0.01 }, { amount: 200.02 }, banks)), 'walletRow');
+  eq('a row from before 2.3 still asks for a new entry', kindOf(plan({ ...kept, covered: undefined }, { amount: 200.02 }, banks)), 'walletRow');
+}
+
 report();

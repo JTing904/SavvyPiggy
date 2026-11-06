@@ -156,10 +156,24 @@ export const planActivityEdit = (i: ActivityEditInput): ActivityEditResult => {
     if (!amountEdit && !targetGiven) return done();
     // Part of this income went to (or cleared) the wallet: re-splitting it would need the rule it was
     // made under. Date, note and the like are fine; the amount means deleting it and entering it again.
-    if (touchesWallet) return problem('walletRow');
+    // A row that says nothing of an overdraft cleared (since 2.3) only kept money: every part, the wallet's too, scales.
+    const scalable = touchesWallet && activity.covered !== undefined && toCents(activity.covered) === 0 && !repaid && !targetGiven;
+    if (touchesWallet && !scalable) return problem('walletRow');
 
     const gone = activity.distributions.find((d) => !banks.some((b) => b.id === d.bankId));
     if (gone) return problem('goalGone', { goalId: gone.bankId });
+
+    if (scalable) {
+      const parts = [...activity.distributions, { bankId: '', amount: activity.wallet ?? 0, percentage: 0 }];
+      const cents = resplitDeposit(newCents, oldCents, parts);
+      const walletNew = cents[parts.length - 1];
+      patch.amount = fromCents(newCents);
+      patch.distributions = activity.distributions.map((d, n) => ({ ...d, amount: fromCents(cents[n]) }));
+      patch.wallet = fromCents(walletNew);
+      activity.distributions.forEach((d, n) => bump(bankDeltas, d.bankId, cents[n] - toCents(d.amount)));
+      walletDelta = walletNew - toCents(activity.wallet ?? 0);
+      return done();
+    }
 
     // The common case: same goals, same percentages, a different amount.
     if (!targetGiven && !repaid) {

@@ -87,7 +87,12 @@ const distributeRemainder = <T>(shares: Share<T>[], remainder: number) => {
  */
 export const splitByPercentage = <T>(
   totalCents: number,
-  items: { item: T; percentage: number }[]
+  items: { item: T; percentage: number }[],
+  /**
+   * Who takes the odd sen the floors leave: the biggest share when omitted;
+   * otherwise the first item this matches, and none (left unplaced) if none does.
+   */
+  leftoverTo?: (item: T) => boolean
 ): Share<T>[] => {
   const live = items.filter((i) => i.percentage > 0);
   if (totalCents <= 0 || live.length === 0) return [];
@@ -103,8 +108,7 @@ export const splitByPercentage = <T>(
     total to the precision a percentage is actually stored at reads the intent
     instead of the floating-point residue.
   */
-  const totalPercentage = Math.round(live.reduce((sum, i) => sum + i.percentage, 0) * 100) / 100;
-  const allocatable = Math.floor((totalCents * Math.min(100, totalPercentage)) / 100);
+  const allocatable = allocatableCents(totalCents, live);
 
   const shares = live.map((i) => ({
     item: i.item,
@@ -113,7 +117,16 @@ export const splitByPercentage = <T>(
   }));
 
   const placed = shares.reduce((sum, s) => sum + s.cents, 0);
-  return distributeRemainder(shares, allocatable - placed);
+  if (!leftoverTo) return distributeRemainder(shares, allocatable - placed);
+  const taker = shares.find((s) => leftoverTo(s.item));
+  if (taker) taker.cents += allocatable - placed;
+  return shares;
+};
+
+/** What shares adding up to `percentages` place of an amount; under 100% the rest is not theirs. */
+export const allocatableCents = (totalCents: number, items: { percentage: number }[]) => {
+  const totalPercentage = Math.round(items.filter((i) => i.percentage > 0).reduce((sum, i) => sum + i.percentage, 0) * 100) / 100;
+  return Math.floor((totalCents * Math.min(100, totalPercentage)) / 100);
 };
 
 /**
