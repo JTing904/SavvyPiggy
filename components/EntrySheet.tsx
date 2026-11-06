@@ -29,6 +29,7 @@ import {
   formFromActivity,
   goalPreview,
   hasChanges,
+  clearedOverdraft,
   landedLines,
   pickableGoals,
   sourceOf,
@@ -277,7 +278,7 @@ const MoneyEntry: React.FC<EntrySheetProps> = ({
               <div key={l.bankId ?? 'wallet'} className="flex min-h-11 items-center gap-2.5 text-[14.5px] font-bold tabular-nums">
                 {l.bankId === null ? <Icon name="wallet" size={16} strokeWidth={2} className="text-tteal" /> : <Swatch color={colorOf(l.bankId)} />}
                 <span className="min-w-0 flex-1 truncate">
-                  {l.bankId === null ? t.wallet.name : (banks.find((b) => b.id === l.bankId)?.name ?? t.history.deletedGoal)}
+                  {l.bankId === null ? (clearedOverdraft(activity) ? t.entry.clearedOverdraft : t.wallet.name) : (banks.find((b) => b.id === l.bankId)?.name ?? t.history.deletedGoal)}
                   {l.bankId !== null && activity.distributions.length > 1 && <span className="ml-1.5 text-[13px] font-semibold text-mute">{l.percentage}%</span>}
                 </span>
                 <span className="text-pos">+{money(l.cents)}</span>

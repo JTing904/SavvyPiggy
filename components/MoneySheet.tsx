@@ -438,11 +438,16 @@ const MoneySheet: React.FC<MoneySheetProps> = ({
     // Before an amount is typed the same rows show at zero, so the page already says where it will go.
     const lands: { id: string; cents: number; share?: number }[] = plan
       ? [
-          ...plan.movements.map((m) => ({ id: m.bankId, cents: m.cents, share: choice === 'split' ? goals.find((b) => b.id === m.bankId)?.splitPercentage : undefined })),
+          ...[...plan.movements]
+            .sort((x, y) => y.cents - x.cents || y.percentage - x.percentage)
+            .map((m) => ({ id: m.bankId, cents: m.cents, share: choice === 'split' ? goals.find((b) => b.id === m.bankId)?.splitPercentage : undefined })),
           ...(plan.walletCents > 0 ? [{ id: WALLET, cents: plan.walletCents }] : []),
         ]
       : choice === 'split'
-        ? goals.filter((b) => b.splitPercentage > 0).map((b) => ({ id: b.id, cents: 0, share: b.splitPercentage }))
+        ? goals
+            .filter((b) => b.splitPercentage > 0)
+            .sort((x, y) => y.splitPercentage - x.splitPercentage)
+            .map((b) => ({ id: b.id, cents: 0, share: b.splitPercentage }))
         : [{ id: choice, cents: 0 }];
     const slices = lands.filter((l) => l.id !== WALLET).map((l) => ({ value: plan ? l.cents : l.share ?? 0, color: colorOf(l.id) }));
     return frame(

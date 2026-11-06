@@ -136,7 +136,9 @@ export const goalPreview = (deltas: Record<string, number>, banks: PiggyBank[]):
       const beforeCents = signedCents(b.currentAmount);
       const deltaCents = deltas[b.id];
       return { id: b.id, name: b.name, beforeCents, afterCents: beforeCents + deltaCents, deltaCents };
-    });
+    })
+    // The biggest change first; equal ones keep the goals' own order.
+    .sort((x, y) => Math.abs(y.deltaCents) - Math.abs(x.deltaCents));
 
 /** One place a deposit's money went. A null `bankId` is the wallet. */
 export interface LandedLine {
@@ -145,11 +147,21 @@ export interface LandedLine {
   percentage: number;
 }
 
-/** Where a deposit's money actually went: the amounts stored on it, then what stayed in the wallet. */
+/** Where a deposit's money actually went: the amounts stored on it, largest first, then what stayed in the wallet. */
 export const landedLines = (a: Activity): LandedLine[] => [
-  ...a.distributions.filter((d) => d.amount > 0).map((d) => ({ bankId: d.bankId, cents: toCents(d.amount), percentage: d.percentage })),
+  ...a.distributions
+    .filter((d) => d.amount > 0)
+    .map((d) => ({ bankId: d.bankId, cents: toCents(d.amount), percentage: d.percentage }))
+    .sort((x, y) => y.cents - x.cents || y.percentage - x.percentage),
   ...((a.wallet ?? 0) > 0 ? [{ bankId: null, cents: toCents(a.wallet ?? 0), percentage: 0 }] : []),
 ];
+
+/**
+ * Split income that put money in the wallet although every share was used:
+ * that can only have been clearing an overdraft first.
+ */
+export const clearedOverdraft = (a: Activity) =>
+  (a.wallet ?? 0) > 0 && a.distributions.length > 0 && a.distributions.reduce((s, d) => s + d.percentage, 0) >= 99.5;
 
 /**
  * The goals a person can pick as a source or target: the active ones, plus the

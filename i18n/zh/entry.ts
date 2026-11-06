@@ -14,6 +14,7 @@ export const entry: typeof English = {
   asItWas: '保持原样',
   byYourSplit: '按分配比例',
   landed: '分到这里',
+  clearedOverdraft: '补上钱包透支',
   category: '分类',
   note: '备注',
   notePlaceholder: '选填',

@@ -13,6 +13,7 @@ export const entry = {
   asItWas: 'As it was',
   byYourSplit: 'By your split',
   landed: 'Where it went',
+  clearedOverdraft: 'Cleared the wallet overdraft',
   category: 'Category',
   note: 'Note',
   notePlaceholder: 'Optional',
