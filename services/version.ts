@@ -1,2 +1,2 @@
 /** Keep in step with `versionName` in android/app/build.gradle. */
-export const APP_VERSION = '2.2';
+export const APP_VERSION = '2.3';
